@@ -44,7 +44,7 @@ set -eu
 
 # ---- knobs --------------------------------------------------------------
 COMP="umbree"
-PUBKEY="RWTlf/7n3IgwX5IFPy2N4Rm/2nGq5zV+xTG/c2LBJ5KjW/Tq614hgqIg"
+PUBKEY="RWQZyK0l3lgdSYfj8VXhoTWlVVVcRqfnuVROJzloNrw9NBFm11IeD3HN"
 REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 PREFIX="${PREFIX:-$HOME/.local}"
 DL_BASE="${UMBREE_DL_BASE:-}"           # test hook (undocumented to users)
