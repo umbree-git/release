@@ -111,6 +111,7 @@ distribute_only() {
     [ -d "${src}" ] || { echo "✗ ${comp} source worktree missing: ${src}" >&2; exit 1; }
 
     if [ "${DRY_RUN}" = 1 ]; then
+        echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
         echo "would: gh release create ${comp}/${stamp} (GitHub Release, public) via ghp"
         echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh)"
         echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
@@ -119,6 +120,16 @@ distribute_only() {
         echo "✓ dry-run distribute-only: no real writes"
         return 0
     fi
+
+    # Hard gate: the staged SHA256SUMS.txt MUST verify against the SHIPPED public
+    # key before anything is published. `rkit build --dry-run` signs with a TEST
+    # key yet produces a byte-identical dist/<stamp>/, so without this an operator
+    # could publish TEST-signed sums that every end-user install.sh (real key)
+    # rejects — a silent dead release. Runs before the tag/Release/scp steps.
+    command -v minisign >/dev/null 2>&1 || { echo "✗ required tool not found: minisign" >&2; exit 1; }
+    minisign -V -p "${REPO_ROOT}/umbree-release.pub" \
+        -m "${stage}/SHA256SUMS.txt" -x "${stage}/SHA256SUMS.txt.minisig" >/dev/null 2>&1 \
+        || { echo "✗ staged dist is not signed by the release key — re-run 'rkit build --apple --sign-key <real key>'" >&2; exit 1; }
 
     command -v ghp >/dev/null 2>&1 || { echo "✗ required tool not found: ghp" >&2; exit 1; }
     [ -x "${GHP}" ] || { echo "✗ ghp wrapper not found at ${GHP}" >&2; exit 1; }
@@ -171,7 +182,8 @@ NOTES
 
     ( cd "${stage}" && "${GHP}" -R "${RELEASE_REPO}" release create "${tag}" \
         --title "${comp} ${stamp}" --notes-file "${notes}" \
-        "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig )
+        "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig \
+        "${REPO_ROOT}/umbree-release.pub" )
 
     # (2) regenerate bootstraps + version JSONP, then scp the static surface.
     bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
@@ -191,7 +203,7 @@ NOTES
 
     # (3) marker commit.
     git add "versions/${comp}" "${comp}/install.sh" "${comp}/version.js"
-    git commit -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
+    git commit --allow-empty -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
 
     echo "✓ distributed ${tag}"
     echo "  Release: https://github.com/${RELEASE_REPO}/releases/tag/${tag}"

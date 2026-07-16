@@ -93,4 +93,4 @@ to `release.umbree.org` (nginx + Cloudflare).
 
 ## Status
 
-Scaffold — channel not yet live.
+Built on release-kit; first cut (umbree v0.1.0) + nsm channel activation pending.

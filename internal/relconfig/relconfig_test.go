@@ -22,7 +22,7 @@ func TestBinsUmbree(t *testing.T) {
 }
 
 func TestBinsUnknown(t *testing.T) {
-	if _, err := Bins("claweed", "v0"); err == nil {
+	if _, err := Bins("bogus", "v0"); err == nil {
 		t.Fatal("expected error for unknown component")
 	}
 }
