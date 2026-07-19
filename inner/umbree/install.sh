@@ -9,8 +9,9 @@
 # remove umbree instead (the burrowee-cli dependency is left in place — it is
 # managed by burrowee's own channel).
 #
-# umbree has no updater binary and no `umbree update` — this is a fresh/direct
-# install + uninstall only (no update-plan/prompt machinery).
+# This is also the upgrade path: `umbree update` re-invokes THIS bootstrap
+# (curl … | sh) to verify + swap the binary in place — there is no separate
+# updater binary; the version gap/prompt lives in the `umbree update` command.
 set -eu
 
 BIN_DIR="${PREFIX:-$HOME/.local}/bin"
@@ -69,9 +70,12 @@ dep_burrowee_cli() {
     # know whether we already have a burrowee-cli at all (and, if so, leave it —
     # the burrowee channel owns its upgrades). Run the burrowee installer only
     # when burrowee-cli is missing or unreadable; never downgrade an existing one.
-    have="$(burrowee-cli --version 2>/dev/null | awk '{print $2}')"
-    if [ -n "$have" ]; then
-        echo "  ✓ burrowee-cli present ($have) — dependency satisfied"
+    if command -v burrowee-cli >/dev/null 2>&1; then
+        # --version prints a multi-line report ("versions / dispatcher … / cli …");
+        # pull the version off the "cli" row only. Presence is decided by command -v
+        # above, so a future format change degrades the display, never the check.
+        have="$(burrowee-cli --version 2>/dev/null | awk '$1=="cli"{print $2; exit}')"
+        echo "  ✓ burrowee-cli present (${have:-version unknown}) — dependency satisfied"
         return 0
     fi
     echo "  → burrowee-cli not found — installing from burrowee's public channel"
