@@ -69,7 +69,10 @@ Building and publishing are two separate steps:
   [`release-kit`](https://github.com/burrowee-git/release-kit)) **produces**
   the artifacts: CVE gate (govulncheck), version stamp, `GOWORK=off` compile
   for all four targets, Developer-ID sign + notarize (darwin), per-target zips
-  + `SHA256SUMS.txt` + minisign signature → `dist/<stamp>/`.
+  + `SHA256SUMS.txt` + minisign signature → `dist/<stamp>/`. **`--public`** is
+  the standard ship path: it turns on Apple sign+notarize and forces the CVE
+  gate on. The Apple account comes from `config/apple-account` (operator-local
+  and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
 - **`tools/release.sh --distribute-only umbree <stamp>`** **publishes** a
   staged `dist/<stamp>/`: GitHub Release on this repo, bootstrap + `version.js`
   render, scp to the static host, `[RELEASED]` marker commit. There is no

@@ -449,6 +449,70 @@ func TestSrcDirFor(t *testing.T) {
 	}
 }
 
+// TestLoadAppleAccount covers the --apple/--public account resolution: the
+// signer picks its identity from APPLE_ACCOUNT_DIR, so a wrong or missing
+// value here is a cut that signs with the wrong account (or not at all).
+// config/apple-account is operator-local and untracked, so a fresh clone has
+// none — the env has to keep working on its own.
+func TestLoadAppleAccount(t *testing.T) {
+	t.Run("reads the account file", func(t *testing.T) {
+		repoDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(repoDir, "config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A leading comment and blank line: the account is the first real line.
+		if err := os.WriteFile(filepath.Join(repoDir, "config", "apple-account"),
+			[]byte("# operator-local\n\nTest Account\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("APPLE_ACCOUNT", "")
+		t.Setenv("APPLE_ACCOUNT_DIR", "")
+		t.Setenv("APPLE_HOME", "/apple/home")
+
+		loadAppleAccount(repoDir)
+
+		if got := os.Getenv("APPLE_ACCOUNT"); got != "Test Account" {
+			t.Errorf("APPLE_ACCOUNT = %q, want %q", got, "Test Account")
+		}
+		if got, want := os.Getenv("APPLE_ACCOUNT_DIR"), "/apple/home/Test Account"; got != want {
+			t.Errorf("APPLE_ACCOUNT_DIR = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("an explicit env wins", func(t *testing.T) {
+		repoDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(repoDir, "config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repoDir, "config", "apple-account"),
+			[]byte("File Account\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("APPLE_ACCOUNT", "Env Account")
+		t.Setenv("APPLE_ACCOUNT_DIR", "/env/dir")
+
+		loadAppleAccount(repoDir)
+
+		if got := os.Getenv("APPLE_ACCOUNT"); got != "Env Account" {
+			t.Errorf("APPLE_ACCOUNT = %q — the file overrode an explicit env", got)
+		}
+		if got := os.Getenv("APPLE_ACCOUNT_DIR"); got != "/env/dir" {
+			t.Errorf("APPLE_ACCOUNT_DIR = %q — the file overrode an explicit env", got)
+		}
+	})
+
+	t.Run("no account file leaves the env alone", func(t *testing.T) {
+		t.Setenv("APPLE_ACCOUNT", "")
+		t.Setenv("APPLE_ACCOUNT_DIR", "")
+
+		loadAppleAccount(t.TempDir())
+
+		if got := os.Getenv("APPLE_ACCOUNT"); got != "" {
+			t.Errorf("APPLE_ACCOUNT = %q, want it untouched", got)
+		}
+	})
+}
+
 // TestRenderInstall covers umbree's install.sh rendering directly (no
 // compile): a byte-verbatim copy of inner/umbree/install.sh.
 func TestRenderInstall(t *testing.T) {

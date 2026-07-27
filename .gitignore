@@ -1,6 +1,9 @@
 # build artifacts
 /dist/
 /build/
+# operator-local Apple account (this repo is public — the name stays local)
+/config/apple-account
+/config/apple.account
 # decrypted secrets (never commit)
 *.key
 *.minisign.key
