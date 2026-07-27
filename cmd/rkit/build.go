@@ -105,37 +105,14 @@ func runBuild(args []string) error {
 		o.SrcDir = srcDirFor(o.Component)
 	}
 	if o.Apple {
-		loadAppleAccount(o.RepoDir)
+		// Fatal, not advisory: an unresolved account means the Developer-ID path
+		// runs with no account plugin, producing an ad-hoc signed build the
+		// operator believes is Developer-ID signed and notarized.
+		if err := loadAppleAccount(o.RepoDir); err != nil {
+			return err
+		}
 	}
 	return buildRun(o)
-}
-
-// loadAppleAccount sets APPLE_ACCOUNT / APPLE_ACCOUNT_DIR from config/apple-account
-// when --apple/--public is set so the signer picks the project account plugin.
-func loadAppleAccount(repoDir string) {
-	if os.Getenv("APPLE_ACCOUNT_DIR") != "" || os.Getenv("APPLE_ACCOUNT") != "" {
-		return
-	}
-	for _, name := range []string{"config/apple-account", "config/apple.account"} {
-		b, err := os.ReadFile(filepath.Join(repoDir, name))
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(b), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			_ = os.Setenv("APPLE_ACCOUNT", line)
-			home := os.Getenv("APPLE_HOME")
-			if home == "" {
-				home = filepath.Join(os.Getenv("HOME"), "Workstation", "Apple")
-			}
-			_ = os.Setenv("APPLE_ACCOUNT_DIR", filepath.Join(home, line))
-			fmt.Fprintf(os.Stderr, "→ Apple account: %s\n", line)
-			return
-		}
-	}
 }
 
 // srcDirFor resolves a component's source worktree from its UMBREE_SRC_<COMP>
