@@ -79,7 +79,7 @@ src_for() {
     esac
 }
 
-GHP="$(command -v ghp 2>/dev/null || echo "${HOME}/.claude/bin/ghp")"
+GHP="$(command -v ghp 2>/dev/null || echo "${HOME}/bin/ghp")"
 
 # ---- distribute_only: distribution-only mode over an already-staged
 # dist/<stamp>/ (produced by `rkit build` — the produce half lives there now).

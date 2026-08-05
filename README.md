@@ -92,7 +92,7 @@ to `release.umbree.org` (nginx + Cloudflare).
   tempfile, passed to `rkit build --sign-key`, then shredded.
 
 - `umbree-git/release` (PUBLIC). Trunk: `main`. gh.account: `umbree-git`.
-- Call gh via `~/.claude/bin/ghp`, never bare `gh`.
+- Call gh via `~/bin/ghp`, never bare `gh`.
 
 ## Status
 
