@@ -384,8 +384,13 @@ Clawee worktree after adoption; see `task-11-report.md` for the full output
 of both runs. Every **adopted** module (the eight above) reports `ok` against
 both — Umbree's copies match the shared module text byte-for-byte in both
 directions, confirmed by matching `tools/modules/MODULES.lock` entries.
-`download` and `version-resolve` are not part of that "must match" set in
-the same sense — Umbree's `.sh` files for them are still on disk under
-`tools/modules/` (so `lock-modules.sh` and future re-evaluation see them),
-but no `@INCLUDE:` line in Umbree's template references either, matching
-Clawee's Task 10 posture for the same two modules.
+`download` and `version-resolve` are not part of that "must match" set at
+all: no `@INCLUDE:` line in Umbree's template references either, so their
+`.sh` files are **deleted** from `tools/modules/` and dropped from the lock,
+matching Clawee. Keeping a byte-identical unused copy made the sync answer for
+the wrong thing — `download  v1 == v1  ok` describes a file that does not
+ship, and the day Burrowee bumps it that copy reports `UPDATED` while Umbree's
+real block, the local fork in `tools/bootstrap.template.sh`, is untouched.
+Both are recorded in `tools/modules/MODULES.exclude` with the reason, which is
+what stops `sync-modules.sh` from silently copying them back in and what
+`tools/test-modules.sh`'s INCLUDED gate consults.
