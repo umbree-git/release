@@ -87,9 +87,7 @@ else
 fi
 
 # ---- helpers ------------------------------------------------------------
-fail() { printf '\n  ✗ %s\n\n' "$*" >&2; exit 1; }
-info() { printf '  → %s\n' "$*"; }
-ok()   { printf '  ✓ %s\n' "$*"; }
+@INCLUDE:helpers@
 
 # Extract the highest "<comp>/v<semver>" tag from a GitHub /releases JSON body
 # read on stdin. The /releases order is by tag-commit date, NOT publish order,
@@ -122,30 +120,26 @@ latest_stamp() {
 }
 
 # ---- platform detection -------------------------------------------------
-case "$(uname -s)" in
-    Darwin) OS=darwin ;;
-    Linux)  OS=linux ;;
-    *)      fail "unsupported OS: $(uname -s) (umbree ships darwin + linux only)" ;;
-esac
-case "$(uname -m)" in
-    arm64|aarch64) ARCH=arm64 ;;
-    x86_64|amd64)  ARCH=amd64 ;;
-    *)             fail "unsupported arch: $(uname -m) (umbree ships arm64 + amd64 only)" ;;
-esac
-
-printf '\n  umbree %s installer  (%s/%s)\n\n' "$COMP" "$OS" "$ARCH"
+@INCLUDE:platform-detect@
 
 # ---- guard against a TEMP / unbaked pubkey ------------------------------
-case "$PUBKEY" in
-    ""|*REPLACE*|*PLACEHOLDER*|*TEMP*)
-        fail "this installer was built without a real signing key — refusing to verify against a placeholder (regenerate with tools/gen-bootstraps.sh)" ;;
-esac
+@INCLUDE:pubkey-guard@
 
 # ---- temp workspace -----------------------------------------------------
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/umbree-${COMP}-XXXXXX")" || fail "could not create temp dir"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+@INCLUDE:tmp-workspace@
 
 # ---- version resolution -------------------------------------------------
+# LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
+# version-resolve module's PIN case is hardcoded over Burrowee's four
+# components (cli/gateway/edge/agent) and `fail`s on anything else — Umbree's
+# single component is "umbree", which isn't in that case, so adopting would
+# abort EVERY install unconditionally, not merely lose a behaviour. It also
+# ends every network-resolved branch with assert_version_floor against
+# $MIN_VERSION, which this generator never bakes (no versions/<comp>.stamp
+# mechanism here), and Umbree's own downloads-mirror anti-rollback ordering
+# (below) already covers the same on-path-attacker concern the module's
+# console-catalog step exists for, which Umbree has no console to reach
+# anyway. Keeping Umbree's own block.
 # Single-component channel: one pin var, no per-component switch.
 PIN="${UMBREE_VERSION:-}"
 if [ -n "$PIN" ]; then
@@ -194,6 +188,17 @@ else
 fi
 
 # ---- download -----------------------------------------------------------
+# LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
+# download module builds ZIP="@brand@-${COMP}-${OS}-${ARCH}.zip", which for a
+# single-component product where COMP is itself "umbree" would double the
+# prefix to "umbree-umbree-darwin-arm64.zip" — not the asset name
+# tools/release.sh actually publishes ("umbree-darwin-arm64.zip", i.e.
+# "${comp}-*.zip"). Adopting as-is would 404 on every real release, before
+# even reaching its other difference: the shared module's exhausted-fallback
+# is a grant-gated `umbree download-url` R2 lookup (Burrowee's
+# console/device-grant mechanism), which would also REPLACE Umbree's own
+# operator-controlled $UMBREE_DOWNLOADS_BASE mirror fallback rather than add
+# to it. Keeping Umbree's own block.
 if [ -n "$DL_BASE" ]; then
     BASE="$DL_BASE"
 else
@@ -256,44 +261,16 @@ dl "SHA256SUMS.txt"         "SHA256SUMS.txt"
 dl "SHA256SUMS.txt.minisig" "SHA256SUMS.txt.minisig"
 
 # ---- require minisign ---------------------------------------------------
-# minisign is the trust root: it must already be on PATH from a trusted source
-# (your package manager). We never auto-fetch the verifier — a binary pulled
-# over the network and run unverified would itself become an unverified trust
-# root, defeating the whole signature chain. Verification is mandatory and is
-# only ever performed by a minisign the operator already trusts.
-if command -v minisign >/dev/null 2>&1; then
-    MINISIGN=minisign
-else
-    case "$OS" in
-        darwin) hint="brew install minisign" ;;
-        *)      hint="apt-get install minisign  (or your distro's package manager)" ;;
-    esac
-    fail "minisign is required and is not installed — install it and re-run.
-    $hint
-    upstream: https://github.com/jedisct1/minisign
-    Verification is mandatory; this installer will NOT run an unverified verifier."
-fi
+@INCLUDE:require-minisign@
 
 # ---- VERIFY (the trust gate) --------------------------------------------
-info "verifying signature"
-# 1) signature over the sums file, using the baked pubkey (inline, no key fetch)
-"$MINISIGN" -V -P "$PUBKEY" -m "$TMP/SHA256SUMS.txt" -x "$TMP/SHA256SUMS.txt.minisig" >/dev/null \
-    || fail "signature verification failed — aborting (refusing to install unverified bytes)"
-ok "minisign signature valid"
+@INCLUDE:verify-signature@
+
+@INCLUDE:sha256@
 
 info "verifying checksum"
 # 2) the zip's checksum against the now-trusted sums file
-grep -qF "$ZIP" "$TMP/SHA256SUMS.txt" \
-    || fail "no checksum entry for $ZIP — release incomplete or tampered; aborting"
-if command -v shasum >/dev/null 2>&1; then
-    ( cd "$TMP" && shasum -a 256 -c --ignore-missing SHA256SUMS.txt >/dev/null ) \
-        || fail "checksum mismatch — aborting (zip tampered or download corrupted)"
-elif command -v sha256sum >/dev/null 2>&1; then
-    ( cd "$TMP" && sha256sum -c --ignore-missing SHA256SUMS.txt >/dev/null ) \
-        || fail "checksum mismatch — aborting (zip tampered or download corrupted)"
-else
-    fail "neither shasum nor sha256sum found — cannot verify; aborting"
-fi
+@INCLUDE:verify-checksum@
 ok "checksum verified"
 
 # ---- unzip + exec the verified inner installer --------------------------
