@@ -32,6 +32,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# shellcheck source=tools/module_gate.sh
+source "${REPO_ROOT}/tools/module_gate.sh"
+
 # --distribute-only <umbree> <stamp> [--dry-run]: takes its component + stamp as
 # positional args right after the flag. This repo has no build path, so this is
 # the ONLY entry action — anything else is a usage error.
@@ -105,6 +108,14 @@ distribute_only() {
     done
     compgen -G "${stage}/${comp}-*.zip" >/dev/null \
         || { echo "✗ no ${comp}-*.zip found in ${stage} (rkit build must produce it)" >&2; exit 1; }
+
+    # Outer-bootstrap trust-chain gate. Deliberately ABOVE the --dry-run branch:
+    # publishing regenerates the outer bootstrap and scp's it to the release
+    # host, so a stale committed bootstrap is precisely what this repo would
+    # otherwise ship — and a dry run that skipped the gate would report a
+    # publish as safe that is not. Which suites are in the set, and why the
+    # others are not, is documented in tools/module_gate.sh.
+    module_gate
 
     local src
     src="$(src_for "${comp}")"
