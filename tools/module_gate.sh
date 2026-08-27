@@ -32,7 +32,7 @@
 #   tools/sync-modules.test.sh     sync-modules.sh's own behaviour, INCLUDING that
 #                                  it refuses to overwrite a LOCAL FORK
 #
-# The set is the same three in all three release repos, on purpose: the modules
+# The set is the same four in all three release repos, on purpose: the modules
 # are shared, so a gate that differs per repo is a gate you cannot reason about
 # from one place. Burrowee additionally excludes test-r2-fallback.sh,
 # test-e2e-relay.sh and test-upgrade-bootstrap.sh because they are red on ITS
