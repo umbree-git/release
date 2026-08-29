@@ -74,7 +74,7 @@ RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 
 # component source worktree (default: the umbree MAIN worktree — the cli repo,
 # which ships cmd/umbree).
-SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli}"
+SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main}"
 
 src_for() {
     case "$1" in

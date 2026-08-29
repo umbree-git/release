@@ -439,7 +439,7 @@ func TestSrcDirFor(t *testing.T) {
 	}
 
 	t.Setenv("UMBREE_SRC_UMBREE", "")
-	const wantDefault = "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli"
+	const wantDefault = "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main"
 	if got := srcDirFor("umbree"); got != wantDefault {
 		t.Fatalf("srcDirFor(umbree) default = %q, want %q", got, wantDefault)
 	}
