@@ -16,7 +16,9 @@
 # Env vars:
 #   UMBREE_VERSION          pin a release tag (e.g. umbree/v0.1.1.…); default: latest
 #   PREFIX                  install root (default $HOME/.local; bins at PREFIX/bin)
-#   UMBREE_UNINSTALL=1      remove the installed bin
+#   UMBREE_UNINSTALL=1      umbree only — remove the installed bin
+#   UMBREED_UNINSTALL=1     umbreed only — unload+remove the service, then the binary
+#   UMBREED_NO_SERVICE=1    umbreed only — install the binary only, no service elevation
 #   UMBREE_RELEASE_REPO     GitHub repo serving releases (default umbree-git/release)
 #   UMBREE_DL_BASE          (test hook) download assets from this base instead of GitHub
 #   UMBREE_GH_PROXY         Space-separated list of GitHub HTTP mirrors, tried in order
@@ -39,6 +41,12 @@
 #
 # umbree's carrier delegates to the burrowee daemon; the inner installer ensures
 # burrowee-cli is present (one cross-channel curl|sh step — see inner/umbree).
+#
+# umbreed note: the umbreed inner installer is the daemon repo's own canonical
+# sudo-minimal service installer (install/install.sh.in). It escalates with
+# sudo only for the one step that needs root — writing + loading the boot
+# unit; the daemon process itself never runs as root. UMBREED_NO_SERVICE=1
+# installs the binary only, skipping that step entirely.
 
 set -eu
 
@@ -288,7 +296,26 @@ unzip -q -o "$TMP/$ZIP" -d "$TMP/x" || fail "zip extraction failed — corrupt d
 [ -f "$TMP/x/install.sh" ] || fail "release zip missing inner install.sh — aborting"
 
 ok "verified — running inner installer"
-# Run with cwd = the unzipped dir: the inner installer resolves the umbree
-# binary relative to its own location (./umbree). Single-component contract —
-# simple bin-placer: reads PREFIX + UMBREE_UNINSTALL.
-( cd "$TMP/x" && PREFIX="$PREFIX" UMBREE_UNINSTALL="${UMBREE_UNINSTALL:-}" sh ./install.sh )
+# Run with cwd = the unzipped dir: the inner installer resolves its binary
+# relative to its own location (./@COMP@).
+#
+# The two components have DIFFERENT inner-installer contracts, so the
+# env vars passed through must match what EACH inner installer actually
+# reads — a name that only matches one of the two produces exactly the
+# "served UMBREE_UNINSTALL, read UMBREED_UNINSTALL" mismatch this block
+# exists to prevent:
+#   umbree   — simple bin-placer: reads PREFIX + UMBREE_UNINSTALL.
+#   umbreed  — canonical sudo-minimal daemon installer: reads PREFIX +
+#              UMBREED_UNINSTALL + UMBREED_NO_SERVICE (see the daemon
+#              repo's install/install.sh.in).
+case "$COMP" in
+    umbree)
+        ( cd "$TMP/x" && PREFIX="$PREFIX" UMBREE_UNINSTALL="${UMBREE_UNINSTALL:-}" sh ./install.sh )
+        ;;
+    umbreed)
+        ( cd "$TMP/x" && PREFIX="$PREFIX" UMBREED_UNINSTALL="${UMBREED_UNINSTALL:-}" UMBREED_NO_SERVICE="${UMBREED_NO_SERVICE:-}" sh ./install.sh )
+        ;;
+    *)
+        fail "unknown component '$COMP' — no inner-exec contract"
+        ;;
+esac

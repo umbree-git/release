@@ -1,40 +1,52 @@
 # Umbree release channel
 
 Public, signed, self-service install channel for the `umbree` command-line
-client. Every download is verified end-to-end (minisign signature → SHA-256 →
-unzip → exec a verified inner installer).
+client and the `umbreed` home-exit daemon. Every download is verified
+end-to-end (minisign signature → SHA-256 → unzip → exec a verified inner
+installer).
 
-One component is published here:
+Two components are published here:
 
 | Component | Binary | What it is | Cross-channel dependency |
 |---|---|---|---|
 | `umbree` | `umbree` | the Umbree command-line client | `burrowee-cli` (from `release.burrowee.com/cli`) when missing |
+| `umbreed` | `umbreed` | the Umbree home-exit daemon + its boot service | none — self-contained |
 
-There is **no universal dispatcher** — the `umbree` binary is invoked directly.
+There is **no universal dispatcher** — each component's binary is invoked
+directly.
 
 ## Install
 
 ```sh
+# Client
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.sh | sh
+# Daemon (run AS YOUR USER — it escalates with sudo only for the one step that needs root)
+curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
 ```
 
-The installer detects your OS/arch, resolves the latest published release,
-downloads the zip + `SHA256SUMS.txt` + `SHA256SUMS.txt.minisig`, **verifies the
-minisign signature against the baked public key**, checks the SHA-256 of the
-zip, then unzips and runs the inner installer. If `minisign` is missing, the
-installer provides it first — through your package manager where the installer
-has root (or, for a user-level install, passwordless sudo), otherwise the
-official upstream 0.12 build whose SHA-256 is pinned inside the installer
-itself and whose own signature is then checked against upstream's key — and
-refuses to continue if neither works; it never runs an unverified verifier.
-An uninstall never touches your package manager; if it had to fetch the
-pinned build to verify its payload, that single `minisign` file stays in the
-bin directory afterwards. `umbree` lands in
-`$HOME/.local/bin` (override with `PREFIX`).
+Each installer detects your OS/arch, resolves the latest published release for
+that component, downloads the zip + `SHA256SUMS.txt` + `SHA256SUMS.txt.minisig`,
+**verifies the minisign signature against the baked public key**, checks the
+SHA-256 of the zip, then unzips and runs the inner installer. If `minisign` is
+missing, the installer provides it first — through your package manager where
+the installer has root (or, for a user-level install, passwordless sudo),
+otherwise the official upstream 0.12 build whose SHA-256 is pinned inside the
+installer itself and whose own signature is then checked against upstream's
+key — and refuses to continue if neither works; it never runs an unverified
+verifier.
 
-**Runtime dependency:** umbree's carrier delegates to the burrowee daemon —
-the installer ensures `burrowee-cli` is present, installing it from burrowee's
-own public channel (`release.burrowee.com`) if missing. Nothing is bundled.
+- **umbree** lands in `$HOME/.local/bin` (override with `PREFIX`), then
+  ensures `burrowee-cli` is present — installed from burrowee's own public
+  channel (`release.burrowee.com`) if missing. Nothing is bundled.
+  An uninstall (`UMBREE_UNINSTALL=1`) never touches your package manager; if
+  it had to fetch the pinned `minisign` build to verify its payload, that
+  single file stays in the bin directory afterwards.
+- **umbreed** lands its binary in `$HOME/.local/bin` (override with `PREFIX`),
+  then installs + loads a system boot unit (`/Library/LaunchDaemons` on
+  macOS, `/etc/systemd/system` on Linux) — the only step that needs root; the
+  daemon itself never runs as root. `UMBREED_NO_SERVICE=1` installs the
+  binary only, skipping the service entirely. `UMBREED_UNINSTALL=1` unloads
+  and removes the service, then the binary.
 
 ## Verify by hand
 
@@ -64,14 +76,17 @@ what the installer's own gate does.
 
 ## Pin a version
 
-`UMBREE_VERSION` pins the release tag (`umbree/<stamp>`):
+`UMBREE_VERSION` pins the release tag (`<comp>/<stamp>`) for either installer:
 
 ```sh
 UMBREE_VERSION=umbree/v0.1.0.2026.07.16.aaaaaaaa \
   curl -fsSL https://release.umbree.org/umbree/install.sh | sh
+
+UMBREE_VERSION=umbreed/v0.1.0.2026.08.30.aaaaaaaa \
+  curl -fsSL https://release.umbree.org/umbreed/install.sh | sh
 ```
 
-Unset → the installer resolves the newest release.
+Unset → the installer resolves the newest release for that component.
 
 ## Supported platforms
 
@@ -94,15 +109,16 @@ Building and publishing are two separate steps:
   the standard ship path: it turns on Apple sign+notarize and forces the CVE
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
-- **`tools/release.sh --distribute-only umbree <stamp>`** **publishes** a
-  staged `dist/<stamp>/`: GitHub Release on this repo, bootstrap + `version.js`
+- **`tools/release.sh --distribute-only <umbree|umbreed> <stamp>`** **publishes**
+  a staged `dist/<stamp>/`: GitHub Release on this repo, bootstrap + `version.js`
   render, scp to the static host, `[RELEASED]` marker commit. There is no
   shell build path — `rkit build` is the only builder.
 
-Built binaries for the private component source (`umbree-git/cli`) are
-published as **GitHub Release assets on this repo** (the sources are private
-and can't be `curl`'d anonymously). The static bootstrap scripts are mirrored
-to `release.umbree.org` (nginx + Cloudflare).
+Built binaries for the private component sources (`umbree-git/cli` for
+`umbree`, `umbree-git/daemon` for `umbreed`) are published as **GitHub
+Release assets on this repo** (the sources are private and can't be `curl`'d
+anonymously). The static bootstrap scripts are mirrored to
+`release.umbree.org` (nginx + Cloudflare).
 
 ## Keys
 
@@ -117,4 +133,7 @@ to `release.umbree.org` (nginx + Cloudflare).
 
 ## Status
 
-Built on release-kit; LIVE — umbree v0.1.0 cut (signed+notarized, GitHub-hosted); release.umbree.org serving on nsm.
+Built on release-kit. `umbree` is LIVE — latest cut v0.1.5 (signed+notarized,
+GitHub-hosted); release.umbree.org serving on nsm. `umbreed` tooling is in
+place (this repo builds, tags, and publishes it) but no `umbreed` release has
+been cut yet.

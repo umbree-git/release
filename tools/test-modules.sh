@@ -170,15 +170,34 @@ printf '\n=== GENERATOR-FAILS-CLOSED: a missing module aborts before any destina
 # bootstrap, and gen-bootstraps.sh exited 0. Proven here against a throwaway
 # scratch tree (never the real repo) so it fires on every run, not just once.
 SCRATCH="$(mktemp -d)"
-mkdir -p "$SCRATCH/tools"
+mkdir -p "$SCRATCH/tools" "$SCRATCH/bin"
 cp "$ROOT/tools/gen-bootstraps.sh" "$SCRATCH/tools/gen-bootstraps.sh"
 {
     echo '#!/bin/sh'
     echo '@INCLUDE:does-not-exist@'
     echo 'echo hi'
 } > "$SCRATCH/tools/bootstrap.template.sh"
+# Stub `go` on PATH: gen-bootstraps.sh's only use of `go` is
+# `go run ./cmd/rkit components`, and the scratch tree deliberately has no
+# go.mod/cmd/rkit. Left unstubbed, a REAL `go` aborts there with "go.mod file
+# not found" before gen-bootstraps.sh ever reaches expand_includes — the exact
+# code path this check exists to exercise — so the check below passed
+# vacuously (both assertions satisfied by the go failure, never by the
+# reintroduced pipeline bug) until this stub was added. Answering with one
+# real component name lets the run reach expand_includes and the pipeline bug
+# it's testing for.
+cat > "$SCRATCH/bin/go" <<'STUBGO'
+#!/bin/sh
+if [ "$1" = run ] && [ "$3" = components ]; then
+    echo umbree
+    exit 0
+fi
+echo "stub go: unexpected invocation: $*" >&2
+exit 1
+STUBGO
+chmod +x "$SCRATCH/bin/go"
 scratch_log="$SCRATCH/gen.log"
-if UMBREE_PUBKEY_FILE="$ROOT/tools/testkeys/test.pub" \
+if PATH="$SCRATCH/bin:$PATH" UMBREE_PUBKEY_FILE="$ROOT/tools/testkeys/test.pub" \
    sh "$SCRATCH/tools/gen-bootstraps.sh" >"$scratch_log" 2>&1
 then
     rm -rf "$SCRATCH"

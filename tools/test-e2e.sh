@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # test-e2e.sh — prove the whole umbree release chain OFFLINE with the TEST key.
 #
-# No GitHub, no nsm, no real signing key. For the single umbree component this:
+# No GitHub, no nsm, no real signing key. For the given component (umbree or
+# umbreed) this:
 #   1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
 #      dist/<stamp>/ — offline (--no-vulncheck; the real CVE gate is proven in
 #      Task 10).
@@ -26,15 +27,26 @@ GO_BIN="${GO_BIN:-go}"
 command -v "${GO_BIN}" >/dev/null 2>&1 || GO_BIN=/opt/homebrew/bin/go
 export GO_BIN
 
-# component source dir — build from the main checkout. No default; see release.sh.
-: "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
-export UMBREE_SRC_UMBREE
+# component source worktrees. No default; see release.sh. Only the worktree
+# for the component actually being tested is required.
+src_for() {
+    case "$1" in
+        umbree)
+            : "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
+            printf '%s' "${UMBREE_SRC_UMBREE}"
+            ;;
+        umbreed)
+            : "${UMBREE_SRC_UMBREED:?set UMBREE_SRC_UMBREED to the component source worktree (the daemon checkout that ships cmd/umbreed)}"
+            printf '%s' "${UMBREE_SRC_UMBREED}"
+            ;;
+    esac
+}
 
 WHAT="${1:-umbree}"
 case "${WHAT}" in
-    umbree) ;;
+    umbree|umbreed) ;;
     -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "✗ usage: test-e2e.sh umbree" >&2; exit 2 ;;
+    *) echo "✗ usage: test-e2e.sh <umbree|umbreed>" >&2; exit 2 ;;
 esac
 
 PORT="${E2E_PORT:-8741}"
@@ -66,12 +78,18 @@ say "gen-bootstraps.sh (bake TEST pubkey)"
 UMBREE_PUBKEY_FILE="${TEST_PUB}" bash tools/gen-bootstraps.sh
 
 run_component() {
-    local comp="$1" stamp serve_dir zip pin
+    local comp="$1" src var stamp serve_dir zip pin
+    src="$(src_for "${comp}")"
+    # rkit build reads UMBREE_SRC_<COMP> (uppercased) for its own component
+    # resolution (cmd/rkit/build.go:srcDirFor) — export exactly that name so
+    # the subprocess sees it regardless of how the caller passed it in.
+    var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
+    export "${var}=${src}"
 
     say "rkit build ${comp} --dry-run --no-vulncheck (TEST-key signed, offline)"
     "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --no-vulncheck
 
-    stamp="$(SRC_DIR="${UMBREE_SRC_UMBREE}" bash tools/version.sh "${comp}" --stamp)"
+    stamp="$(SRC_DIR="${src}" bash tools/version.sh "${comp}" --stamp)"
     serve_dir="${REPO_ROOT}/dist/${stamp}"
     [ -d "${serve_dir}" ] || die "expected dist dir not found: ${serve_dir}"
     pin="${comp}/${stamp}"
