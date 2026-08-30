@@ -22,10 +22,10 @@
 # On --dry-run: validates the staged dir + component, then prints "would: ..."
 # for every publish action and returns — no ghp/git/ssh/scp/network writes.
 #
-# Env (all optional — sane defaults below):
+# Env:
 #   RELEASE_HOST           ssh alias for the nginx static host (default nsm.renative.com)
 #   STATIC_DIR             absolute static dir on that host
-#   UMBREE_SRC_UMBREE      umbree component source worktree (default: cli main worktree)
+#   UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED, no default
 #   UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
 set -euo pipefail
 
@@ -72,9 +72,11 @@ RELEASE_HOST="${RELEASE_HOST:-nsm.renative.com}"
 STATIC_DIR="${STATIC_DIR:-/ebs_storage/apps/release.umbree.org/static}"
 RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 
-# component source worktree (default: the umbree MAIN worktree — the cli repo,
-# which ships cmd/umbree).
-SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main}"
+# component source worktree — the umbree MAIN worktree (the cli repo, which
+# ships cmd/umbree). No default: this repo is public, so a default would have
+# to be one operator's absolute path.
+: "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
+SRC_UMBREE="$UMBREE_SRC_UMBREE"
 
 src_for() {
     case "$1" in

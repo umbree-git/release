@@ -26,8 +26,9 @@ GO_BIN="${GO_BIN:-go}"
 command -v "${GO_BIN}" >/dev/null 2>&1 || GO_BIN=/opt/homebrew/bin/go
 export GO_BIN
 
-# component source dir — build from the main checkout -------------------------
-export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main}"
+# component source dir — build from the main checkout. No default; see release.sh.
+: "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
+export UMBREE_SRC_UMBREE
 
 WHAT="${1:-umbree}"
 case "${WHAT}" in
