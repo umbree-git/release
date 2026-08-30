@@ -429,26 +429,6 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 	}
 }
 
-// TestSrcDirFor proves srcDirFor resolves UMBREE_SRC_UMBREE when set, and
-// otherwise falls back to the documented default source worktree path. An
-// unknown component resolves to "".
-func TestSrcDirFor(t *testing.T) {
-	t.Setenv("UMBREE_SRC_UMBREE", "/env/umbree/src")
-	if got := srcDirFor("umbree"); got != "/env/umbree/src" {
-		t.Fatalf("srcDirFor(umbree) = %q, want env override", got)
-	}
-
-	t.Setenv("UMBREE_SRC_UMBREE", "")
-	const wantDefault = "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main"
-	if got := srcDirFor("umbree"); got != wantDefault {
-		t.Fatalf("srcDirFor(umbree) default = %q, want %q", got, wantDefault)
-	}
-
-	if got := srcDirFor("unknown"); got != "" {
-		t.Fatalf("srcDirFor(unknown) = %q, want empty", got)
-	}
-}
-
 // TestRenderInstall covers umbree's install.sh rendering directly (no
 // compile): a byte-verbatim copy of inner/umbree/install.sh.
 func TestRenderInstall(t *testing.T) {
@@ -536,5 +516,31 @@ func TestOrchestrateAbortsOnForbiddenEnvLiteral(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "verify-no-env") {
 		t.Fatalf("error = %q, want it to mention verify-no-env", err.Error())
+	}
+}
+
+// TestSrcDirFromEnv pins that a component's source comes from its env var.
+func TestSrcDirFromEnv(t *testing.T) {
+	t.Setenv("UMBREE_SRC_UMBREED", "/tmp/daemon")
+	got, err := srcDirFor("umbreed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/tmp/daemon" {
+		t.Fatalf("srcDirFor = %q", got)
+	}
+}
+
+// TestSrcDirRefusesWithoutEnv pins that there is NO compiled-in default. This
+// repo is public: a default would have to be an absolute path on one
+// machine, which is exactly what shipped before.
+func TestSrcDirRefusesWithoutEnv(t *testing.T) {
+	t.Setenv("UMBREE_SRC_UMBREE", "")
+	_, err := srcDirFor("umbree")
+	if err == nil {
+		t.Fatal("srcDirFor invented a default source path")
+	}
+	if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREE") {
+		t.Fatalf("refusal does not name the variable to set: %v", err)
 	}
 }

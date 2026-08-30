@@ -102,7 +102,11 @@ func runBuild(args []string) error {
 		o.Bump = "major"
 	}
 	if o.SrcDir == "" {
-		o.SrcDir = srcDirFor(o.Component)
+		s, err := srcDirFor(o.Component)
+		if err != nil {
+			return err
+		}
+		o.SrcDir = s
 	}
 	if o.Apple {
 		// Fatal, not advisory: an unresolved account means the Developer-ID path
@@ -116,19 +120,18 @@ func runBuild(args []string) error {
 }
 
 // srcDirFor resolves a component's source worktree from its UMBREE_SRC_<COMP>
-// env var, falling back to the documented default path.
-func srcDirFor(comp string) string {
-	env := func(key, def string) string {
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-		return def
+// environment variable.
+//
+// There is deliberately NO default. This repository is public, so any default
+// would be an absolute path on one operator's machine — which is what it used
+// to ship. The build already fails fast without a source tree, so refusing
+// here costs nothing and leaks nothing.
+func srcDirFor(comp string) (string, error) {
+	key := "UMBREE_SRC_" + strings.ToUpper(comp)
+	if v := os.Getenv(key); v != "" {
+		return v, nil
 	}
-	switch comp {
-	case "umbree":
-		return env("UMBREE_SRC_UMBREE", "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/main")
-	}
-	return ""
+	return "", fmt.Errorf("no source worktree for %q: set %s or pass --src", comp, key)
 }
 
 // buildRun is the testable seam behind runBuild. It resolves dirs, optionally
@@ -151,8 +154,8 @@ func buildRun(o buildOpts) (err error) {
 	if o.SrcDir == "" {
 		o.SrcDir = o.RepoDir
 	} else if abs, aerr := filepath.Abs(o.SrcDir); aerr == nil {
-		// Defensive: --src could be relative too (srcDirFor's own defaults
-		// are already absolute, but an explicit flag isn't guaranteed to be).
+		// Defensive: --src (or the UMBREE_SRC_<COMP> value srcDirFor read it
+		// from) isn't guaranteed to be absolute.
 		o.SrcDir = abs
 	} else {
 		return fmt.Errorf("resolve --src %q: %w", o.SrcDir, aerr)
