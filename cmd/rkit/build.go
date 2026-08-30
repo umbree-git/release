@@ -245,16 +245,51 @@ func notarizerFor(apple bool) (sign.Notarizer, bool) {
 	return sign.Notarizer{}, false
 }
 
-// renderInstall writes comp's install.sh into the stamp dir as a verbatim
-// copy of inner/<comp>/install.sh.
+// renderInstall writes comp's install.sh into the stamp dir. Two modes, not
+// one generic path — a client and a daemon ship their installer from
+// fundamentally different places, and treating them the same is the mistake
+// this function used to make:
+//
+//   - umbree (a client) ships the repo-committed inner/umbree/install.sh
+//     verbatim — this release repo owns that file.
+//   - umbreed (the daemon) does NOT get a copy here. It ships its own repo's
+//     canonical install/install.sh.in, rendered with the build stamp
+//     substituted for the __UMBREED_VERSION__ placeholder. There used to be
+//     an inner/umbreed/install.sh in this repo too — see the comment at the
+//     "umbreed" case below for why it was deleted.
+//
+// Mirrors render_inner in clawee's tools/release.sh, which draws the same
+// line between clawee and claweed for the same reason.
 func renderInstall(comp, stamp, srcDir, repoDir, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	src := filepath.Join(repoDir, "inner", comp, "install.sh")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("renderInstall %s: read %s: %w", comp, src, err)
+	var data []byte
+	switch comp {
+	case "umbree":
+		src := filepath.Join(repoDir, "inner", comp, "install.sh")
+		raw, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("renderInstall %s: read %s: %w", comp, src, err)
+		}
+		data = raw
+	case "umbreed":
+		// No inner/umbreed/install.sh in this repo — deliberately. Clawee
+		// used to keep one, "kept current for shellcheck + reference", but
+		// nothing could actually enforce currency from a repo that cannot
+		// see the canonical file: it drifted 600+ lines out of date while
+		// still documenting a retired setuid installer tier. A second copy
+		// of a file this repo does not own is a lie waiting to happen — read
+		// the daemon repo's canonical template instead, at build time, from
+		// its own source worktree (SrcDir, resolved from UMBREE_SRC_UMBREED).
+		src := filepath.Join(srcDir, "install", "install.sh.in")
+		raw, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("renderInstall %s: canonical installer template missing: %s (set UMBREE_SRC_UMBREED to the daemon source worktree): %w", comp, src, err)
+		}
+		data = []byte(strings.ReplaceAll(string(raw), "__UMBREED_VERSION__", stamp))
+	default:
+		return fmt.Errorf("renderInstall: unknown component %q", comp)
 	}
 	return os.WriteFile(dst, data, 0o755)
 }

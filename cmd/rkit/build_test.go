@@ -429,31 +429,33 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 	}
 }
 
-// TestRenderInstall covers install.sh rendering directly (no compile): a
-// byte-verbatim copy of inner/<comp>/install.sh, for whichever component is
-// asked. umbreed is exercised against its OWN fixture repoDir rather than the
-// real repo layout — inner/umbreed/install.sh does not exist in this repo
-// yet (a later task adds it), so proving the generic path works for a second
-// component must not depend on that file showing up.
+// TestRenderInstall covers install.sh rendering directly (no compile). Two
+// modes, pinned separately, because they are NOT the same code path:
+//
+//   - umbree (client) is a byte-verbatim copy of the repo-committed
+//     inner/umbree/install.sh.
+//   - umbreed (daemon) is the daemon repo's OWN install/install.sh.in,
+//     substituting __UMBREED_VERSION__ for the stamp — read from srcDir, not
+//     from this repo's inner/, and inner/umbreed/install.sh does not exist
+//     (deleted; see the comment in renderInstall's "umbreed" case).
 func TestRenderInstall(t *testing.T) {
-	verbatimCopy := func(t *testing.T, comp string) {
-		t.Helper()
+	t.Run("umbree verbatim copy from inner/umbree/install.sh", func(t *testing.T) {
 		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", comp, "install.sh"), "#!/bin/sh\necho hi from "+comp+"\n")
+		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi from umbree\n")
 		dst := filepath.Join(t.TempDir(), "out", "install.sh")
-		if err := renderInstall(comp, "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
+		if err := renderInstall("umbree", "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
 			t.Fatal(err)
 		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join(repoDir, "inner", comp, "install.sh"))
+		want, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(got) != string(want) {
-			t.Fatalf("%s install.sh = %q, want verbatim %q", comp, got, want)
+			t.Fatalf("umbree install.sh = %q, want verbatim %q", got, want)
 		}
 		fi, err := os.Stat(dst)
 		if err != nil {
@@ -462,29 +464,84 @@ func TestRenderInstall(t *testing.T) {
 		if fi.Mode().Perm() != 0o755 {
 			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
 		}
-	}
-
-	t.Run("umbree verbatim copy", func(t *testing.T) {
-		verbatimCopy(t, "umbree")
 	})
 
-	// Proves renderInstall is generic on comp, not a switch that happens to
-	// have an umbree case: a second component, with its own fixture
-	// inner/<comp>/install.sh, is rendered the same way with no code change.
-	t.Run("umbreed verbatim copy (own fixture, not the real repo)", func(t *testing.T) {
-		verbatimCopy(t, "umbreed")
+	// Proves the daemon arm substitutes the stamp for the placeholder, read
+	// from srcDir/install/install.sh.in — NOT from this repo's inner/, which
+	// has no umbreed subdirectory at all. Breaks if renderInstall stops
+	// substituting (e.g. reverts to a verbatim copy) or reads from the wrong
+	// directory (e.g. repoDir instead of srcDir).
+	t.Run("umbreed substitutes the stamp from srcDir's canonical template", func(t *testing.T) {
+		repoDir := t.TempDir() // deliberately has no inner/umbreed — must be unused
+		srcDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh.in"),
+			"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
+		dst := filepath.Join(t.TempDir(), "out", "install.sh")
+		stamp := "v0.2.0.2026.08.30.deadbeef"
+		if err := renderInstall("umbreed", stamp, srcDir, repoDir, dst); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), stamp) {
+			t.Fatalf("rendered install.sh = %q, want it to contain the stamp %q", got, stamp)
+		}
+		if strings.Contains(string(got), "__UMBREED_VERSION__") {
+			t.Fatalf("rendered install.sh = %q, placeholder was not substituted", got)
+		}
+		fi, err := os.Stat(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o755 {
+			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
+		}
 	})
 
-	t.Run("missing install.sh names the path", func(t *testing.T) {
+	t.Run("umbree missing install.sh names the inner path", func(t *testing.T) {
 		repoDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		err := renderInstall("nope", "v0", "/x", repoDir, dst)
+		err := renderInstall("umbree", "v0", "/unused/src", repoDir, dst)
 		if err == nil {
-			t.Fatal("expected error for a component with no inner/<comp>/install.sh")
+			t.Fatal("expected error for a missing inner/umbree/install.sh")
 		}
-		wantPath := filepath.Join(repoDir, "inner", "nope", "install.sh")
+		wantPath := filepath.Join(repoDir, "inner", "umbree", "install.sh")
 		if !strings.Contains(err.Error(), wantPath) {
 			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+		}
+	})
+
+	// The daemon arm's real failure mode: no daemon checkout resolved. The
+	// error must name both the missing template path AND the env var that
+	// would point at it — the operator has no other way to know what to set.
+	t.Run("umbreed missing template names the path and the env var", func(t *testing.T) {
+		repoDir := t.TempDir()
+		srcDir := t.TempDir() // no install/install.sh.in inside it
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		err := renderInstall("umbreed", "v0", srcDir, repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for a missing install/install.sh.in")
+		}
+		wantPath := filepath.Join(srcDir, "install", "install.sh.in")
+		if !strings.Contains(err.Error(), wantPath) {
+			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+		}
+		if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREED") {
+			t.Fatalf("error = %q, want it to name UMBREE_SRC_UMBREED", err.Error())
+		}
+	})
+
+	t.Run("unknown component is rejected, not silently rendered", func(t *testing.T) {
+		repoDir := t.TempDir()
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		err := renderInstall("nope", "v0", "/unused/src", repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for an unrecognized component")
+		}
+		if !strings.Contains(err.Error(), "nope") {
+			t.Fatalf("error = %q, want it to name the component %q", err.Error(), "nope")
 		}
 	})
 }
