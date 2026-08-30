@@ -16,6 +16,10 @@
 #   5. TAMPER PATH: flips one byte inside the served zip and asserts the outer
 #      bootstrap's verification gate ABORTS non-zero AND installs nothing.
 #
+# This harness NEVER installs a system service. It runs the umbreed component
+# with UMBREED_NO_SERVICE=1 — see the comment on run_install for why that is a
+# correctness requirement and not a shortcut.
+#
 # Exits 0 only if the component prints "HAPPY-PATH OK" and "TAMPER-ABORTED OK".
 set -euo pipefail
 
@@ -124,9 +128,28 @@ run_umbree() {
     say "server up (serving ${zip})"
 
     local dl_base="http://127.0.0.1:${PORT}"
+    # UMBREED_NO_SERVICE=1 is not optional here, and it is not a way of
+    # skipping a step: without it, `test-e2e.sh umbreed` runs the REAL outer
+    # bootstrap, which execs the daemon's canonical installer, which escalates
+    # with sudo and writes+loads a system boot unit ON WHOEVER'S MACHINE RAN
+    # THE TEST. The prefix below is then rm -rf'd on the next run, leaving a
+    # loaded unit pointing at a deleted binary — an orphaned system service
+    # created by the test harness whose whole purpose is to prove the chain
+    # without touching the host.
+    #
+    # Nothing is lost by suppressing it: this harness asserts the download,
+    # the signature gate, the version stamp and the tamper abort. The service
+    # half is the daemon repo's to prove, under its own unitRoot test seam,
+    # with no privileged write at all.
+    #
+    # Harmless for the umbree component — its outer bootstrap passes only
+    # PREFIX and UMBREE_UNINSTALL through to the inner installer (see the
+    # per-component exec contract at the foot of umbree*/install.sh), so the
+    # variable simply never reaches it.
     run_install() {
         UMBREE_DL_BASE="${dl_base}" \
         UMBREE_VERSION="${pin}" \
+        UMBREED_NO_SERVICE=1 \
         PREFIX="$1" \
             sh "${REPO_ROOT}/${comp}/install.sh"
     }
