@@ -54,12 +54,25 @@ for f in "$MODDIR"/*.sh; do
 done
 printf '  OK\n'
 
-# The generator's OWN generated location, anchored explicitly — NOT a git
-# pathspec glob. Umbree has a single component (umbree) and a single mode
-# (install — no upgrade.sh, no updater, no preflight): tools/gen-bootstraps.sh
-# writes exactly umbree/install.sh. Shared by the DEPS loop and the GENERATOR
-# diff below.
-GENERATED_REL="umbree/install.sh"
+# The generator's OWN generated locations, anchored explicitly — NOT a git
+# pathspec glob. tools/gen-bootstraps.sh writes exactly one <comp>/install.sh
+# per component in internal/relconfig.Components, and only one mode (install
+# — no upgrade.sh, no updater, no preflight). Derived from rkit rather than
+# hardcoded here, same as gen-bootstraps.sh itself: a second literal list is
+# the drift this whole task exists to remove, and it would silently stop
+# covering a component's bootstrap in the GENERATOR staleness check below.
+# NOT built via a pipeline (`go run ... | sed ...`) — under plain `sh -eu` a
+# pipeline's left-hand failure is invisible (see the GENERATOR-FAILS-CLOSED
+# case lower in this file for the same gotcha), so a broken `go run` here
+# would silently yield an empty or partial list instead of aborting.
+# Shared by the DEPS loop and the GENERATOR diff below.
+COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || die "could not read the component list from rkit"
+[ -n "$COMPONENTS" ] || die "rkit returned no components"
+GENERATED_REL=""
+for c in $COMPONENTS; do
+    GENERATED_REL="$GENERATED_REL $c/install.sh"
+done
+GENERATED_REL="${GENERATED_REL# }"
 
 printf '\n=== DEPS: every "# needs:" is included earlier ===\n'
 for relgen in $GENERATED_REL; do

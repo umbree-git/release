@@ -85,9 +85,15 @@ else
 fi
 
 # ---- generate -----------------------------------------------------------
-# Components come from internal/relconfig — the single list rkit builds from.
-# Parsing it here beats a second hardcoded list that silently falls behind.
-COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components 2>/dev/null || echo "umbree umbreed")"
+# Components come from internal/relconfig via rkit — the single list rkit
+# builds from. No fallback list: a hardcoded one here is the drift this
+# indirection exists to prevent, and a silent fallback would let the
+# generator under-generate while exiting 0.
+COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || {
+    echo "gen-bootstraps: could not read the component list from rkit" >&2
+    exit 1
+}
+[ -n "$COMPONENTS" ] || { echo "gen-bootstraps: rkit returned no components" >&2; exit 1; }
 for comp in $COMPONENTS; do
     out="$ROOT/$comp/install.sh"
     mkdir -p "$ROOT/$comp"

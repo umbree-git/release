@@ -131,8 +131,8 @@ latest_stamp() {
 # ---- version resolution -------------------------------------------------
 # LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
 # version-resolve module's PIN case is hardcoded over Burrowee's four
-# components (cli/gateway/edge/agent) and `fail`s on anything else — Umbree's
-# single component is "umbree", which isn't in that case, so adopting would
+# components (cli/gateway/edge/agent) and `fail`s on anything else — this
+# bootstrap's own component, "@COMP@", isn't in that case, so adopting would
 # abort EVERY install unconditionally, not merely lose a behaviour. It also
 # ends every network-resolved branch with assert_version_floor against
 # $MIN_VERSION, which this generator never bakes (no versions/<comp>.stamp
@@ -140,7 +140,9 @@ latest_stamp() {
 # (below) already covers the same on-path-attacker concern the module's
 # console-catalog step exists for, which Umbree has no console to reach
 # anyway. Keeping Umbree's own block.
-# Single-component channel: one pin var, no per-component switch.
+# One pin var, no per-component switch: this generated bootstrap is scoped
+# to "@COMP@" alone (baked in at generation time), so there is nothing to
+# switch on.
 PIN="${UMBREE_VERSION:-}"
 if [ -n "$PIN" ]; then
     TAG="$PIN"
@@ -189,16 +191,17 @@ fi
 
 # ---- download -----------------------------------------------------------
 # LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
-# download module builds ZIP="@brand@-${COMP}-${OS}-${ARCH}.zip", which for a
-# single-component product where COMP is itself "umbree" would double the
-# prefix to "umbree-umbree-darwin-arm64.zip" — not the asset name
-# tools/release.sh actually publishes ("umbree-darwin-arm64.zip", i.e.
-# "${comp}-*.zip"). Adopting as-is would 404 on every real release, before
-# even reaching its other difference: the shared module's exhausted-fallback
-# is a grant-gated `umbree download-url` R2 lookup (Burrowee's
-# console/device-grant mechanism), which would also REPLACE Umbree's own
-# operator-controlled $UMBREE_DOWNLOADS_BASE mirror fallback rather than add
-# to it. Keeping Umbree's own block.
+# download module builds ZIP="@brand@-${COMP}-${OS}-${ARCH}.zip". For this
+# bootstrap's own component, that renders as "@brand@-@COMP@-${OS}-${ARCH}.zip"
+# — not the asset name tools/release.sh actually publishes
+# ("@COMP@-${OS}-${ARCH}.zip", i.e. "${comp}-*.zip") — and for the "umbree"
+# component specifically, where COMP equals the brand, it doubles the prefix
+# outright ("umbree-umbree-darwin-arm64.zip"). Adopting as-is would 404 on
+# every real release, before even reaching its other difference: the shared
+# module's exhausted-fallback is a grant-gated `umbree download-url` R2
+# lookup (Burrowee's console/device-grant mechanism), which would also
+# REPLACE Umbree's own operator-controlled $UMBREE_DOWNLOADS_BASE mirror
+# fallback rather than add to it. Keeping Umbree's own block.
 if [ -n "$DL_BASE" ]; then
     BASE="$DL_BASE"
 else
