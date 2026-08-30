@@ -429,26 +429,31 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 	}
 }
 
-// TestRenderInstall covers umbree's install.sh rendering directly (no
-// compile): a byte-verbatim copy of inner/umbree/install.sh.
+// TestRenderInstall covers install.sh rendering directly (no compile): a
+// byte-verbatim copy of inner/<comp>/install.sh, for whichever component is
+// asked. umbreed is exercised against its OWN fixture repoDir rather than the
+// real repo layout — inner/umbreed/install.sh does not exist in this repo
+// yet (a later task adds it), so proving the generic path works for a second
+// component must not depend on that file showing up.
 func TestRenderInstall(t *testing.T) {
-	t.Run("umbree verbatim copy", func(t *testing.T) {
+	verbatimCopy := func(t *testing.T, comp string) {
+		t.Helper()
 		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi\n")
+		mustWriteFile(t, filepath.Join(repoDir, "inner", comp, "install.sh"), "#!/bin/sh\necho hi from "+comp+"\n")
 		dst := filepath.Join(t.TempDir(), "out", "install.sh")
-		if err := renderInstall("umbree", "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
+		if err := renderInstall(comp, "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
 			t.Fatal(err)
 		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
+		want, err := os.ReadFile(filepath.Join(repoDir, "inner", comp, "install.sh"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(got) != string(want) {
-			t.Fatalf("umbree install.sh = %q, want verbatim %q", got, want)
+			t.Fatalf("%s install.sh = %q, want verbatim %q", comp, got, want)
 		}
 		fi, err := os.Stat(dst)
 		if err != nil {
@@ -457,12 +462,29 @@ func TestRenderInstall(t *testing.T) {
 		if fi.Mode().Perm() != 0o755 {
 			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
 		}
+	}
+
+	t.Run("umbree verbatim copy", func(t *testing.T) {
+		verbatimCopy(t, "umbree")
 	})
 
-	t.Run("unknown component", func(t *testing.T) {
+	// Proves renderInstall is generic on comp, not a switch that happens to
+	// have an umbree case: a second component, with its own fixture
+	// inner/<comp>/install.sh, is rendered the same way with no code change.
+	t.Run("umbreed verbatim copy (own fixture, not the real repo)", func(t *testing.T) {
+		verbatimCopy(t, "umbreed")
+	})
+
+	t.Run("missing install.sh names the path", func(t *testing.T) {
+		repoDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		if err := renderInstall("nope", "v0", "/x", "/y", dst); err == nil {
-			t.Fatal("expected error for unknown component")
+		err := renderInstall("nope", "v0", "/x", repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for a component with no inner/<comp>/install.sh")
+		}
+		wantPath := filepath.Join(repoDir, "inner", "nope", "install.sh")
+		if !strings.Contains(err.Error(), wantPath) {
+			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
 		}
 	})
 }

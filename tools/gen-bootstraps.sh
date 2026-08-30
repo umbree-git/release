@@ -85,7 +85,10 @@ else
 fi
 
 # ---- generate -----------------------------------------------------------
-for comp in umbree; do
+# Components come from internal/relconfig — the single list rkit builds from.
+# Parsing it here beats a second hardcoded list that silently falls behind.
+COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components 2>/dev/null || echo "umbree umbreed")"
+for comp in $COMPONENTS; do
     out="$ROOT/$comp/install.sh"
     mkdir -p "$ROOT/$comp"
     # @COMP@ / @PUBKEY@ / @BRAND@ / @brand@ — order doesn't matter, none of the

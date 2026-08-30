@@ -245,21 +245,18 @@ func notarizerFor(apple bool) (sign.Notarizer, bool) {
 	return sign.Notarizer{}, false
 }
 
-// renderInstall writes umbree's install.sh into the stamp dir as a verbatim
-// copy of inner/umbree/install.sh.
+// renderInstall writes comp's install.sh into the stamp dir as a verbatim
+// copy of inner/<comp>/install.sh.
 func renderInstall(comp, stamp, srcDir, repoDir, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	switch comp {
-	case "umbree":
-		data, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(dst, data, 0o755)
+	src := filepath.Join(repoDir, "inner", comp, "install.sh")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("renderInstall %s: read %s: %w", comp, src, err)
 	}
-	return fmt.Errorf("renderInstall: unknown component %q", comp)
+	return os.WriteFile(dst, data, 0o755)
 }
 
 func orchestrate(ctx context.Context, o Options) (*Result, error) {
