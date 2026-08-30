@@ -54,17 +54,10 @@ echo
 echo "umbreed runs as a system service so the exit survives logout and reboot."
 echo "This needs root ONCE, to write the unit file. The service itself runs as"
 echo "$(id -un), not as root."
-if sudo -n true 2>/dev/null || [ -t 0 ]; then
-    if sudo "$BIN_DIR/$BIN" service install; then
-        "$BIN_DIR/$BIN" service status || true
-    else
-        echo "note: umbreed itself IS installed at $BIN_DIR/$BIN — only the" >&2
-        echo "system unit failed. Run it yourself with:" >&2
-        echo "  sudo $BIN_DIR/$BIN service install" >&2
-    fi
+if sudo "$BIN_DIR/$BIN" service install; then
+    "$BIN_DIR/$BIN" service status || true
 else
-    echo "note: no interactive terminal and no cached sudo credentials, so the"
-    echo "system unit was NOT installed — umbreed itself IS installed at"
-    echo "$BIN_DIR/$BIN. Install the unit later with:"
-    echo "  sudo $BIN_DIR/$BIN service install"
+    echo "note: umbreed itself IS installed at $BIN_DIR/$BIN — only the" >&2
+    echo "system unit did not complete. Finish it with:" >&2
+    echo "  sudo $BIN_DIR/$BIN service install" >&2
 fi
