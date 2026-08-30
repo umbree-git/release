@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-e2e.sh — prove the whole umbree release chain OFFLINE with the TEST key.
 #
-# No GitHub, no nsm, no real signing key. For the given component (umbree or
+# No GitHub, no release host, no real signing key. For the given component (umbree or
 # umbreed) this:
 #   1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
 #      dist/<stamp>/ — offline (--no-vulncheck; the real CVE gate is proven in

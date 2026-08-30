@@ -24,8 +24,11 @@
 # for every publish action and returns — no ghp/git/ssh/scp/network writes.
 #
 # Env:
-#   RELEASE_HOST           ssh alias for the nginx static host (default nsm.renative.com)
-#   STATIC_DIR             absolute static dir on that host
+#   RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default:
+#                           this repo is public, so a default would ship the production
+#                           hostname; see umbree-git/release.dp)
+#   STATIC_DIR             absolute static dir on that host — REQUIRED (no default,
+#                           same reason; see umbree-git/release.dp)
 #   UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED (no default) when
 #                           distributing umbree
 #   UMBREE_SRC_UMBREED     umbreed component source worktree — REQUIRED (no default) when
@@ -72,8 +75,10 @@ for arg in "$@"; do
 done
 
 # ---- config / defaults ------------------------------------------------------
-RELEASE_HOST="${RELEASE_HOST:-nsm.renative.com}"
-STATIC_DIR="${STATIC_DIR:-/ebs_storage/apps/release.umbree.org/static}"
+# RELEASE_HOST / STATIC_DIR: no default. This repo is public, so a default would
+# have to be the production hostname and static path — see umbree-git/release.dp.
+RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host (see umbree-git/release.dp)}"
+STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host (see umbree-git/release.dp)}"
 RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 
 # component source worktrees. No default: this repo is public, so a default

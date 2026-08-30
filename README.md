@@ -134,6 +134,7 @@ anonymously). The static bootstrap scripts are mirrored to
 ## Status
 
 Built on release-kit. `umbree` is LIVE — latest cut v0.1.5 (signed+notarized,
-GitHub-hosted); release.umbree.org serving on nsm. `umbreed` tooling is in
+GitHub-hosted); release.umbree.org serving from the release host (see
+`ops/README.md`). `umbreed` tooling is in
 place (this repo builds, tags, and publishes it) but no `umbreed` release has
 been cut yet.
