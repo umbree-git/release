@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # version.sh — per-component version + deploy stamp for the Umbree release repo.
 #
-# Each component (umbree) has its own one-line MAJOR.MINOR.PATCH file
+# Each component (umbree|umbreed) has its own one-line MAJOR.MINOR.PATCH file
 # under versions/<comp> — the single source of truth for that component's semver
 # segment. This composes the full stamp used in ldflags, git tags, and marker
 # commits:
@@ -12,11 +12,11 @@
 # (pass its path via SRC_DIR), and the date is today (UTC).
 #
 # Usage:
-#   tools/version.sh <umbree> --semver       # just X.Y.Z
-#   tools/version.sh <umbree> --stamp        # full stamp (needs SRC_DIR)
-#   tools/version.sh <umbree> --bump-patch   # X.Y.(Z+1)  + git add versions/<comp>
-#   tools/version.sh <umbree> --bump-minor   # X.(Y+1).0  + git add versions/<comp> (gated)
-#   tools/version.sh <umbree> --bump-major   # (X+1).0.0  + git add versions/<comp> (gated)
+#   tools/version.sh <comp> --semver       # just X.Y.Z
+#   tools/version.sh <comp> --stamp        # full stamp (needs SRC_DIR)
+#   tools/version.sh <comp> --bump-patch   # X.Y.(Z+1)  + git add versions/<comp>
+#   tools/version.sh <comp> --bump-minor   # X.(Y+1).0  + git add versions/<comp> (gated)
+#   tools/version.sh <comp> --bump-major   # (X+1).0.0  + git add versions/<comp> (gated)
 #
 # Minor/major prompt unless UMBREE_RELEASE_YES=1 (or non-TTY → refuse).
 set -euo pipefail
@@ -25,8 +25,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 COMP="${1:-}"
 case "${COMP}" in
-    umbree) ;;
-    "")  echo "✗ usage: version.sh <umbree> <action>" >&2; exit 2 ;;
+    umbree|umbreed) ;;
+    "")  echo "✗ usage: version.sh <umbree|umbreed> <action>" >&2; exit 2 ;;
     *)   echo "✗ unknown component: ${COMP}" >&2; exit 2 ;;
 esac
 VERSION_FILE="${REPO_ROOT}/versions/${COMP}"

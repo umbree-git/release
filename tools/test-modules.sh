@@ -54,12 +54,25 @@ for f in "$MODDIR"/*.sh; do
 done
 printf '  OK\n'
 
-# The generator's OWN generated location, anchored explicitly — NOT a git
-# pathspec glob. Umbree has a single component (umbree) and a single mode
-# (install — no upgrade.sh, no updater, no preflight): tools/gen-bootstraps.sh
-# writes exactly umbree/install.sh. Shared by the DEPS loop and the GENERATOR
-# diff below.
-GENERATED_REL="umbree/install.sh"
+# The generator's OWN generated locations, anchored explicitly — NOT a git
+# pathspec glob. tools/gen-bootstraps.sh writes exactly one <comp>/install.sh
+# per component in internal/relconfig.Components, and only one mode (install
+# — no upgrade.sh, no updater, no preflight). Derived from rkit rather than
+# hardcoded here, same as gen-bootstraps.sh itself: a second literal list is
+# the drift this whole task exists to remove, and it would silently stop
+# covering a component's bootstrap in the GENERATOR staleness check below.
+# NOT built via a pipeline (`go run ... | sed ...`) — under plain `sh -eu` a
+# pipeline's left-hand failure is invisible (see the GENERATOR-FAILS-CLOSED
+# case lower in this file for the same gotcha), so a broken `go run` here
+# would silently yield an empty or partial list instead of aborting.
+# Shared by the DEPS loop and the GENERATOR diff below.
+COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || die "could not read the component list from rkit"
+[ -n "$COMPONENTS" ] || die "rkit returned no components"
+GENERATED_REL=""
+for c in $COMPONENTS; do
+    GENERATED_REL="$GENERATED_REL $c/install.sh"
+done
+GENERATED_REL="${GENERATED_REL# }"
 
 printf '\n=== DEPS: every "# needs:" is included earlier ===\n'
 for relgen in $GENERATED_REL; do
@@ -157,15 +170,34 @@ printf '\n=== GENERATOR-FAILS-CLOSED: a missing module aborts before any destina
 # bootstrap, and gen-bootstraps.sh exited 0. Proven here against a throwaway
 # scratch tree (never the real repo) so it fires on every run, not just once.
 SCRATCH="$(mktemp -d)"
-mkdir -p "$SCRATCH/tools"
+mkdir -p "$SCRATCH/tools" "$SCRATCH/bin"
 cp "$ROOT/tools/gen-bootstraps.sh" "$SCRATCH/tools/gen-bootstraps.sh"
 {
     echo '#!/bin/sh'
     echo '@INCLUDE:does-not-exist@'
     echo 'echo hi'
 } > "$SCRATCH/tools/bootstrap.template.sh"
+# Stub `go` on PATH: gen-bootstraps.sh's only use of `go` is
+# `go run ./cmd/rkit components`, and the scratch tree deliberately has no
+# go.mod/cmd/rkit. Left unstubbed, a REAL `go` aborts there with "go.mod file
+# not found" before gen-bootstraps.sh ever reaches expand_includes — the exact
+# code path this check exists to exercise — so the check below passed
+# vacuously (both assertions satisfied by the go failure, never by the
+# reintroduced pipeline bug) until this stub was added. Answering with one
+# real component name lets the run reach expand_includes and the pipeline bug
+# it's testing for.
+cat > "$SCRATCH/bin/go" <<'STUBGO'
+#!/bin/sh
+if [ "$1" = run ] && [ "$3" = components ]; then
+    echo umbree
+    exit 0
+fi
+echo "stub go: unexpected invocation: $*" >&2
+exit 1
+STUBGO
+chmod +x "$SCRATCH/bin/go"
 scratch_log="$SCRATCH/gen.log"
-if UMBREE_PUBKEY_FILE="$ROOT/tools/testkeys/test.pub" \
+if PATH="$SCRATCH/bin:$PATH" UMBREE_PUBKEY_FILE="$ROOT/tools/testkeys/test.pub" \
    sh "$SCRATCH/tools/gen-bootstraps.sh" >"$scratch_log" 2>&1
 then
     rm -rf "$SCRATCH"

@@ -85,7 +85,16 @@ else
 fi
 
 # ---- generate -----------------------------------------------------------
-for comp in umbree; do
+# Components come from internal/relconfig via rkit — the single list rkit
+# builds from. No fallback list: a hardcoded one here is the drift this
+# indirection exists to prevent, and a silent fallback would let the
+# generator under-generate while exiting 0.
+COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || {
+    echo "gen-bootstraps: could not read the component list from rkit" >&2
+    exit 1
+}
+[ -n "$COMPONENTS" ] || { echo "gen-bootstraps: rkit returned no components" >&2; exit 1; }
+for comp in $COMPONENTS; do
     out="$ROOT/$comp/install.sh"
     mkdir -p "$ROOT/$comp"
     # @COMP@ / @PUBKEY@ / @BRAND@ / @brand@ — order doesn't matter, none of the

@@ -5,10 +5,11 @@ OPERATOR-ACTIVATION** — none runs as part of CI or the release script; do them
 once by hand on the host, then `tools/release.sh --distribute-only` keeps the
 static surface in sync on each release.
 
-Host: `nsm.renative.com` (the same box that fronts the console / umbree-web /
-burree / `release.burrowee.com` / `release.clawee.org`). Static surface:
-`/ebs_storage/apps/release.umbree.org/static` (matches `STATIC_DIR` in
-`tools/release.sh`). Edge: Cloudflare, **Full (strict)** mode.
+Host: `<RELEASE_HOST>` (the same box that fronts the console / umbree-web /
+burree / `release.burrowee.com` / `release.clawee.org`; real value is the
+`RELEASE_HOST` in `umbree-git/release.dp`). Static surface: `<STATIC_DIR>`
+(matches `STATIC_DIR` in `tools/release.sh`; real value also in
+`umbree-git/release.dp`). Edge: Cloudflare, **Full (strict)** mode.
 
 The nginx vhost is `ops/nginx/release.umbree.org.conf`.
 
@@ -17,23 +18,23 @@ The nginx vhost is `ops/nginx/release.umbree.org.conf`.
 ## 1. DNS — OPERATOR
 
 Create an **A record** for `release.umbree.org` in the Cloudflare `umbree.org`
-zone → the nsm origin IP, and set it **Cloudflare-proxied** (orange cloud).
+zone → the release host's origin IP, and set it **Cloudflare-proxied** (orange cloud).
 Full (strict) means CF validates the origin cert, so a real cert must be in
 place on the origin (step 3) before the SSL mode will succeed.
 
 ## 2. Install the vhost — OPERATOR
 
-> **nsm-specific:** this host's `/etc/nginx/nginx.conf` includes only
+> **Release-host-specific:** this host's `/etc/nginx/nginx.conf` includes only
 > `/etc/nginx/sites-enabled/*` — it does **NOT** include
 > `/etc/nginx/conf.d/*.conf`. A file dropped under `conf.d/` is silently dead
 > (nginx -t passes, reload succeeds, directives never run). It **must** go into
 > `sites-enabled/`.
 
 ```sh
-# OPERATOR, on nsm:
+# OPERATOR, on the release host:
 sudo cp ops/nginx/release.umbree.org.conf \
         /etc/nginx/sites-enabled/release.umbree.org.conf
-sudo mkdir -p /ebs_storage/apps/release.umbree.org/static
+sudo mkdir -p <STATIC_DIR>   # the real value is STATIC_DIR in umbree-git/release.dp
 ```
 
 Do **not** add `default_server` to this vhost — another sites-enabled file
@@ -46,26 +47,30 @@ Issue an ECDSA cert for `release.umbree.org` via the host's snap certbot
 `PATH`, which doesn't support the DNS plugin in use here):
 
 ```sh
-# OPERATOR, on nsm:
+# OPERATOR, on the release host:
 sudo /snap/bin/certbot certonly \
   --dns-cloudflare \
-  --dns-cloudflare-credentials /etc/cloud-certs/cloudflare-umbree.ini \
+  --dns-cloudflare-credentials <CF_CREDENTIALS_INI> \
   --key-type ecdsa \
   -d release.umbree.org
 ```
+
+`<CF_CREDENTIALS_INI>` is the Cloudflare DNS API-token ini file for certbot's
+DNS-01 plugin; the real path is sealed in `umbree-git/release.dp`, never
+committed here.
 
 Then point the `ssl_certificate` / `ssl_certificate_key` placeholders in the
 vhost at the issued paths (`/etc/letsencrypt/live/release.umbree.org/{fullchain,privkey}.pem`
 by default).
 
-> **nsm-specific:** this host's nginx build **rejects `TLSv1.3`** — the vhost
+> **Release-host-specific:** this host's nginx build **rejects `TLSv1.3`** — the vhost
 > pins `ssl_protocols TLSv1.2;`. Leave it; raising it to TLSv1.3 fails
 > `nginx -t` and aborts the reload.
 
 ## 4. Validate + reload — OPERATOR
 
 ```sh
-# OPERATOR, on nsm:
+# OPERATOR, on the release host:
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -75,7 +80,7 @@ sudo nginx -t && sudo systemctl reload nginx
 `STATIC_DIR` after each release:
 
 ```
-/ebs_storage/apps/release.umbree.org/static/
+<STATIC_DIR>/
 ├── index.html            # site/index.html
 ├── umbree-release.pub    # signing public key
 └── umbree/

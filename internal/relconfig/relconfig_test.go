@@ -32,3 +32,24 @@ func TestTargets(t *testing.T) {
 		t.Fatalf("want 4 targets, got %d", len(Targets()))
 	}
 }
+
+func TestBothComponentsResolve(t *testing.T) {
+	for _, comp := range Components {
+		bins, err := Bins(comp, "v0.0.0")
+		if err != nil {
+			t.Fatalf("Bins(%q): %v", comp, err)
+		}
+		if len(bins) == 0 {
+			t.Fatalf("Bins(%q) returned no binaries", comp)
+		}
+	}
+	if len(Components) < 2 {
+		t.Fatalf("Components = %v, want umbree and umbreed", Components)
+	}
+}
+
+func TestUnknownComponentStillErrors(t *testing.T) {
+	if _, err := Bins("nope", "v0.0.0"); err == nil {
+		t.Fatal("unknown component did not error")
+	}
+}

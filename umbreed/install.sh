@@ -1,16 +1,16 @@
 #!/bin/sh
 # Umbree outer bootstrap — THE TRUST ANCHOR (POSIX sh, macOS + Linux).
 #
-#   curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.sh | sh
+#   curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
 #
-# This is the stable, curl'd-alone entry point for the `umbree` component. It
+# This is the stable, curl'd-alone entry point for the `umbreed` component. It
 # NEVER runs an unverified byte: it downloads the release zip + SHA256SUMS.txt +
 # its minisig, verifies the minisign signature with a baked-in PUBLIC key,
 # verifies the zip's sha256 against the now-trusted sums file, and ONLY THEN
 # unzips and execs the verified inner per-release install.sh. Any failure aborts
 # before anything is installed.
 #
-# DO NOT EDIT generated copies (umbree/install.sh) by hand — they are produced
+# DO NOT EDIT generated copies (umbreed/install.sh) by hand — they are produced
 # from tools/bootstrap.template.sh by tools/gen-bootstraps.sh.
 #
 # Env vars:
@@ -51,7 +51,7 @@
 set -eu
 
 # ---- knobs --------------------------------------------------------------
-COMP="umbree"
+COMP="umbreed"
 PUBKEY="RWQZyK0l3lgdSYfj8VXhoTWlVVVcRqfnuVROJzloNrw9NBFm11IeD3HN"
 REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 PREFIX="${PREFIX:-$HOME/.local}"
@@ -165,7 +165,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
 # version-resolve module's PIN case is hardcoded over Burrowee's four
 # components (cli/gateway/edge/agent) and `fail`s on anything else — this
-# bootstrap's own component, "umbree", isn't in that case, so adopting would
+# bootstrap's own component, "umbreed", isn't in that case, so adopting would
 # abort EVERY install unconditionally, not merely lose a behaviour. It also
 # ends every network-resolved branch with assert_version_floor against
 # $MIN_VERSION, which this generator never bakes (no versions/<comp>.stamp
@@ -174,7 +174,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # console-catalog step exists for, which Umbree has no console to reach
 # anyway. Keeping Umbree's own block.
 # One pin var, no per-component switch: this generated bootstrap is scoped
-# to "umbree" alone (baked in at generation time), so there is nothing to
+# to "umbreed" alone (baked in at generation time), so there is nothing to
 # switch on.
 PIN="${UMBREE_VERSION:-}"
 if [ -n "$PIN" ]; then
@@ -225,9 +225,9 @@ fi
 # ---- download -----------------------------------------------------------
 # LOCAL FORK — see docs/adoption-2026-08-25-bootstrap-modules.md: the shared
 # download module builds ZIP="umbree-${COMP}-${OS}-${ARCH}.zip". For this
-# bootstrap's own component, that renders as "umbree-umbree-${OS}-${ARCH}.zip"
+# bootstrap's own component, that renders as "umbree-umbreed-${OS}-${ARCH}.zip"
 # — not the asset name tools/release.sh actually publishes
-# ("umbree-${OS}-${ARCH}.zip", i.e. "${comp}-*.zip") — and for the "umbree"
+# ("umbreed-${OS}-${ARCH}.zip", i.e. "${comp}-*.zip") — and for the "umbree"
 # component specifically, where COMP equals the brand, it doubles the prefix
 # outright ("umbree-umbree-darwin-arm64.zip"). Adopting as-is would 404 on
 # every real release, before even reaching its other difference: the shared
@@ -587,7 +587,7 @@ unzip -q -o "$TMP/$ZIP" -d "$TMP/x" || fail "zip extraction failed — corrupt d
 
 ok "verified — running inner installer"
 # Run with cwd = the unzipped dir: the inner installer resolves its binary
-# relative to its own location (./umbree).
+# relative to its own location (./umbreed).
 #
 # The two components have DIFFERENT inner-installer contracts, so the
 # env vars passed through must match what EACH inner installer actually

@@ -1,31 +1,38 @@
 #!/usr/bin/env bash
-# release.sh — PUBLISH an already-staged umbree release (distribute-only).
+# release.sh — PUBLISH an already-staged umbree|umbreed release (distribute-only).
 #
 # Usage:
-#   bash tools/release.sh --distribute-only umbree <stamp> [--dry-run]
+#   bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]
 #
 # This repo has NO shell build path. Building, signing, and (with --apple)
 # notarizing the artifact set live entirely in `rkit build` (the produce half),
-# which stamps + cross-compiles umbree for darwin/{arm64,amd64} + linux/{arm64,
-# amd64}, writes SHA256SUMS.txt, and minisign-signs it into dist/<stamp>/.
+# which stamps + cross-compiles the component for darwin/{arm64,amd64} +
+# linux/{arm64,amd64}, writes SHA256SUMS.txt, and minisign-signs it into
+# dist/<stamp>/.
 #
 # --distribute-only publishes THAT already-staged dist/<stamp>/ WITHOUT building,
 # signing, notarizing, or bumping a version — it runs only the publish half:
-#   1. git-tags umbree/<stamp> + publishes a GitHub Release on umbree-git/release.
+#   1. git-tags <comp>/<stamp> + publishes a GitHub Release on umbree-git/release.
 #   2. regenerates the outer bootstrap + version JSONP and scp's the static
 #      surface (install.sh, version.js, umbree-release.pub, site/index.html) to
 #      the release host.
-#   3. records a [RELEASED: umbree] marker commit.
-# umbree ships a single component and hosts its zips on GitHub Releases — there
-# is no R2 mirror, no console/dispatcher, and nothing to skip there.
+#   3. records a [RELEASED: <comp>] marker commit.
+# umbree hosts its zips on GitHub Releases — there is no R2 mirror, no
+# console/dispatcher, and nothing to skip there.
 #
 # On --dry-run: validates the staged dir + component, then prints "would: ..."
 # for every publish action and returns — no ghp/git/ssh/scp/network writes.
 #
-# Env (all optional — sane defaults below):
-#   RELEASE_HOST           ssh alias for the nginx static host (default nsm.renative.com)
-#   STATIC_DIR             absolute static dir on that host
-#   UMBREE_SRC_UMBREE      umbree component source worktree (default: cli main worktree)
+# Env:
+#   RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default:
+#                           this repo is public, so a default would ship the production
+#                           hostname; see umbree-git/release.dp)
+#   STATIC_DIR             absolute static dir on that host — REQUIRED (no default,
+#                           same reason; see umbree-git/release.dp)
+#   UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED (no default) when
+#                           distributing umbree
+#   UMBREE_SRC_UMBREED     umbreed component source worktree — REQUIRED (no default) when
+#                           distributing umbreed
 #   UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
 set -euo pipefail
 
@@ -35,7 +42,7 @@ cd "${REPO_ROOT}"
 # shellcheck source=tools/module_gate.sh
 source "${REPO_ROOT}/tools/module_gate.sh"
 
-# --distribute-only <umbree> <stamp> [--dry-run]: takes its component + stamp as
+# --distribute-only <umbree|umbreed> <stamp> [--dry-run]: takes its component + stamp as
 # positional args right after the flag. This repo has no build path, so this is
 # the ONLY entry action — anything else is a usage error.
 DIST_COMP=""; DIST_STAMP=""
@@ -43,14 +50,14 @@ if [ "${1:-}" = "--distribute-only" ]; then
     shift
     DIST_COMP="${1:-}"; DIST_STAMP="${2:-}"
     [ -n "${DIST_COMP}" ] && [ -n "${DIST_STAMP}" ] \
-        || { echo "✗ usage: release.sh --distribute-only umbree <stamp> [--dry-run]" >&2; exit 2; }
+        || { echo "✗ usage: release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]" >&2; exit 2; }
     shift 2
 else
     case "${1:-}" in
         # Print the whole header comment (line 2 → the first non-# line), so
         # added doc lines are never silently truncated by a hardcoded range.
         -h|--help) awk 'NR==1{next} !/^#/{exit} {sub(/^# ?/,""); print}' "$0"; exit 0 ;;
-        *) echo "✗ usage: release.sh --distribute-only umbree <stamp> [--dry-run]" >&2; exit 2 ;;
+        *) echo "✗ usage: release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]" >&2; exit 2 ;;
     esac
 fi
 
@@ -68,17 +75,27 @@ for arg in "$@"; do
 done
 
 # ---- config / defaults ------------------------------------------------------
-RELEASE_HOST="${RELEASE_HOST:-nsm.renative.com}"
-STATIC_DIR="${STATIC_DIR:-/ebs_storage/apps/release.umbree.org/static}"
+# RELEASE_HOST / STATIC_DIR: no default. This repo is public, so a default would
+# have to be the production hostname and static path — see umbree-git/release.dp.
+RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host (see umbree-git/release.dp)}"
+STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host (see umbree-git/release.dp)}"
 RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 
-# component source worktree (default: the umbree MAIN worktree — the cli repo,
-# which ships cmd/umbree).
-SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli}"
-
+# component source worktrees. No default: this repo is public, so a default
+# would have to be one operator's absolute path. Only the worktree for the
+# component actually being distributed is required — resolved lazily inside
+# src_for(), not unconditionally up front, so distributing umbreed never
+# demands UMBREE_SRC_UMBREE (and vice versa).
 src_for() {
     case "$1" in
-        umbree)  printf '%s' "${SRC_UMBREE}" ;;
+        umbree)
+            : "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
+            printf '%s' "${UMBREE_SRC_UMBREE}"
+            ;;
+        umbreed)
+            : "${UMBREE_SRC_UMBREED:?set UMBREE_SRC_UMBREED to the component source worktree (the daemon checkout that ships cmd/umbreed)}"
+            printf '%s' "${UMBREE_SRC_UMBREED}"
+            ;;
     esac
 }
 
@@ -97,7 +114,7 @@ GHP="$(command -v ghp 2>/dev/null || echo "${HOME}/bin/ghp")"
 distribute_only() {
     local comp="$1" stamp="$2"
     case "${comp}" in
-        umbree) ;;
+        umbree|umbreed) ;;
         *) echo "✗ unknown component: ${comp}" >&2; exit 1 ;;
     esac
 
@@ -170,11 +187,11 @@ distribute_only() {
         echo "✗ tag ${tag} already exists locally" >&2
         exit 1
     fi
-    git tag -a "${tag}" -m "umbree ${stamp}"
+    git tag -a "${tag}" -m "${comp} ${stamp}"
 
     local notes; notes="${stage}/release-notes.md"
     cat > "${notes}" <<NOTES
-umbree ${stamp} — $(date -u +%Y-%m-%d)
+${comp} ${stamp} — $(date -u +%Y-%m-%d)
 
 ## Changes
 ${changes}

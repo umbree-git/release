@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # test-e2e.sh — prove the whole umbree release chain OFFLINE with the TEST key.
 #
-# No GitHub, no nsm, no real signing key. For the single umbree component this:
+# No GitHub, no release host, no real signing key. For the given component (umbree or
+# umbreed) this:
 #   1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
 #      dist/<stamp>/ — offline (--no-vulncheck; the real CVE gate is proven in
 #      Task 10).
@@ -15,6 +16,10 @@
 #   5. TAMPER PATH: flips one byte inside the served zip and asserts the outer
 #      bootstrap's verification gate ABORTS non-zero AND installs nothing.
 #
+# This harness NEVER installs a system service. It runs the umbreed component
+# with UMBREED_NO_SERVICE=1 — see the comment on run_install for why that is a
+# correctness requirement and not a shortcut.
+#
 # Exits 0 only if the component prints "HAPPY-PATH OK" and "TAMPER-ABORTED OK".
 set -euo pipefail
 
@@ -26,14 +31,26 @@ GO_BIN="${GO_BIN:-go}"
 command -v "${GO_BIN}" >/dev/null 2>&1 || GO_BIN=/opt/homebrew/bin/go
 export GO_BIN
 
-# component source dir — build from the main checkout -------------------------
-export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli}"
+# component source worktrees. No default; see release.sh. Only the worktree
+# for the component actually being tested is required.
+src_for() {
+    case "$1" in
+        umbree)
+            : "${UMBREE_SRC_UMBREE:?set UMBREE_SRC_UMBREE to the component source worktree (the cli checkout that ships cmd/umbree)}"
+            printf '%s' "${UMBREE_SRC_UMBREE}"
+            ;;
+        umbreed)
+            : "${UMBREE_SRC_UMBREED:?set UMBREE_SRC_UMBREED to the component source worktree (the daemon checkout that ships cmd/umbreed)}"
+            printf '%s' "${UMBREE_SRC_UMBREED}"
+            ;;
+    esac
+}
 
 WHAT="${1:-umbree}"
 case "${WHAT}" in
-    umbree) ;;
+    umbree|umbreed) ;;
     -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "✗ usage: test-e2e.sh umbree" >&2; exit 2 ;;
+    *) echo "✗ usage: test-e2e.sh <umbree|umbreed>" >&2; exit 2 ;;
 esac
 
 PORT="${E2E_PORT:-8741}"
@@ -65,12 +82,18 @@ say "gen-bootstraps.sh (bake TEST pubkey)"
 UMBREE_PUBKEY_FILE="${TEST_PUB}" bash tools/gen-bootstraps.sh
 
 run_component() {
-    local comp="$1" stamp serve_dir zip pin
+    local comp="$1" src var stamp serve_dir zip pin
+    src="$(src_for "${comp}")"
+    # rkit build reads UMBREE_SRC_<COMP> (uppercased) for its own component
+    # resolution (cmd/rkit/build.go:srcDirFor) — export exactly that name so
+    # the subprocess sees it regardless of how the caller passed it in.
+    var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
+    export "${var}=${src}"
 
     say "rkit build ${comp} --dry-run --no-vulncheck (TEST-key signed, offline)"
     "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --no-vulncheck
 
-    stamp="$(SRC_DIR="${UMBREE_SRC_UMBREE}" bash tools/version.sh "${comp}" --stamp)"
+    stamp="$(SRC_DIR="${src}" bash tools/version.sh "${comp}" --stamp)"
     serve_dir="${REPO_ROOT}/dist/${stamp}"
     [ -d "${serve_dir}" ] || die "expected dist dir not found: ${serve_dir}"
     pin="${comp}/${stamp}"
@@ -105,9 +128,28 @@ run_umbree() {
     say "server up (serving ${zip})"
 
     local dl_base="http://127.0.0.1:${PORT}"
+    # UMBREED_NO_SERVICE=1 is not optional here, and it is not a way of
+    # skipping a step: without it, `test-e2e.sh umbreed` runs the REAL outer
+    # bootstrap, which execs the daemon's canonical installer, which escalates
+    # with sudo and writes+loads a system boot unit ON WHOEVER'S MACHINE RAN
+    # THE TEST. The prefix below is then rm -rf'd on the next run, leaving a
+    # loaded unit pointing at a deleted binary — an orphaned system service
+    # created by the test harness whose whole purpose is to prove the chain
+    # without touching the host.
+    #
+    # Nothing is lost by suppressing it: this harness asserts the download,
+    # the signature gate, the version stamp and the tamper abort. The service
+    # half is the daemon repo's to prove, under its own unitRoot test seam,
+    # with no privileged write at all.
+    #
+    # Harmless for the umbree component — its outer bootstrap passes only
+    # PREFIX and UMBREE_UNINSTALL through to the inner installer (see the
+    # per-component exec contract at the foot of umbree*/install.sh), so the
+    # variable simply never reaches it.
     run_install() {
         UMBREE_DL_BASE="${dl_base}" \
         UMBREE_VERSION="${pin}" \
+        UMBREED_NO_SERVICE=1 \
         PREFIX="$1" \
             sh "${REPO_ROOT}/${comp}/install.sh"
     }

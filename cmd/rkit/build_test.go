@@ -429,32 +429,19 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 	}
 }
 
-// TestSrcDirFor proves srcDirFor resolves UMBREE_SRC_UMBREE when set, and
-// otherwise falls back to the documented default source worktree path. An
-// unknown component resolves to "".
-func TestSrcDirFor(t *testing.T) {
-	t.Setenv("UMBREE_SRC_UMBREE", "/env/umbree/src")
-	if got := srcDirFor("umbree"); got != "/env/umbree/src" {
-		t.Fatalf("srcDirFor(umbree) = %q, want env override", got)
-	}
-
-	t.Setenv("UMBREE_SRC_UMBREE", "")
-	const wantDefault = "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli"
-	if got := srcDirFor("umbree"); got != wantDefault {
-		t.Fatalf("srcDirFor(umbree) default = %q, want %q", got, wantDefault)
-	}
-
-	if got := srcDirFor("unknown"); got != "" {
-		t.Fatalf("srcDirFor(unknown) = %q, want empty", got)
-	}
-}
-
-// TestRenderInstall covers umbree's install.sh rendering directly (no
-// compile): a byte-verbatim copy of inner/umbree/install.sh.
+// TestRenderInstall covers install.sh rendering directly (no compile). Two
+// modes, pinned separately, because they are NOT the same code path:
+//
+//   - umbree (client) is a byte-verbatim copy of the repo-committed
+//     inner/umbree/install.sh.
+//   - umbreed (daemon) is the daemon repo's OWN install/install.sh.in,
+//     substituting __UMBREED_VERSION__ for the stamp — read from srcDir, not
+//     from this repo's inner/, and inner/umbreed/install.sh does not exist
+//     (deleted; see the comment in renderInstall's "umbreed" case).
 func TestRenderInstall(t *testing.T) {
-	t.Run("umbree verbatim copy", func(t *testing.T) {
+	t.Run("umbree verbatim copy from inner/umbree/install.sh", func(t *testing.T) {
 		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi\n")
+		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi from umbree\n")
 		dst := filepath.Join(t.TempDir(), "out", "install.sh")
 		if err := renderInstall("umbree", "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
 			t.Fatal(err)
@@ -479,10 +466,82 @@ func TestRenderInstall(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown component", func(t *testing.T) {
+	// Proves the daemon arm substitutes the stamp for the placeholder, read
+	// from srcDir/install/install.sh.in — NOT from this repo's inner/, which
+	// has no umbreed subdirectory at all. Breaks if renderInstall stops
+	// substituting (e.g. reverts to a verbatim copy) or reads from the wrong
+	// directory (e.g. repoDir instead of srcDir).
+	t.Run("umbreed substitutes the stamp from srcDir's canonical template", func(t *testing.T) {
+		repoDir := t.TempDir() // deliberately has no inner/umbreed — must be unused
+		srcDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh.in"),
+			"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
+		dst := filepath.Join(t.TempDir(), "out", "install.sh")
+		stamp := "v0.2.0.2026.08.30.deadbeef"
+		if err := renderInstall("umbreed", stamp, srcDir, repoDir, dst); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), stamp) {
+			t.Fatalf("rendered install.sh = %q, want it to contain the stamp %q", got, stamp)
+		}
+		if strings.Contains(string(got), "__UMBREED_VERSION__") {
+			t.Fatalf("rendered install.sh = %q, placeholder was not substituted", got)
+		}
+		fi, err := os.Stat(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o755 {
+			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
+		}
+	})
+
+	t.Run("umbree missing install.sh names the inner path", func(t *testing.T) {
+		repoDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		if err := renderInstall("nope", "v0", "/x", "/y", dst); err == nil {
-			t.Fatal("expected error for unknown component")
+		err := renderInstall("umbree", "v0", "/unused/src", repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for a missing inner/umbree/install.sh")
+		}
+		wantPath := filepath.Join(repoDir, "inner", "umbree", "install.sh")
+		if !strings.Contains(err.Error(), wantPath) {
+			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+		}
+	})
+
+	// The daemon arm's real failure mode: no daemon checkout resolved. The
+	// error must name both the missing template path AND the env var that
+	// would point at it — the operator has no other way to know what to set.
+	t.Run("umbreed missing template names the path and the env var", func(t *testing.T) {
+		repoDir := t.TempDir()
+		srcDir := t.TempDir() // no install/install.sh.in inside it
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		err := renderInstall("umbreed", "v0", srcDir, repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for a missing install/install.sh.in")
+		}
+		wantPath := filepath.Join(srcDir, "install", "install.sh.in")
+		if !strings.Contains(err.Error(), wantPath) {
+			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+		}
+		if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREED") {
+			t.Fatalf("error = %q, want it to name UMBREE_SRC_UMBREED", err.Error())
+		}
+	})
+
+	t.Run("unknown component is rejected, not silently rendered", func(t *testing.T) {
+		repoDir := t.TempDir()
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		err := renderInstall("nope", "v0", "/unused/src", repoDir, dst)
+		if err == nil {
+			t.Fatal("expected error for an unrecognized component")
+		}
+		if !strings.Contains(err.Error(), "nope") {
+			t.Fatalf("error = %q, want it to name the component %q", err.Error(), "nope")
 		}
 	})
 }
@@ -536,5 +595,31 @@ func TestOrchestrateAbortsOnForbiddenEnvLiteral(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "verify-no-env") {
 		t.Fatalf("error = %q, want it to mention verify-no-env", err.Error())
+	}
+}
+
+// TestSrcDirFromEnv pins that a component's source comes from its env var.
+func TestSrcDirFromEnv(t *testing.T) {
+	t.Setenv("UMBREE_SRC_UMBREED", "/tmp/daemon")
+	got, err := srcDirFor("umbreed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/tmp/daemon" {
+		t.Fatalf("srcDirFor = %q", got)
+	}
+}
+
+// TestSrcDirRefusesWithoutEnv pins that there is NO compiled-in default. This
+// repo is public: a default would have to be an absolute path on one
+// machine, which is exactly what shipped before.
+func TestSrcDirRefusesWithoutEnv(t *testing.T) {
+	t.Setenv("UMBREE_SRC_UMBREE", "")
+	_, err := srcDirFor("umbree")
+	if err == nil {
+		t.Fatal("srcDirFor invented a default source path")
+	}
+	if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREE") {
+		t.Fatalf("refusal does not name the variable to set: %v", err)
 	}
 }

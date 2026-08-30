@@ -20,7 +20,7 @@ import (
 
 type Options struct {
 	Component, OutDir, RepoDir string
-	// SrcDir is the COMPONENT source worktree (e.g. cli/code/cli) — distinct
+	// SrcDir is the COMPONENT source worktree (e.g. cli/code/main) — distinct
 	// from RepoDir, which is the release repo holding versions/, inner/, and
 	// tools/. Defaults to RepoDir when empty, so the fixture-based
 	// orchestrate tests (which double one dir as both) keep working
@@ -102,7 +102,11 @@ func runBuild(args []string) error {
 		o.Bump = "major"
 	}
 	if o.SrcDir == "" {
-		o.SrcDir = srcDirFor(o.Component)
+		s, err := srcDirFor(o.Component)
+		if err != nil {
+			return err
+		}
+		o.SrcDir = s
 	}
 	if o.Apple {
 		// Fatal, not advisory: an unresolved account means the Developer-ID path
@@ -116,19 +120,18 @@ func runBuild(args []string) error {
 }
 
 // srcDirFor resolves a component's source worktree from its UMBREE_SRC_<COMP>
-// env var, falling back to the documented default path.
-func srcDirFor(comp string) string {
-	env := func(key, def string) string {
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-		return def
+// environment variable.
+//
+// There is deliberately NO default. This repository is public, so any default
+// would be an absolute path on one operator's machine — which is what it used
+// to ship. The build already fails fast without a source tree, so refusing
+// here costs nothing and leaks nothing.
+func srcDirFor(comp string) (string, error) {
+	key := "UMBREE_SRC_" + strings.ToUpper(comp)
+	if v := os.Getenv(key); v != "" {
+		return v, nil
 	}
-	switch comp {
-	case "umbree":
-		return env("UMBREE_SRC_UMBREE", "/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli")
-	}
-	return ""
+	return "", fmt.Errorf("no source worktree for %q: set %s or pass --src", comp, key)
 }
 
 // buildRun is the testable seam behind runBuild. It resolves dirs, optionally
@@ -151,8 +154,8 @@ func buildRun(o buildOpts) (err error) {
 	if o.SrcDir == "" {
 		o.SrcDir = o.RepoDir
 	} else if abs, aerr := filepath.Abs(o.SrcDir); aerr == nil {
-		// Defensive: --src could be relative too (srcDirFor's own defaults
-		// are already absolute, but an explicit flag isn't guaranteed to be).
+		// Defensive: --src (or the UMBREE_SRC_<COMP> value srcDirFor read it
+		// from) isn't guaranteed to be absolute.
 		o.SrcDir = abs
 	} else {
 		return fmt.Errorf("resolve --src %q: %w", o.SrcDir, aerr)
@@ -242,21 +245,53 @@ func notarizerFor(apple bool) (sign.Notarizer, bool) {
 	return sign.Notarizer{}, false
 }
 
-// renderInstall writes umbree's install.sh into the stamp dir as a verbatim
-// copy of inner/umbree/install.sh.
+// renderInstall writes comp's install.sh into the stamp dir. Two modes, not
+// one generic path — a client and a daemon ship their installer from
+// fundamentally different places, and treating them the same is the mistake
+// this function used to make:
+//
+//   - umbree (a client) ships the repo-committed inner/umbree/install.sh
+//     verbatim — this release repo owns that file.
+//   - umbreed (the daemon) does NOT get a copy here. It ships its own repo's
+//     canonical install/install.sh.in, rendered with the build stamp
+//     substituted for the __UMBREED_VERSION__ placeholder. There used to be
+//     an inner/umbreed/install.sh in this repo too — see the comment at the
+//     "umbreed" case below for why it was deleted.
+//
+// Mirrors render_inner in clawee's tools/release.sh, which draws the same
+// line between clawee and claweed for the same reason.
 func renderInstall(comp, stamp, srcDir, repoDir, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	var data []byte
 	switch comp {
 	case "umbree":
-		data, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
+		src := filepath.Join(repoDir, "inner", comp, "install.sh")
+		raw, err := os.ReadFile(src)
 		if err != nil {
-			return err
+			return fmt.Errorf("renderInstall %s: read %s: %w", comp, src, err)
 		}
-		return os.WriteFile(dst, data, 0o755)
+		data = raw
+	case "umbreed":
+		// No inner/umbreed/install.sh in this repo — deliberately. Clawee
+		// used to keep one, "kept current for shellcheck + reference", but
+		// nothing could actually enforce currency from a repo that cannot
+		// see the canonical file: it drifted 600+ lines out of date while
+		// still documenting a retired setuid installer tier. A second copy
+		// of a file this repo does not own is a lie waiting to happen — read
+		// the daemon repo's canonical template instead, at build time, from
+		// its own source worktree (SrcDir, resolved from UMBREE_SRC_UMBREED).
+		src := filepath.Join(srcDir, "install", "install.sh.in")
+		raw, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("renderInstall %s: canonical installer template missing: %s (set UMBREE_SRC_UMBREED to the daemon source worktree): %w", comp, src, err)
+		}
+		data = []byte(strings.ReplaceAll(string(raw), "__UMBREED_VERSION__", stamp))
+	default:
+		return fmt.Errorf("renderInstall: unknown component %q", comp)
 	}
-	return fmt.Errorf("renderInstall: unknown component %q", comp)
+	return os.WriteFile(dst, data, 0o755)
 }
 
 func orchestrate(ctx context.Context, o Options) (*Result, error) {

@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="${HERE}/verify-no-env.sh"
 GO_BIN="${GO_BIN:-go}"
 command -v "${GO_BIN}" >/dev/null 2>&1 || GO_BIN=/opt/homebrew/bin/go
-UMBREE_SRC="${UMBREE_SRC:-/Volumes/MacintoshED/Workstation/Coding/Umbree/cli/code/cli}"
+: "${UMBREE_SRC:?set UMBREE_SRC to the component source worktree}"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "${TMP}/stale"
