@@ -21,19 +21,21 @@
 # console/dispatcher, and nothing to skip there.
 #
 # On --dry-run: validates the staged dir + component, then prints "would: ..."
-# for every publish action and returns — no ghp/git/ssh/scp/network writes.
+# for every publish action and returns — no GitHub/git/ssh/scp/network writes.
 #
 # Env:
-#   RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default:
+#   RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default --
 #                           this repo is public, so a default would ship the production
-#                           hostname; see umbree-git/release.dp)
+#                           hostname)
 #   STATIC_DIR             absolute static dir on that host — REQUIRED (no default,
-#                           same reason; see umbree-git/release.dp)
+#                           same reason)
 #   UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED (no default) when
 #                           distributing umbree
 #   UMBREE_SRC_UMBREED     umbreed component source worktree — REQUIRED (no default) when
 #                           distributing umbreed
 #   UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
+#   UMBREE_GH              GitHub CLI to publish with (default `gh`) — set it when
+#                           your environment provides a different one
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -76,9 +78,9 @@ done
 
 # ---- config / defaults ------------------------------------------------------
 # RELEASE_HOST / STATIC_DIR: no default. This repo is public, so a default would
-# have to be the production hostname and static path — see umbree-git/release.dp.
-RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host (see umbree-git/release.dp)}"
-STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host (see umbree-git/release.dp)}"
+# have to be the production hostname and static path. Supply both from your operator configuration.
+RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host}"
+STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host}"
 RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 
 # component source worktrees. No default: this repo is public, so a default
@@ -99,7 +101,10 @@ src_for() {
     esac
 }
 
-GHP="$(command -v ghp 2>/dev/null || echo "${HOME}/bin/ghp")"
+# The GitHub CLI to publish with. Defaults to `gh`; set UMBREE_GH when your
+# environment provides a different one (for example a wrapper that selects an
+# account per repository). This file names no tool beyond the default.
+GH_CLI="${UMBREE_GH:-gh}"
 
 # ---- distribute_only: distribution-only mode over an already-staged
 # dist/<stamp>/ (produced by `rkit build` — the produce half lives there now).
@@ -110,7 +115,7 @@ GHP="$(command -v ghp 2>/dev/null || echo "${HOME}/bin/ghp")"
 # register step — nothing to skip there.
 #
 # On --dry-run: validates the staged dir + component, then prints "would: ..."
-# for every publish action and returns — no ghp/git/ssh/scp/network writes.
+# for every publish action and returns — no GitHub/git/ssh/scp/network writes.
 distribute_only() {
     local comp="$1" stamp="$2"
     case "${comp}" in
@@ -140,7 +145,7 @@ distribute_only() {
 
     if [ "${DRY_RUN}" = 1 ]; then
         echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
-        echo "would: gh release create ${comp}/${stamp} (GitHub Release, public) via ghp"
+        echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
         echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh)"
         echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
         echo "would: scp install.sh/version.js/umbree-release.pub/site/index.html to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
@@ -159,10 +164,10 @@ distribute_only() {
         -m "${stage}/SHA256SUMS.txt" -x "${stage}/SHA256SUMS.txt.minisig" >/dev/null 2>&1 \
         || { echo "✗ staged dist is not signed by the release key — re-run 'rkit build --apple --sign-key <real key>'" >&2; exit 1; }
 
-    command -v ghp >/dev/null 2>&1 || { echo "✗ required tool not found: ghp" >&2; exit 1; }
-    [ -x "${GHP}" ] || { echo "✗ ghp wrapper not found at ${GHP}" >&2; exit 1; }
-    "${GHP}" repo view "${RELEASE_REPO}" --json name >/dev/null 2>&1 \
-        || { echo "✗ ghp cannot access ${RELEASE_REPO} — check gh.account + auth" >&2; exit 1; }
+    command -v "${GH_CLI}" >/dev/null 2>&1 \
+        || { echo "✗ GitHub CLI not found: ${GH_CLI} (set UMBREE_GH to override)" >&2; exit 1; }
+    "${GH_CLI}" repo view "${RELEASE_REPO}" --json name >/dev/null 2>&1 \
+        || { echo "✗ ${GH_CLI} cannot access ${RELEASE_REPO} — check its authentication" >&2; exit 1; }
     # Upfront reachability check — without it a down host fails fast only at the
     # scp below, AFTER the tag + GitHub Release already published.
     ssh -o BatchMode=yes -o ConnectTimeout=5 "${RELEASE_HOST}" 'true' 2>/dev/null \
@@ -213,7 +218,7 @@ Verify by hand:
   else                             echo "MISMATCH for \$f — do not install"; fi
 NOTES
 
-    ( cd "${stage}" && "${GHP}" -R "${RELEASE_REPO}" release create "${tag}" \
+    ( cd "${stage}" && "${GH_CLI}" -R "${RELEASE_REPO}" release create "${tag}" \
         --title "${comp} ${stamp}" --notes-file "${notes}" \
         "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig \
         "${REPO_ROOT}/umbree-release.pub" )

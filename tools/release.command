@@ -29,23 +29,25 @@
 # push marker, where the siblings have a single release.sh invocation. FLAGS are
 # passed to the BUILD half, which is the half that takes --public/--apple.
 #
-# Inputs live OUTSIDE this repo or are ignored by it. This file carries flow and
-# the names of its own inputs — never a host, credential, absolute machine path,
-# or component inventory:
+# Inputs live OUTSIDE this repo or are ignored by it. This repo is public, so it
+# names none of them: no host, no credential, no machine path, and no location
+# where an operator keeps either. Every one is a variable you set, with no
+# default pointing anywhere:
 #
-#   ~/.agents/local/release.env  machine facts: PATH to the toolchain, signing and
-#                             notarization backends, non-interactive flags.
-#                             Override with RELEASE_ENV.
-#   <repo>.dp                 the sealed sibling: the minisign signing key AND
-#                             this channel's RELEASE_HOST/STATIC_DIR. Unlike
-#                             clawee/burrowee, THIS repo is public and ships no
-#                             hostname default at all, so the server config is
-#                             decrypted here rather than baked into release.sh.
-#                             Override the location with DP_DIR.
-#   .release-request          what to cut, written per run. Override with
-#                             RELEASE_REQUEST. Sourced as shell. Shape:
-#                                 COMPONENTS="umbreed"
-#                                 FLAGS="--public"
+#   .release-env      a gitignored file you create in this repo (a symlink to
+#                     your real one is fine), sourced before anything else. It
+#                     puts the build and signing toolchain on PATH, selects the
+#                     signing backends, and exports the two below. Override the
+#                     location with RELEASE_ENV.
+#   RELEASE_CONFIG    exported by that file. A directory holding this channel's
+#                     sealed configuration: the signing key and the publish
+#                     destination release.sh demands and never defaults.
+#   RELEASE_IDENTITY  exported by that file. The identity that decrypts what is
+#                     in RELEASE_CONFIG.
+#   .release-request  what to cut, written per run. Override with
+#                     RELEASE_REQUEST. Sourced as shell. Shape:
+#                         COMPONENTS="umbreed"
+#                         FLAGS="--public"
 #
 # Output: .release.log, ending in RELEASE-EXIT:<code> so a watcher can block on it
 # rather than guess when the run finished. Exactly one run per log — the previous
@@ -57,7 +59,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)" || exit 1
 cd "$REPO_ROOT" || exit 1
 
 # The rest of tools/ calls git by absolute path: the per-directory PATH hook on
-# this tree strips Homebrew, and release.env rewrites PATH further down. A guard
+# this tree strips Homebrew, and the operator environment file rewrites PATH further down. A guard
 # that silently loses its git is a guard that passes.
 GIT=/usr/bin/git
 
@@ -116,8 +118,17 @@ LOCK="$LOCK_DIR"
 # 3. Environment. Loaded, never embedded. Restore IFS afterwards: everything
 #    below splits COMPONENTS and FLAGS on whitespace, and a sourced file that
 #    leaves IFS changed would silently re-split them.
-ENV_FILE="${RELEASE_ENV:-$HOME/.agents/local/release.env}"
-[ -r "${ENV_FILE}" ] || die "env file not readable: ${ENV_FILE}"
+# Defaults to a gitignored file in this repo, NOT to a path in anyone's home:
+# a public file may name its own repo-relative filenames, never where an
+# operator keeps things. Point it at your real environment file however you
+# like — a symlink is fine.
+#
+# The default matters because LaunchServices starts this with the GUI session's
+# environment, which carries none of your shell exports. Requiring RELEASE_ENV
+# to be pre-set would mean `open` could never work, which is the one way this
+# file is meant to be run.
+ENV_FILE="${RELEASE_ENV:-$REPO_ROOT/.release-env}"
+[ -r "${ENV_FILE}" ] || die "env file not readable: ${ENV_FILE} — create it (or set RELEASE_ENV); it must put the toolchain on PATH and export RELEASE_CONFIG and RELEASE_IDENTITY"
 # shellcheck source=/dev/null
 . "${ENV_FILE}"
 IFS=$' \t\n'
@@ -156,20 +167,27 @@ case " ${FLAGS} " in *" --dry-run "*) DRY=1 ;; esac
 [ "$DRY" -eq 0 ] || say "note: --dry-run — build and publish are both rehearsed, nothing is tagged, uploaded or pushed"
 
 # 5. Component sources. Derived from the committed workspace layout (siblings of
-#    this repo), never an absolute machine path in a public file. release.env or
-#    .release-request may override either one.
+#    this repo), never an absolute machine path in a public file. The operator
+#    environment or .release-request may override either one.
 BRAND_ROOT="$(cd "$REPO_ROOT/../../.." && pwd)" || die "cannot resolve the brand root above this repo"
 export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-$BRAND_ROOT/cli/code/main}"
 export UMBREE_SRC_UMBREED="${UMBREE_SRC_UMBREED:-$BRAND_ROOT/daemon/code/main}"
 
-# 6. Sealed inputs from the .dp sibling: this channel's server config and the
-#    signing key. release.sh REQUIRES RELEASE_HOST/STATIC_DIR and refuses to
-#    invent them — this repo is public, so unlike clawee/burrowee it ships no
-#    default that would publish the production hostname.
-DP_DIR="${DP_DIR:-$BRAND_ROOT/release.dp/code/main}"
-[ -d "${DP_DIR}" ] || die "sealed config repo not found: ${DP_DIR} (set DP_DIR)"
-AGE_ID="${UMBREE_AGE_IDENTITY:-$HOME/.age/umbree-release.txt}"
-[ -r "${AGE_ID}" ] || die "age identity not readable: ${AGE_ID}"
+# 6. Sealed inputs: this channel's publish destination and its signing key.
+#    release.sh REQUIRES them and refuses to invent them, because this repo is
+#    public and any default would have to be the real thing.
+#
+#    Both locations are REQUIRED with no default. A default would name where an
+#    operator keeps their secrets, which is exactly the kind of fact a public
+#    file must not carry — and a wrong default is worse than none, because it
+#    fails late instead of here.
+# No apostrophes inside ${VAR:?word}: bash parses the word with quote handling,
+# so a lone ' opens a quoted region that swallows the rest of the file and fails
+# with a syntax error hundreds of lines later.
+DP_DIR="${RELEASE_CONFIG:?set RELEASE_CONFIG to the directory holding the sealed configuration for this channel}"
+[ -d "${DP_DIR}" ] || die "RELEASE_CONFIG is not a directory: ${DP_DIR}"
+AGE_ID="${RELEASE_IDENTITY:?set RELEASE_IDENTITY to the identity file that decrypts RELEASE_CONFIG}"
+[ -r "${AGE_ID}" ] || die "RELEASE_IDENTITY is not readable: ${AGE_ID}"
 
 eval "$(age -d -i "${AGE_ID}" "${DP_DIR}/server-config.env.age")" \
     || die "cannot decrypt ${DP_DIR}/server-config.env.age"

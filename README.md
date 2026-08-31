@@ -137,13 +137,11 @@ anonymously). The static bootstrap scripts are mirrored to
 ## Keys
 
 - The minisign **public** key is committed here as `umbree-release.pub`.
-- The minisign **secret** key is age-sealed in `umbree-git/release.dp`
-  (private, local-only); the age identity lives at
-  `~/.age/umbree-release.txt`. At cut time it is decrypted to a chmod-600
-  tempfile, passed to `rkit build --sign-key`, then shredded.
+- The minisign **secret** key never appears in this repository in any form. It is
+  held encrypted by the operator, decrypted only at cut time to a mode-600
+  temporary file, passed to `rkit build --sign-key`, and destroyed afterwards.
 
-- `umbree-git/release` (PUBLIC). Trunk: `main`. gh.account: `umbree-git`.
-- Call gh via `~/bin/ghp`, never bare `gh`.
+- `umbree-git/release` (PUBLIC). Trunk: `main`.
 
 ## Status
 

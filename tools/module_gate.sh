@@ -69,7 +69,12 @@
 # pre-flight is what refuses, correctly, until the regeneration is committed.
 module_gate() {
     local suite rc log
-    for suite in test-modules.sh test-checksum-verify.sh test-install-minisign.sh sync-modules.test.sh; do
+    # public-hygiene.sh is wired here rather than left to review because this
+    # exact drift already happened twice: internal references were removed by
+    # hand and came back, since nothing failed when they did. A cut is the last
+    # moment before the tree is signed and published, and publishing is what
+    # makes a leak permanent — history keeps it even after HEAD is corrected.
+    for suite in test-modules.sh test-checksum-verify.sh test-install-minisign.sh sync-modules.test.sh public-hygiene.sh; do
         [ -f "${REPO_ROOT}/tools/${suite}" ] \
             || { echo "✗ module gate: ${suite} is missing from tools/" >&2; exit 1; }
         echo "→ module gate: ${suite}" >&2
