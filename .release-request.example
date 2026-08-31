@@ -1,7 +1,7 @@
 # Copy to .release-request (gitignored) and edit, then: open tools/release.command
 #
 # FORMAT. This file is `.`-sourced as bash by tools/release.command, after
-# release.env has already set PATH — so it is code, not config, and anything you
+# .release-env has already set PATH — so it is code, not config, and anything you
 # write here executes with the toolchain on PATH. One NAME="value" per line;
 # `#` comments and blank lines are fine. LF endings only: a CRLF copy leaves a
 # trailing \r inside the last value, and the cut aborts on a component name it

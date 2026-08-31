@@ -5,11 +5,13 @@ OPERATOR-ACTIVATION** — none runs as part of CI or the release script; do them
 once by hand on the host, then `tools/release.sh --distribute-only` keeps the
 static surface in sync on each release.
 
-Host: `<RELEASE_HOST>` (the same box that fronts the console / umbree-web /
-burree / `release.burrowee.com` / `release.clawee.org`; real value is the
-`RELEASE_HOST` in `umbree-git/release.dp`). Static surface: `<STATIC_DIR>`
-(matches `STATIC_DIR` in `tools/release.sh`; real value also in
-`umbree-git/release.dp`). Edge: Cloudflare, **Full (strict)** mode.
+Host: `<RELEASE_HOST>`. Static surface: `<STATIC_DIR>` (matches `STATIC_DIR` in
+`tools/release.sh`). Edge: Cloudflare, **Full (strict)** mode.
+
+Both placeholders are supplied by the operator at cut time and are deliberately
+absent from this repo. Naming the origin here would let anyone reach it directly
+and skip Cloudflare — which is the protection it is behind Cloudflare for — and
+listing what else the box serves would turn one disclosure into a map.
 
 The nginx vhost is `ops/nginx/release.umbree.org.conf`.
 
@@ -34,7 +36,7 @@ place on the origin (step 3) before the SSL mode will succeed.
 # OPERATOR, on the release host:
 sudo cp ops/nginx/release.umbree.org.conf \
         /etc/nginx/sites-enabled/release.umbree.org.conf
-sudo mkdir -p <STATIC_DIR>   # the real value is STATIC_DIR in umbree-git/release.dp
+sudo mkdir -p <STATIC_DIR>   # supplied by the operator
 ```
 
 Do **not** add `default_server` to this vhost — another sites-enabled file
@@ -56,8 +58,7 @@ sudo /snap/bin/certbot certonly \
 ```
 
 `<CF_CREDENTIALS_INI>` is the Cloudflare DNS API-token ini file for certbot's
-DNS-01 plugin; the real path is sealed in `umbree-git/release.dp`, never
-committed here.
+DNS-01 plugin; the real path is held by the operator and never committed here.
 
 Then point the `ssl_certificate` / `ssl_certificate_key` placeholders in the
 vhost at the issued paths (`/etc/letsencrypt/live/release.umbree.org/{fullchain,privkey}.pem`

@@ -19,3 +19,4 @@ tools/testkeys/test.key
 .release.log
 .release.log.prev
 .release.lock/
+.release-env
