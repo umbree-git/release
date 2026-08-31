@@ -58,7 +58,7 @@
 #
 #     bash tools/release.sh --distribute-only <comp> <stamp>
 #
-# run by hand, with RELEASE_HOST/STATIC_DIR sourced from the sealed .dp sibling.
+# run by hand, with RELEASE_HOST/STATIC_DIR sourced from the sealed configuration.
 # --distribute-only is recognised only as release.sh's FIRST argument, because it
 # takes its component and stamp positionally — so it cannot be expressed in FLAGS.
 

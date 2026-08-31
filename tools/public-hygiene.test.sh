@@ -49,6 +49,7 @@ probe() {
 echo "# each forbidden class is caught"
 probe "internal GitHub wrapper"  'Call gh via ~/bin/ghp, never bare gh.'            catch
 probe "private secrets repo"     'sealed in umbree-git/release.dp (private)'        catch
+probe "bare secrets-repo suffix" 'decrypted from the sealed `.dp` sibling'      catch
 probe "internal policy tree"     'source ~/.agents/local/release.env'               catch
 probe "release env file"         'release.env sets PATH'                            catch
 probe "decrypt identity"         'age -d -i ~/.age/umbree-release.txt'              catch
