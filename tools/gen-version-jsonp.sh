@@ -26,7 +26,7 @@ set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 CALLBACK="${UMBREE_VERSION_CALLBACK:-__umbreeVersion}"
-R2_BASE="${UMBREE_R2_DOWNLOADS_BASE:-}"
+R2_BASE="${UMBREE_R2_DOWNLOADS_BASE:-https://downloads.umbree.org}"
 
 COMPS="$*"
 # A bare invocation is a human regenerating everything (release.sh always
