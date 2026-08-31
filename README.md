@@ -242,8 +242,15 @@ anonymously). The static bootstrap scripts are mirrored to
 
 ## Status
 
-Built on release-kit. `umbree` is LIVE — latest cut v0.1.5 (signed+notarized,
-GitHub-hosted); release.umbree.org serving from the release host (see
-`ops/README.md`). `umbreed` tooling is in
-place (this repo builds, tags, and publishes it) but no `umbreed` release has
-been cut yet.
+Built on release-kit. Both components are LIVE — signed, notarized and
+published through this repo, with release.umbree.org serving from the release
+host (see `ops/README.md`).
+
+| Component | Latest cut |
+|---|---|
+| `umbree` (client) | `v0.1.8.2026.08.31.46b36734` |
+| `umbreed` (exit daemon) | `v0.1.1.2026.08.31.fde2705e` |
+
+Prose lags. `versions/<component>`, the `umbreed/…` and `umbree/…` tags, and the
+`[RELEASED: <component>]` marker commits are the authority on what has shipped —
+this section said no `umbreed` release existed for as long as two of them did.
