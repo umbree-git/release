@@ -314,7 +314,7 @@ NOTES
         scp -q "${REPO_ROOT}/site/index.html" "${RELEASE_HOST}:${STATIC_DIR}/index.html"
     fi
 
-    # (3) marker commit.
+    # (4) marker commit.
     git add "versions/${comp}" "${comp}/install.sh" "${comp}/version.js"
     git commit --allow-empty -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
 
