@@ -122,7 +122,8 @@ Building and publishing are two separate steps:
   run it from a shell — it refuses anything but an Aqua session, a non-root user,
   a non-SSH session and a real terminal). It reads what to cut from a gitignored
   `.release-request` (copy `.release-request.example`), decrypts this channel's
-  `RELEASE_HOST`/`STATIC_DIR` and signing key from the sealed `.dp` sibling, and
+  `RELEASE_HOST`/`STATIC_DIR` and signing key from the operator's sealed
+  configuration, and
   pushes each `[RELEASED: <comp>]` marker before the next component starts —
   the pre-flight refuses to cut while this repo is ahead of its remote, so an
   unpushed marker aborts the following component. Output goes to `.release.log`,

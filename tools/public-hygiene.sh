@@ -33,7 +33,11 @@ GIT=/usr/bin/git
 # fires, so it says what is wrong, not merely what matched.
 PATTERNS=(
   "internal GitHub wrapper|(^|[^A-Za-z0-9_-])(ghp|ghacct)([^A-Za-z0-9_-]|$)"
-  "private secrets repo|[A-Za-z0-9_-]+\.dp([^A-Za-z0-9]|$)"
+  # The name may appear bare (`.dp`) as well as qualified (`<repo>.dp`). The
+  # first version of this pattern required a word character in front, so a
+  # backticked bare `.dp` walked straight through it — in this repo's own
+  # README, added by the same change that introduced the gate.
+  "private secrets repo|(^|[^A-Za-z0-9])[A-Za-z0-9_-]*\.dp([^A-Za-z0-9]|$)"
   "internal agent/policy tree|\.agents/|agents/local"
   "internal release env file|release\.env"
   "decrypt identity path|\.age/"
