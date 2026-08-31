@@ -20,7 +20,7 @@ directly.
 ```sh
 # Client
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.sh | sh
-# Daemon (run AS YOUR USER — it escalates with sudo only for the one step that needs root)
+# Daemon (run AS YOUR USER — it escalates with sudo only for the steps that need root)
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
 ```
 
@@ -113,6 +113,20 @@ Building and publishing are two separate steps:
   a staged `dist/<stamp>/`: GitHub Release on this repo, bootstrap + `version.js`
   render, scp to the static host, `[RELEASED]` marker commit. There is no
   shell build path — `rkit build` is the only builder.
+- **`tools/release.command`** runs those two steps, for one or more components,
+  in a **desktop session** — and that is not a convenience. `rcodesign` signs in
+  any session, but `notarytool` reaches Apple through frameworks that need a
+  per-user bootstrap namespace: from a background or daemon-hosted shell it dies
+  with no submission id, and the cut can only report `status: unknown`, which
+  reads like a vendor outage and is not one. `open tools/release.command` (do not
+  run it from a shell — it refuses anything but an Aqua session, a non-root user,
+  a non-SSH session and a real terminal). It reads what to cut from a gitignored
+  `.release-request` (copy `.release-request.example`), decrypts this channel's
+  `RELEASE_HOST`/`STATIC_DIR` and signing key from the sealed `.dp` sibling, and
+  pushes each `[RELEASED: <comp>]` marker before the next component starts —
+  the pre-flight refuses to cut while this repo is ahead of its remote, so an
+  unpushed marker aborts the following component. Output goes to `.release.log`,
+  ending in `RELEASE-EXIT:<code>`.
 
 Built binaries for the private component sources (`umbree-git/cli` for
 `umbree`, `umbree-git/daemon` for `umbreed`) are published as **GitHub

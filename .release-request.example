@@ -1,0 +1,66 @@
+# Copy to .release-request (gitignored) and edit, then: open tools/release.command
+#
+# FORMAT. This file is `.`-sourced as bash by tools/release.command, after
+# release.env has already set PATH — so it is code, not config, and anything you
+# write here executes with the toolchain on PATH. One NAME="value" per line;
+# `#` comments and blank lines are fine. LF endings only: a CRLF copy leaves a
+# trailing \r inside the last value, and the cut aborts on a component name it
+# cannot match. Only COMPONENTS and FLAGS are read — a mistyped FLAG= is not an
+# error, it is silently ignored, and the run proceeds as if you had set nothing.
+#
+# COMPONENTS — one or both of: umbreed umbree
+#
+#     umbree    the CLI (source: the cli repo's main worktree)
+#     umbreed   the home-exit daemon (source: the daemon repo's main worktree)
+#
+# Cut in order. Each one's marker commit is pushed before the next starts.
+# That matters more here than in the sibling channels: this repo's own pre-flight
+# refuses to cut while the release repo is ahead of its remote, so an unpushed
+# marker does not merely confuse the next component — it ABORTS it.
+#
+# `all` is not accepted. List the components instead. Unknown names are refused
+# before anything is built.
+#
+# Cut only what CHANGED. A component whose source has not moved since its last
+# cut resolves to the same stamp, whose tag already exists, and is refused —
+# that is a no-op, not a failure to work around. Drop it from COMPONENTS.
+#
+# FLAGS — passed to the BUILD half (`rkit build`), which is the half that signs.
+# Unlike clawee/burrowee, publishing here is a separate `--distribute-only` step
+# the launcher runs for you; it takes no flags from this file. Accepted:
+#
+#     --public        Developer-ID signing + notarization AND the CVE gate.
+#                     The standard ship path. (--public-release is an alias.)
+#     --apple         Developer-ID signing + notarization, CVE gate still on —
+#                     the gate is ON BY DEFAULT in this repo, which is the
+#                     opposite of clawee's --vulncheck opt-in. Do not port that
+#                     habit across.
+#     --no-vulncheck  skip the CVE gate. Offline rehearsals only.
+#     --dry-run       build without bumping the version or needing a real key,
+#                     then rehearse the publish half too ("would: ..." only).
+#                     Nothing is tagged, uploaded, marked or pushed.
+#     --bump-patch    move the patch version before building
+#     --bump-minor    move the minor (prompts unless UMBREE_RELEASE_YES=1)
+#     --bump-major    move the major (same prompt)
+#
+# Leaving FLAGS empty is not "defaults", it is a trap: the build still signs with
+# the minisign release key and still runs the CVE gate, but it does NOT
+# Developer-ID sign or notarize — so it publishes a macOS binary to the PUBLIC
+# channel that Gatekeeper will refuse. Say what you want.
+#
+# VERSIONS. A component's FIRST cut takes NO bump flag — versions/<comp> is
+# seeded at the version it should ship (umbreed is seeded 0.1.0). Adding
+# --bump-patch to a first cut silently ships 0.1.1 and leaves 0.1.0 never
+# released. Every LATER cut needs a bump flag, or the stamp is unchanged and the
+# tag already exists.
+#
+# Republishing an already-staged dist/<stamp>/ is NOT a launcher path:
+#
+#     bash tools/release.sh --distribute-only <comp> <stamp>
+#
+# run by hand, with RELEASE_HOST/STATIC_DIR sourced from the sealed .dp sibling.
+# --distribute-only is recognised only as release.sh's FIRST argument, because it
+# takes its component and stamp positionally — so it cannot be expressed in FLAGS.
+
+COMPONENTS="umbreed"
+FLAGS="--public"
