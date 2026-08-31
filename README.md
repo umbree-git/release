@@ -7,20 +7,99 @@ installer).
 
 Two components are published here:
 
-| Component | Binary | What it is | Cross-channel dependency |
-|---|---|---|---|
-| `umbree` | `umbree` | the Umbree command-line client | `burrowee-cli` (from `release.burrowee.com/cli`) when missing |
-| `umbreed` | `umbreed` | the Umbree home-exit daemon + its boot service | none — self-contained |
+| Component | Binary | Runs on | What it is | Cross-channel dependency |
+|---|---|---|---|---|
+| `umbree` | `umbree` | your machine | the command-line client — a local SOCKS5 listener that routes by your rules | `burrowee-cli` (from `release.burrowee.com/cli`), installed for you when missing |
+| `umbreed` | `umbreed` | a server you control | the home-exit daemon — the far end your traffic leaves from | **`burrowee-gateway` must already be installed and running on that server.** Not installed for you |
 
 There is **no universal dispatcher** — each component's binary is invoked
 directly.
 
+**The gateway is a hard prerequisite, not a nicety.** `umbreed` reaches the
+gateway through a root-owned socket inside the gateway's own data directory. On
+a server where no gateway is installed there is nothing to connect to: the
+daemon starts, finds no socket, and retries — so `systemctl`/`launchctl` report
+it active and `umbreed service status` reports it installed while it carries no
+traffic at all. Install the gateway first (`release.burrowee.com/gateway`);
+`umbreed`'s installer does not do it for you and does not check.
+
+## Quick start
+
+Two machines, in this order. The exit has to exist before a client can be
+pointed at it.
+
+### 1. On the server — the exit
+
+Needs a working `burrowee-gateway` on the same box first (see the table above).
+
+```sh
+# Confirm the gateway is installed before installing anything. Check for the
+# binary rather than running it — this box is already serving through it.
+command -v burrowee-gateway
+
+# Then the exit daemon. Run it AS YOUR USER, never under sudo:
+# it escalates only for the two steps that need root.
+curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
+
+umbreed service status     # is the boot unit installed
+umbreed devices list       # empty for now — no client has knocked yet
+```
+
+### 2. On your machine — the client
+
+```sh
+curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.sh | sh
+```
+
+Then pair it in the control plane: open **Devices**, name the device, pick a
+bundle, press **Pair**, and run the command it hands you on the machine itself:
+
+```sh
+umbree setup <bundle-b64> <passcode>
+umbree                     # opens a SOCKS5 listener on 127.0.0.1:1080
+```
+
+The passcode is shown once and expires.
+
+### 3. Pair the client to the exit
+
+Installing both is not enough — the exit does not accept a client it has never
+been told about. The first time your client reaches the exit it is recorded as
+**pending**, identified by its key fingerprint, and carries no traffic yet.
+
+Back on the server:
+
+```sh
+umbreed devices list                 # the client now shows as: pending  <fp>  <label>
+umbreed devices approve <fp>         # promote it
+```
+
+`list` shows approved and pending side by side, so the fingerprint you approve
+is the one you just saw arrive — compare it against what the client reports
+rather than approving whatever is newest.
+
+To undo, `umbreed devices revoke <fp>`.
+
+### 4. Check it worked
+
+From the client:
+
+```sh
+umbree status                      # is it running, on which ports
+umbree probe example.com           # where would this domain go, and why
+curl --socks5-hostname 127.0.0.1:1080 https://api.ipify.org
+```
+
+`probe` explains the route your rules produce and touches nothing. The `curl`
+should answer with the exit's address rather than your own — if it answers with
+your own, `probe` will already have told you a rule sends that domain direct.
+
 ## Install
 
 ```sh
-# Client
+# Client — on your machine
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.sh | sh
-# Daemon (run AS YOUR USER — it escalates with sudo only for the steps that need root)
+# Exit daemon — on the server, AS YOUR USER (it escalates only where it must)
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
 ```
 
@@ -41,12 +120,29 @@ verifier.
   An uninstall (`UMBREE_UNINSTALL=1`) never touches your package manager; if
   it had to fetch the pinned `minisign` build to verify its payload, that
   single file stays in the bin directory afterwards.
-- **umbreed** lands its binary in `$HOME/.local/bin` (override with `PREFIX`),
-  then installs + loads a system boot unit (`/Library/LaunchDaemons` on
-  macOS, `/etc/systemd/system` on Linux) — the only step that needs root; the
-  daemon itself never runs as root. `UMBREED_NO_SERVICE=1` installs the
-  binary only, skipping the service entirely. `UMBREED_UNINSTALL=1` unloads
-  and removes the service, then the binary.
+- **umbreed** is the sudo-minimal daemon installer. Run it **as your user**,
+  never under `sudo`. It escalates for exactly two steps:
+
+  1. the root-owned `umbreed` binary in `/usr/local/bin` — a boot unit that
+     runs as root must not name a path an ordinary account can rewrite, so the
+     installer refuses a destination that is not root-owned and unwritable all
+     the way up;
+  2. the system boot unit (`/Library/LaunchDaemons` on macOS,
+     `/etc/systemd/system` on Linux).
+
+  **The daemon runs as root, and its data stays yours.** It has to: the
+  gateway's register socket is root-owned inside a directory only root can
+  enter, so a daemon running as you cannot open it — it would retry forever
+  while every status command reported healthy. The unit therefore names no
+  user, and stamps `HOME` to the account that installed it. Everything the
+  daemon then creates under that home — `~/.umbree`, its logs, its data
+  directory and the device trust store — is handed to you, so
+  `umbreed devices list|approve` works unprivileged, as you. `sudo` is not the
+  answer to a permissions error there; report it instead.
+
+  `UMBREED_NO_SERVICE=1` installs the binary only, into `$HOME/.local/bin`
+  (override with `PREFIX`), with no elevation and no unit. `UMBREED_UNINSTALL=1`
+  unloads and removes the service, then the binary.
 
 ## Verify by hand
 
