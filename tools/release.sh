@@ -16,9 +16,11 @@
 #   2. regenerates the outer bootstrap + version JSONP and scp's the static
 #      surface (install.sh, version.js, umbree-release.pub, site/index.html) to
 #      the release host.
-#   3. records a [RELEASED: <comp>] marker commit.
-# umbree hosts its zips on GitHub Releases — there is no R2 mirror, no
-# console/dispatcher, and nothing to skip there.
+#   3. mirrors the artifacts to the R2 download mirror and rewrites its catalog,
+#      when the mirror is configured — skipped, loudly, when it is not.
+#   4. records a [RELEASED: <comp>] marker commit.
+# GitHub Releases host the zips and stay primary; the R2 mirror is a fallback
+# and the source of the published-stamp catalog. There is no console/dispatcher.
 #
 # On --dry-run: validates the staged dir + component, then prints "would: ..."
 # for every publish action and returns — no GitHub/git/ssh/scp/network writes.
@@ -36,6 +38,10 @@
 #   UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
 #   UMBREE_GH              GitHub CLI to publish with (default `gh`) — set it when
 #                           your environment provides a different one
+#   UMBREE_R2_ACCOUNT      Cloudflare account id for the download mirror. Unset =
+#                           the mirror is skipped and GitHub remains the only channel
+#   UMBREE_R2_CREDS        path to the R2 S3 credentials TOML. Unset = same skip
+#   UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -106,6 +112,70 @@ src_for() {
 # account per repository). This file names no tool beyond the default.
 GH_CLI="${UMBREE_GH:-gh}"
 
+# ---- mirror_r2 <comp> <stamp> <stage> ---------------------------------------
+# Uploads the staged artifacts to the R2 download mirror and rewrites
+# <comp>/latest.json, the catalog gen-version-jsonp.sh reads for the published
+# stamp. GitHub Releases remain the primary, authoritative channel — this is a
+# fallback mirror, not a second source of truth.
+#
+# Config. All of it is the operator's; this repo names no account, no
+# credential and no path on anyone's machine:
+#
+#   UMBREE_R2_ACCOUNT   Cloudflare account id — REQUIRED to mirror
+#   UMBREE_R2_CREDS     path to the R2 S3 credentials TOML — REQUIRED to mirror
+#   UMBREE_R2_BUCKET    bucket name (default: umbree-downloads — the bucket is
+#                       public by design, so naming it here leaks nothing)
+#
+# UNCONFIGURED IS A SKIP, NOT A FAILURE. Until the mirror is set up, a cut
+# behaves exactly as it did before this function existed: it says so and
+# carries on, because GitHub is where the binaries actually come from.
+#
+# CONFIGURED BUT FAILING IS A STOP. Once an operator has said "mirror this",
+# a silent half-publish is the bad outcome: the GitHub release exists, the
+# catalog still advertises the PREVIOUS stamp, and version.js would be
+# regenerated from that stale catalog — publishing a page that names an older
+# release than the one just cut. Clawee learned this on 2026-08-20; the same
+# reasoning applies here, and the recovery is spelled out rather than left to
+# be rediscovered mid-incident.
+mirror_r2() {
+    local comp="$1" stamp="$2" stage="$3"
+    local account bucket creds semver
+    account="${UMBREE_R2_ACCOUNT:-}"
+    creds="${UMBREE_R2_CREDS:-}"
+    bucket="${UMBREE_R2_BUCKET:-umbree-downloads}"
+    semver="$(cat "${REPO_ROOT}/versions/${comp}")"
+
+    if [ -z "${account}" ] || [ -z "${creds}" ]; then
+        echo "⚠ R2 mirror skipped: UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS not set — GitHub Releases are published and remain primary" >&2
+        return 0
+    fi
+    if [ ! -f "${creds}" ]; then
+        echo "⚠ R2 mirror skipped: credentials file not found — GitHub Releases are published and remain primary" >&2
+        return 0
+    fi
+
+    echo "→ mirroring ${comp} ${stamp} → R2 bucket ${bucket}" >&2
+    if ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run . \
+            --account "${account}" --bucket "${bucket}" \
+            --stage-dir "${stage}" --comp "${comp}" \
+            --version "${semver}" --stamp "${stamp}" \
+            --creds "${creds}" >&2 ); then
+        echo "✓ mirrored ${comp} (catalog updated)" >&2
+        return 0
+    fi
+
+    echo "✗ R2 mirror FAILED for ${comp} ${stamp} — stopping the distribute here." >&2
+    echo "  State: the GitHub release IS published; the catalog did NOT update;" >&2
+    echo "  version.js, the bootstraps, the scp to the release host and the" >&2
+    echo "  [RELEASED] marker commit did NOT run." >&2
+    echo "  This cannot simply be re-run: --distribute-only refuses a tag it has" >&2
+    echo "  already created, and the GitHub release for that tag now exists." >&2
+    echo "  Recover by hand — re-run the mirror with the arguments above, then" >&2
+    echo "  tools/gen-bootstraps.sh, tools/gen-version-jsonp.sh ${comp}, the scp," >&2
+    echo "  and the marker commit." >&2
+    exit 1
+}
+
 # ---- distribute_only: distribution-only mode over an already-staged
 # dist/<stamp>/ (produced by `rkit build` — the produce half lives there now).
 # Runs ONLY: tag + GitHub Release -> gen-bootstraps.sh -> gen-version-jsonp.sh ->
@@ -146,6 +216,7 @@ distribute_only() {
     if [ "${DRY_RUN}" = 1 ]; then
         echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
         echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
+        echo "would: mirror ${comp} to the R2 download mirror (when configured)"
         echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh)"
         echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
         echo "would: scp install.sh/version.js/umbree-release.pub/site/index.html to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
@@ -223,7 +294,11 @@ NOTES
         "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig \
         "${REPO_ROOT}/umbree-release.pub" )
 
-    # (2) regenerate bootstraps + version JSONP, then scp the static surface.
+    # (2) mirror to R2. Must run BEFORE gen-version-jsonp.sh, which reads the
+    # catalog this writes to learn the published stamp.
+    mirror_r2 "${comp}" "${stamp}" "${stage}"
+
+    # (3) regenerate bootstraps + version JSONP, then scp the static surface.
     bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
     bash "${REPO_ROOT}/tools/gen-version-jsonp.sh" "${comp}" >&2
 
