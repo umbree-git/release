@@ -1,1 +1,1 @@
-__umbreeVersion({"component":"umbree","version":"0.1.6","stamp":""});
+__umbreeVersion({"component":"umbree","version":"0.1.7","stamp":""});
