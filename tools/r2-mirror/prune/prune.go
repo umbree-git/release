@@ -18,12 +18,12 @@ import (
 	"strings"
 )
 
-// Retention per channel: stable keeps the newest 10 stamps (the same number
-// the burrowee and clawee mirrors use); beta keeps 1 — a beta is disposable,
-// cutting a new one expires the previous, and there is no artifact-level
-// rollback to it.
+// Retention per channel: stable keeps the newest 3 stamps; beta keeps 1 —
+// a beta is disposable, cutting a new one expires the previous, and there
+// is no artifact-level rollback to it. tools/retain-permanent pins are kept
+// in addition to this window.
 const (
-	DefaultKeepStable = 10
+	DefaultKeepStable = 3
 	DefaultKeepBeta   = 1
 )
 
@@ -91,6 +91,11 @@ func chOf(segment string) string {
 // deletions are written to out as "would delete <key>" lines and counted.
 // Returns the number of objects deleted (execute=true) or that would be.
 func Prune(ctx context.Context, store Store, comp, channel string, keep int, execute bool, out io.Writer) (int, error) {
+	return PruneProtect(ctx, store, comp, channel, keep, execute, out, nil)
+}
+
+// PruneProtect is Prune with a permanent-pin set. protect may be nil.
+func PruneProtect(ctx context.Context, store Store, comp, channel string, keep int, execute bool, out io.Writer, protect map[string]struct{}) (int, error) {
 	if out == nil {
 		out = io.Discard
 	}
@@ -146,6 +151,10 @@ func Prune(ctx context.Context, store Store, comp, channel string, keep int, exe
 
 	deleted := 0
 	for _, stamp := range drop {
+		if Protected(protect, comp, stamp) {
+			fmt.Fprintf(out, "  keep permanent %s/%s\n", comp, stamp)
+			continue
+		}
 		// Sort each stamp's keys so a run's output is stable and diffable.
 		sort.Strings(byStamp[stamp])
 		for _, key := range byStamp[stamp] {

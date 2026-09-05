@@ -206,6 +206,22 @@ r2_configured() {
     [ -n "${UMBREE_R2_ACCOUNT:-}" ] && [ -n "${UMBREE_R2_CREDS:-}" ] && [ -f "${UMBREE_R2_CREDS}" ]
 }
 
+# apply_retention COMP CHANNEL — GitHub (or beta tags) first, then R2.
+# Order is load-bearing: Clawee/Umbree GitHub prune skips tags not on R2.
+# `|| true`: a retention failure must not fail a publish whose artifacts
+# are already public. env -u KEEP so a leftover KEEP=1 cannot shrink the window.
+apply_retention() {
+    local comp="$1" channel="$2"
+    echo
+    echo "→ retention (applying ${channel}):"
+    env -u KEEP CHANNEL="${channel}" COMPONENTS="${comp}" \
+        bash "${REPO_ROOT}/tools/prune-releases.sh" --execute || true
+    if r2_configured; then
+        ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run ./cmd/r2-prune \
+            --comp "${comp}" --channel "${channel}" --execute ) || true
+    fi
+}
+
 # require_r2 — beta is R2-only: an unconfigured mirror is a refusal, not a
 # skip. Runs BEFORE the tag is created so a refused beta leaves no trace.
 require_r2() {
@@ -490,6 +506,8 @@ NOTES
     stage_beta_twin_sweep
     git commit --allow-empty -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
 
+    apply_retention "${comp}" stable
+
     echo "✓ distributed ${tag}"
     echo "  Release: https://github.com/${RELEASE_REPO}/releases/tag/${tag}"
 }
@@ -569,6 +587,8 @@ publish_beta() {
     # (4) marker commit.
     git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.version.js"
     git commit --allow-empty -m "[RELEASED: ${comp} beta] $(date -u +%Y-%m-%d) ${stamp} (private)"
+
+    apply_retention "${comp}" beta
 
     echo "✓ published beta ${tag} (R2-only; no GitHub Release)"
     echo "  Install: curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/${comp}/beta.install.sh | sh"
