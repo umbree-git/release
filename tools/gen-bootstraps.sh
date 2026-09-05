@@ -38,8 +38,9 @@
 # BETA TWIN: for every component this also renders <comp>/beta.install.sh —
 # the SAME template with @CHANNEL@=beta and the floor read from
 # versions/<comp>.beta.stamp. That file's PRESENCE is what renders the twin:
-# when it is absent the twin is not rendered, and any beta.*.sh left over from
-# a since-closed cycle is DELETED — the LOCAL copy, and only that: this script
+# when it is absent the twin is not rendered, and any beta.*.sh — and the
+# beta.version.js gen-version-jsonp.sh renders beside it — left over from a
+# since-closed cycle is DELETED — the LOCAL copy, and only that: this script
 # never touches the release host, so a beta.install.sh already served from
 # there keeps resolving the last beta until an operator removes it by hand
 # (tools/RUNBOOK.md "Close a cycle"). Two files gate the one state, one per
@@ -203,7 +204,7 @@ for comp in $COMPONENTS; do
             beta_stamp="$ROOT/versions/${comp}.beta.stamp"
             if [ ! -f "$beta_stamp" ]; then
                 stale=""
-                for f in "$ROOT/$comp"/beta.*.sh; do
+                for f in "$ROOT/$comp"/beta.*.sh "$ROOT/$comp/beta.version.js"; do
                     [ -e "$f" ] || continue   # glob matched nothing
                     rm -f "$f"
                     stale="$stale $(basename "$f")"

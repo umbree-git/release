@@ -760,6 +760,33 @@ func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
 	}
 }
 
+// TestBuildRunRevertsBumpAfterFailedBuild: a REAL (non-dry-run) --bump-patch
+// build that fails after the bump — here at compile, on a tree whose main
+// package does not build — must restore versions/<comp> to its committed
+// value, on a fixture with NO versions/<comp>.beta (the normal state). The
+// dry-run revert test cannot catch this: a dry run never bumps.
+func TestBuildRunRevertsBumpAfterFailedBuild(t *testing.T) {
+	repo := t.TempDir()
+	writeFixtureModule(t, repo) // versions/umbree = 0.1.0, no .beta
+	mustWriteFile(t, filepath.Join(repo, "cmd", "umbree", "main.go"), "package main\n\nfunc main() { this does not compile }\n")
+	commitAll(t, repo, "break the build")
+	key := filepath.Join(t.TempDir(), "key")
+	mustWriteFile(t, key, "stat-only")
+	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
+		Bump: "patch", NoVulncheck: true, SignKey: key})
+	if err == nil {
+		t.Fatal("a build of a tree that does not compile must fail")
+	}
+	got, _ := os.ReadFile(filepath.Join(repo, "versions", "umbree"))
+	if string(got) != "0.1.0\n" {
+		t.Fatalf("versions/umbree = %q after a failed build, want the committed 0.1.0 (revert did not fire)", got)
+	}
+	out, _ := exec.Command("git", "-C", repo, "status", "--porcelain", "versions").CombinedOutput()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("versions/ not clean after a failed build: %q", out)
+	}
+}
+
 // TestBuildRunBetaStampsBetaScheme: a beta build lands under
 // dist/v<beta-semver>.beta.<date>.<sha>/ and, on --dry-run, restores BOTH
 // version files.

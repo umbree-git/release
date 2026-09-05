@@ -18,7 +18,7 @@ FAKE_STAMP="$ROOT/versions/umbree.beta.stamp"
 [ ! -e "$FAKE_STAMP" ] || { echo "SKIP-REFUSED: $FAKE_STAMP exists — a beta cycle is open; this suite fabricates that file and will not touch a real one"; exit 1; }
 # Restore on every exit path: the committed stable renders and NO twin.
 cleanup() {
-    rm -f "$FAKE_STAMP" "$ROOT/umbree/beta.install.sh"
+    rm -f "$FAKE_STAMP" "$ROOT/umbree/beta.install.sh" "$ROOT/umbree/beta.version.js"
     ( cd "$ROOT" && git checkout -q -- umbree/install.sh umbreed/install.sh 2>/dev/null ) || true
 }
 trap cleanup EXIT
@@ -58,11 +58,14 @@ check_lacks "umbreed (no stamp) got no twin" "$(ls "$ROOT/umbreed")" "beta.insta
 stable_again="$(cat "$ROOT/umbree/install.sh")"
 [ "$stable_again" = "$stable" ] && echo "ok: the stable render is unchanged by an open cycle" || { echo "FAIL: stable render changed when the twin was rendered"; fail=1; }
 
-echo "# the twin is swept when the stamp goes"
+echo "# the twin is swept when the stamp goes (beta.version.js with it)"
 rm -f "$FAKE_STAMP"
+printf 'x\n' > "$ROOT/umbree/beta.version.js"
 out="$("$ROOT/tools/gen-bootstraps.sh" 2>&1)" || { echo "FAIL: generator exited non-zero on the sweep: $out"; fail=1; }
 check_contains "sweep says what it removed" "$out" "removed stale: beta.install.sh"
 check_lacks "twin is gone" "$(ls "$ROOT/umbree")" "beta.install.sh"
+check_contains "sweep also removes beta.version.js" "$out" "beta.version.js"
+check_lacks "beta.version.js is gone" "$(ls "$ROOT/umbree")" "beta.version.js"
 
 echo "# tree clean"
 cleanup

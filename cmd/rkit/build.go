@@ -213,13 +213,15 @@ func buildRun(o buildOpts) (err error) {
 	// --dry-run — a dry run must never leave a bumped versions/<comp> behind.
 	// Registered BEFORE the bump step below so it also covers the bump
 	// step's own failure (version.sh writes the file then `git add` fails).
-	// Both channels' files are restored: restoring one that did not change
-	// is a no-op, and naming the channel's file alone would leave the other
-	// behind the day the two are ever staged together.
+	// Both channels' files are restored, EACH IN ITS OWN CALL: git aborts a
+	// restore whose pathspec matches nothing tracked, and versions/<comp>.beta
+	// is untracked whenever no cycle is open — one combined call would then
+	// restore neither and leave a stable bump staged after a failed build.
 	defer func() {
 		if err != nil || o.DryRun {
-			exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "--",
-				"versions/"+o.Component, "versions/"+o.Component+".beta").Run()
+			for _, f := range []string{"versions/" + o.Component, "versions/" + o.Component + ".beta"} {
+				exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "--", f).Run()
+			}
 		}
 	}()
 

@@ -297,6 +297,11 @@ latest_stamp() {
 # stable does, then install the NEWEST of the two comparing X.Y.Z, tie to
 # stable (beta_channel_pick) — that tie is graduation: a beta host installs
 # the stable release its cycle became without ever changing channel.
+# A pin is the operator's explicit choice: it is not floored, and on stable
+# it is not shape-checked (unchanged from before the beta channel existed) —
+# which means pinning a beta tag through plain install.sh now fetches that
+# beta from the downloads mirror instead of 404ing on GitHub. Still
+# signature-verified, still explicit; the twin below is stricter.
 PIN="${UMBREE_VERSION:-}"
 if [ -n "$PIN" ]; then
     TAG="$PIN"

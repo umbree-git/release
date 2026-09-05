@@ -544,7 +544,11 @@ publish_beta() {
     # beta has no Release, so the push is explicit.
     local tag="${comp}/${stamp}"
     create_tag "${comp}" "${stamp}"
-    git push origin "refs/tags/${tag}"
+    git push origin "refs/tags/${tag}" || {
+        git tag -d "${tag}" >/dev/null 2>&1 || true
+        echo "✗ could not push tag ${tag} — nothing published; the local tag was removed so a re-run starts clean" >&2
+        exit 1
+    }
 
     # (2) R2 — artifacts, then <comp>/beta/latest.json last (r2-mirror).
     mirror_r2 "${comp}" "${stamp}" "${stage}" beta

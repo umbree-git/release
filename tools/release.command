@@ -147,7 +147,7 @@ say "env: ${ENV_FILE}"
 # 4. Request.
 REQUEST="${RELEASE_REQUEST:-$REPO_ROOT/.release-request}"
 [ -r "${REQUEST}" ] || die "request file not readable: ${REQUEST}"
-COMPONENTS=""; FLAGS=""; CHANNEL=""; BETA_BRANCH="${BETA_BRANCH:-}"
+COMPONENTS=""; FLAGS=""; CHANNEL=""; BETA_BRANCH=""
 # shellcheck source=/dev/null
 . "${REQUEST}"
 IFS=$' \t\n'
