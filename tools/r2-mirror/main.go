@@ -1,17 +1,28 @@
 // Command r2-mirror publishes a per-stamp release dist directory to the public
-// Cloudflare R2 bucket behind downloads.umbree.org (the install-time fallback
-// mirror for GitHub Releases). It uploads every top-level *.zip plus
-// SHA256SUMS.txt + SHA256SUMS.txt.minisig from the stage dir to
-// <comp>/<stamp>/<file>, then writes <comp>/latest.json pointing at them.
+// Cloudflare R2 bucket behind downloads.umbree.org. It uploads every top-level
+// *.zip plus SHA256SUMS.txt + SHA256SUMS.txt.minisig from the stage dir to
+// <comp>/[beta/]<stamp>/<file>, then writes <comp>/[beta/]latest.json
+// pointing at them — the manifest LAST, so a reader never sees a catalog that
+// names bytes not yet there.
 //
-// R2 is a MIRROR: GitHub Releases stay primary. The release script invokes this
-// after a successful GitHub publish and treats any failure here as non-fatal.
+// Two channels, one key layout per channel (burrowee's
+// 2026-08-31-release-retention-and-beta-layout-design.md §3.1):
+//
+//	stable  <comp>/<stamp>/<file>        <comp>/latest.json
+//	beta    <comp>/beta/<stamp>/<file>   <comp>/beta/latest.json
+//
+// On stable R2 is a MIRROR: GitHub Releases stay primary and the release
+// script treats an unconfigured mirror as a skip. On beta R2 is the ONLY
+// place the bytes exist (a beta cut creates no GitHub Release), so the release
+// script requires it. The stamp shape is checked against the channel: a
+// stable stamp never carries ".beta.", a beta stamp always does, and the two
+// never cross.
 //
 // Usage:
 //
 //	r2-mirror --account <id> --bucket umbree-downloads --stage-dir dist/<stamp> \
-//	          --comp <umbree|umbreed> --version <X.Y.Z> --stamp <v…stamp> \
-//	          --creds <path to the r2 creds TOML> [--dry-run]
+//	          --comp <umbree|umbreed> [--channel stable|beta] --version <X.Y.Z> \
+//	          --stamp <v…stamp> --creds <path to the r2 creds TOML> [--dry-run]
 //
 // The S3 credentials (access_key_id + secret_access_key) are read from the TOML
 // file at --creds and are NEVER printed. --dry-run prints the planned keys and
@@ -25,6 +36,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +47,13 @@ import (
 const (
 	sumsName    = "SHA256SUMS.txt"
 	minisigName = "SHA256SUMS.txt.minisig"
+)
+
+// The two stamp shapes tools/version.sh emits, anchored. One per channel;
+// a stamp matching neither is refused rather than filed somewhere.
+var (
+	stableStampRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
+	betaStampRe   = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
 )
 
 // latestManifest is the <comp>/latest.json schema. Fields are declared in
@@ -56,10 +75,32 @@ type config struct {
 	bucket   string
 	stageDir string
 	comp     string
+	channel  string
 	version  string
 	stamp    string
 	creds    string
 	dryRun   bool
+}
+
+// keyPrefix is the bucket prefix every key of this cut goes under:
+// "<comp>/" on stable, "<comp>/beta/" on beta.
+func (c config) keyPrefix() string {
+	if c.channel == "beta" {
+		return c.comp + "/beta/"
+	}
+	return c.comp + "/"
+}
+
+// plannedKeys returns the upload plan in upload ORDER: every artifact under
+// <prefix><stamp>/, then the manifest key LAST. The order is load-bearing —
+// a manifest uploaded before its bytes advertises a release that 404s — so
+// run() iterates this slice rather than composing keys inline.
+func plannedKeys(cfg config, artifacts []string) []string {
+	keys := make([]string, 0, len(artifacts)+1)
+	for _, name := range artifacts {
+		keys = append(keys, cfg.keyPrefix()+cfg.stamp+"/"+name)
+	}
+	return append(keys, cfg.keyPrefix()+"latest.json")
 }
 
 func main() {
@@ -75,6 +116,7 @@ func run() error {
 	flag.StringVar(&cfg.bucket, "bucket", "", "R2 bucket name (e.g. umbree-downloads)")
 	flag.StringVar(&cfg.stageDir, "stage-dir", "", "per-stamp dist directory to mirror")
 	flag.StringVar(&cfg.comp, "comp", "", "component name (umbree | umbreed)")
+	flag.StringVar(&cfg.channel, "channel", "stable", "release channel: stable | beta (beta keys go under <comp>/beta/)")
 	flag.StringVar(&cfg.version, "version", "", "human semver, e.g. 0.1.66")
 	flag.StringVar(&cfg.stamp, "stamp", "", "full release stamp, e.g. v0.1.66.2026.06.28.12e6b0fc")
 	flag.StringVar(&cfg.creds, "creds", "", "path to the r2.key TOML (access_key_id + secret_access_key)")
@@ -96,14 +138,14 @@ func run() error {
 		return fmt.Errorf("encode latest.json: %w", err)
 	}
 	manifestBody = append(manifestBody, '\n')
-	manifestKey := cfg.comp + "/latest.json"
+	keys := plannedKeys(cfg, artifacts)
+	manifestKey := keys[len(keys)-1]
 
 	if cfg.dryRun {
-		fmt.Printf("dry-run: would upload %d objects to bucket %q:\n", len(artifacts)+1, cfg.bucket)
-		for _, name := range artifacts {
-			fmt.Printf("  %s  (%s)\n", cfg.comp+"/"+cfg.stamp+"/"+name, contentType(name))
+		fmt.Printf("dry-run: would upload %d objects to bucket %q:\n", len(keys), cfg.bucket)
+		for _, key := range keys {
+			fmt.Printf("  %s  (%s)\n", key, contentType(key))
 		}
-		fmt.Printf("  %s  (%s)\n", manifestKey, contentType(manifestKey))
 		return nil
 	}
 
@@ -115,8 +157,10 @@ func run() error {
 	ctx := context.Background()
 	client := r2.New(cfg.account, cfg.bucket, accessKeyID, secret, nil)
 
-	for _, name := range artifacts {
-		key := cfg.comp + "/" + cfg.stamp + "/" + name
+	// Artifacts first, in plan order; the manifest (the last planned key) is
+	// uploaded only after every byte it names is in place.
+	for i, name := range artifacts {
+		key := keys[i]
 		body, err := os.ReadFile(filepath.Join(cfg.stageDir, name))
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
@@ -151,6 +195,18 @@ func (c config) validate() error {
 	}
 	if c.comp != "umbree" && c.comp != "umbreed" {
 		return fmt.Errorf("unknown component %q (want umbree | umbreed)", c.comp)
+	}
+	switch c.channel {
+	case "stable":
+		if !stableStampRe.MatchString(c.stamp) {
+			return fmt.Errorf("stamp %q is not a stable stamp (want v<X.Y.Z>.<YYYY>.<MM>.<DD>.<sha8>); a beta stamp needs --channel beta", c.stamp)
+		}
+	case "beta":
+		if !betaStampRe.MatchString(c.stamp) {
+			return fmt.Errorf("stamp %q is not a beta stamp (want v<X.Y.Z>.beta.<YYYY>.<MM>.<DD>.<sha8>); --channel beta takes only beta stamps", c.stamp)
+		}
+	default:
+		return fmt.Errorf("unknown channel %q (want stable | beta)", c.channel)
 	}
 	info, err := os.Stat(c.stageDir)
 	if err != nil {
@@ -213,7 +269,7 @@ func collectArtifacts(stageDir string) (artifacts, zips []string, err error) {
 }
 
 func buildManifest(cfg config, zips []string) latestManifest {
-	base := cfg.comp + "/" + cfg.stamp
+	base := cfg.keyPrefix() + cfg.stamp
 	return latestManifest{
 		Component:  cfg.comp,
 		Version:    cfg.version,

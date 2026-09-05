@@ -31,6 +31,16 @@ chmod +x "${TMP}/bin/launchctl"
 # a minimal env file: the launcher only requires it to be readable and sourceable
 printf '%s\n' '# test env' > "${TMP}/env"
 
+# with_pty <cmd…> — run under `script` so `[ -t 0 ]` passes. BSD script (macOS)
+# takes the command as trailing arguments; util-linux script (Linux, where the
+# CI machine runs this) takes it as one -c string. Detect by trying the flag
+# the other one lacks.
+if script -q -c true /dev/null >/dev/null 2>&1; then
+    with_pty() { script -q -c "$(printf '%q ' "$@")" /dev/null; }
+else
+    with_pty() { script -q /dev/null "$@"; }
+fi
+
 # run_case <name> <request-body|__MISSING__> <expected-substring>
 run_case() {
     local name="$1" body="$2" want="$3" req log out
@@ -43,11 +53,16 @@ run_case() {
     fi
 
     # script gives a pty so `[ -t 0 ]` passes; PATH puts the launchctl stub first.
-    script -q /dev/null env \
+    # SSH_CONNECTION is cleared so the cases behind the session guard are
+    # reachable when this suite itself runs over ssh (the CI machine); the
+    # unstubbed session-guard case below still proves that guard.
+    with_pty env \
         PATH="${TMP}/bin:${PATH}" \
         RELEASE_ENV="${TMP}/env" \
         RELEASE_REQUEST="$req" \
         RELEASE_LOG="$log" \
+        UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-}" \
+        SSH_CONNECTION= \
         bash "${CMD}" >/dev/null 2>&1
     out="$(cat "$log" 2>/dev/null)"
 
@@ -82,6 +97,41 @@ run_case "empty COMPONENTS is refused" \
 run_case "missing request file is refused" \
     "__MISSING__" \
     "request file not readable"
+
+run_case "unknown channel is refused" \
+    'COMPONENTS="umbree"
+CHANNEL="bogus"' \
+    "channel must be stable or beta"
+
+echo "# the cut-origin guard runs before the build"
+# A beta request whose derived code/beta does not exist: the launcher must
+# refuse at the origin guard, before the sealed inputs and before `→ build`.
+# UMBREE_SRC_UMBREE points at a fixture registry main with no beta sibling;
+# the launcher derives its beta path from BRAND_ROOT (this repo's own
+# siblings), so the refusal names whichever of the two is missing — either
+# way it names "beta worktree missing" and never reaches the cut loop.
+FIX="${TMP}/brand/cli/code/main"; mkdir -p "${FIX}"
+git -C "${FIX}" init -q >/dev/null 2>&1
+UMBREE_SRC_UMBREE="${FIX}" run_case "beta with no code/beta is refused before the build" \
+    'COMPONENTS="umbree"
+CHANNEL="beta"' \
+    "beta worktree missing"
+if grep -q "→ build" "${TMP}/log" 2>/dev/null; then
+    echo "FAIL: beta refusal reached → build"; fails=1
+else
+    echo "ok: beta refusal happened before → build"
+fi
+
+echo "# the marker-subject check accepts a beta marker"
+# push_marker is reached through a case on HEAD's subject; a beta publish
+# writes "[RELEASED: <comp> beta] …", which the stable-only pattern would
+# have treated as "not a marker" and died on AFTER a successful publish.
+# GIT is hardcoded to /usr/bin/git, so this is pinned statically.
+if grep -q '"\[RELEASED: ${comp}\]"\*|"\[RELEASED: ${comp} beta\]"\*)' "${CMD}"; then
+    echo "ok: marker pattern accepts [RELEASED: <comp> beta]"
+else
+    echo "FAIL: marker pattern does not accept [RELEASED: <comp> beta]"; fails=1
+fi
 
 echo "# the session guard itself, unstubbed"
 # No stub on PATH: run from this ordinary shell. In CI or an agent session this

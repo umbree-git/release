@@ -7,6 +7,7 @@
 # trailing \r inside the last value, and the cut aborts on a component name it
 # cannot match. Only COMPONENTS and FLAGS are read — a mistyped FLAG= is not an
 # error, it is silently ignored, and the run proceeds as if you had set nothing.
+# (Also read: CHANNEL and BETA_BRANCH — see below.)
 #
 # COMPONENTS — one or both of: umbreed umbree
 #
@@ -62,5 +63,38 @@
 # --distribute-only is recognised only as release.sh's FIRST argument, because it
 # takes its component and stamp positionally — so it cannot be expressed in FLAGS.
 
+# CHANNEL — stable (default) or beta.
+#
+#     stable    cut from <repo>/code/main; publish = tag + GitHub Release + R2
+#               mirror + install.sh/version.js to the static host.
+#     beta      cut from <repo>/code/beta — a LINKED worktree of the registry
+#               main repo, on the beta branch, == origin/<beta branch>; the
+#               launcher never creates it (open the cycle first: README "Beta
+#               channel"). Reads versions/<comp>.beta (the open-cycle marker,
+#               written by `tools/version.sh <comp> --channel beta --seed`),
+#               stamps v<X.Y.Z>.beta.<date>.<sha>, and publishes R2-ONLY
+#               (<comp>/beta/<stamp>/, no GitHub Release) plus the
+#               <comp>/beta.install.sh + beta.version.js twins to the static
+#               host. The marker is [RELEASED: <comp> beta] … (private).
+#
+# The FIRST beta cut of a component takes NO bump flag — the seed IS the
+# version, exactly like a component's first stable cut. Later beta cuts of a
+# component whose source moved take --bump-patch (beta patches climb per
+# component; beta.md §8).
+#
+# BETA_BRANCH — beta only. The branch the code/beta worktree must be on,
+# most specific first: this value, else config/beta-branch in this repo,
+# else the literal "beta". Set it only for a second concurrent cycle
+# (vX.Y.0-beta) or an experiment (beta-<slug>); leave it empty otherwise.
+# Recording the override here keeps the unusual choice in the same file that
+# records what the cut was for.
+#
+# Cut origin. Before anything is built, every component's source tree and
+# this repo are asserted: registry folder (or its beta worktree), the right
+# branch, clean, in sync with origin. An unpushed main in THIS repo — a
+# marker from a previous cut, or any local commit — refuses the cut.
+
 COMPONENTS="umbreed"
 FLAGS="--public"
+CHANNEL="stable"
+BETA_BRANCH=""

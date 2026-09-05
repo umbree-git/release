@@ -48,6 +48,16 @@
 #                     RELEASE_REQUEST. Sourced as shell. Shape:
 #                         COMPONENTS="umbreed"
 #                         FLAGS="--public"
+#                         CHANNEL="stable"        # or beta; default stable
+#                         BETA_BRANCH=""          # beta only; see .release-request.example
+#
+# Channel. CHANNEL="beta" cuts from each component's code/beta sibling
+# worktree (a LINKED worktree of the registry main repo, on the beta branch,
+# == origin/<beta branch>), stamps v<X.Y.Z>.beta.<date>.<sha>, and publishes
+# with `release.sh --channel beta` — R2-only, no GitHub Release. The
+# cut-origin guard (tools/release_origin.sh) runs BEFORE `rkit build` for the
+# component source and for this repo, so a stale tree or an unpushed main is
+# refused before anything is bumped or built. It never creates a worktree.
 #
 # Output: .release.log, ending in RELEASE-EXIT:<code> so a watcher can block on it
 # rather than guess when the run finished. Exactly one run per log — the previous
@@ -137,11 +147,21 @@ say "env: ${ENV_FILE}"
 # 4. Request.
 REQUEST="${RELEASE_REQUEST:-$REPO_ROOT/.release-request}"
 [ -r "${REQUEST}" ] || die "request file not readable: ${REQUEST}"
-COMPONENTS=""; FLAGS=""
+COMPONENTS=""; FLAGS=""; CHANNEL=""; BETA_BRANCH="${BETA_BRANCH:-}"
 # shellcheck source=/dev/null
 . "${REQUEST}"
 IFS=$' \t\n'
 [ -n "${COMPONENTS}" ] || die "request names no COMPONENTS: ${REQUEST}"
+CHANNEL="${CHANNEL:-stable}"
+case "${CHANNEL}" in
+    stable|beta) ;;
+    *) die "channel must be stable or beta (got '${CHANNEL}')" ;;
+esac
+# BETA_BRANCH is read by tools/release_origin.sh (beta_branch_for) in this
+# process and in the release.sh it spawns — exported once, here, only when
+# the request set it, so a stale value cannot leak in from the environment.
+[ -z "${BETA_BRANCH}" ] || export BETA_BRANCH
+[ "${CHANNEL}" = beta ] || BETA_BRANCH=""
 
 # Unknown names are refused before anything is built. `all` is not a thing this
 # repo's release.sh accepts either, but it is spelled out because an operator
@@ -157,6 +177,7 @@ for comp in ${COMPONENTS}; do
     esac
 done
 say "request: ${COMPONENTS} [${FLAGS}]"
+say "channel: ${CHANNEL}${BETA_BRANCH:+ (beta branch: ${BETA_BRANCH})}"
 
 # A dry run must not publish. rkit's --dry-run builds without bumping the version
 # or needing a real key; the publish half has its own --dry-run that validates the
@@ -169,9 +190,46 @@ case " ${FLAGS} " in *" --dry-run "*) DRY=1 ;; esac
 # 5. Component sources. Derived from the committed workspace layout (siblings of
 #    this repo), never an absolute machine path in a public file. The operator
 #    environment or .release-request may override either one.
+#    On beta the source is the code/beta sibling worktree of each registry main
+#    folder — derived, never configured on its own, so it cannot drift from the
+#    registry entry (tools/release_origin.sh beta_worktree_for).
 BRAND_ROOT="$(cd "$REPO_ROOT/../../.." && pwd)" || die "cannot resolve the brand root above this repo"
-export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-$BRAND_ROOT/cli/code/main}"
-export UMBREE_SRC_UMBREED="${UMBREE_SRC_UMBREED:-$BRAND_ROOT/daemon/code/main}"
+REG_UMBREE="$BRAND_ROOT/cli/code/main"
+REG_UMBREED="$BRAND_ROOT/daemon/code/main"
+if [ "${CHANNEL}" = beta ]; then
+    export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-$BRAND_ROOT/cli/code/beta}"
+    export UMBREE_SRC_UMBREED="${UMBREE_SRC_UMBREED:-$BRAND_ROOT/daemon/code/beta}"
+else
+    export UMBREE_SRC_UMBREE="${UMBREE_SRC_UMBREE:-$REG_UMBREE}"
+    export UMBREE_SRC_UMBREED="${UMBREE_SRC_UMBREED:-$REG_UMBREED}"
+fi
+
+# 5b. Cut origin — BEFORE the sealed inputs are decrypted and before anything
+#     is built: the cheap refusal the README promises. Each component's source
+#     tree (registry main on stable, its code/beta linked worktree on beta) and
+#     this repo (main, clean, == origin/main — with no staged tolerance here,
+#     since nothing has been staged yet) are asserted; a dry run reports (⚠)
+#     rather than refuses. tools/release_origin.sh calls git by absolute path,
+#     so the PATH hook does not matter.
+# shellcheck source=tools/release_origin.sh
+. "$REPO_ROOT/tools/release_origin.sh"
+origin_mode=strict; [ "$DRY" -eq 0 ] || origin_mode=report
+for comp in ${COMPONENTS}; do
+    case "${comp}" in
+        umbree)  reg="${REG_UMBREE}";  src="${UMBREE_SRC_UMBREE}" ;;
+        umbreed) reg="${REG_UMBREED}"; src="${UMBREE_SRC_UMBREED}" ;;
+    esac
+    if [ "${CHANNEL}" = beta ]; then
+        assert_release_origin "${comp}" "${src}" "${reg}" "${origin_mode}" beta 2>&1 | tee -a "$LOG"
+        [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: beta cut origin refused — nothing built"
+    else
+        assert_release_origin "${comp}" "${src}" "${reg}" "${origin_mode}" 2>&1 | tee -a "$LOG"
+        [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: cut origin refused — nothing built"
+    fi
+done
+assert_release_origin "release repo" "$REPO_ROOT" "$REPO_ROOT" "${origin_mode}" 2>&1 | tee -a "$LOG"
+[ "${PIPESTATUS[0]}" -eq 0 ] || die "release repo is not in sync with origin/main — push or pull before cutting"
+say "✓ cut origin: ${COMPONENTS} (${CHANNEL}) and this repo"
 
 # 6. Sealed inputs: this channel's publish destination and its signing key.
 #    release.sh REQUIRES them and refuses to invent them, because this repo is
@@ -255,29 +313,39 @@ for comp in ${COMPONENTS}; do
     say ""
     say "── cut: ${comp} ──"
 
-    say "→ build (rkit: cross-compile, sign, notarize, CVE gate as FLAGS direct)"
+    say "→ build (rkit: cross-compile, sign, notarize, CVE gate as FLAGS direct; channel ${CHANNEL})"
     # shellcheck disable=SC2086
-    go run ./cmd/rkit build --component "${comp}" ${FLAGS} --sign-key "${KEYFILE}" 2>&1 | tee -a "$LOG"
+    go run ./cmd/rkit build --component "${comp}" --channel "${CHANNEL}" ${FLAGS} --sign-key "${KEYFILE}" 2>&1 | tee -a "$LOG"
     rc="${PIPESTATUS[0]}"
     [ "${rc}" -eq 0 ] || { say "✗ ${comp} build failed (exit ${rc}) — later components NOT cut"; exit "${rc}"; }
 
     # The stamp is resolved from the version file AFTER the build, so it reflects
     # any bump the build just applied. Same call the e2e harness makes.
     src_var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
-    stamp="$(SRC_DIR="${!src_var}" bash tools/version.sh "${comp}" --stamp)" \
+    stamp="$(SRC_DIR="${!src_var}" bash tools/version.sh "${comp}" --channel "${CHANNEL}" --stamp)" \
         || die "${comp}: cannot resolve the built stamp"
+
+    # The publish verb is the channel's: --distribute-only is the GitHub
+    # Release path (stable); --channel beta is the R2-only path.
+    if [ "${CHANNEL}" = beta ]; then verb="--channel beta"; else verb="--distribute-only"; fi
     say "→ stamp: ${stamp}"
 
     if [ "$DRY" -eq 1 ]; then
         say "→ publish (rehearsal)"
-        bash tools/release.sh --distribute-only "${comp}" "${stamp}" --dry-run 2>&1 | tee -a "$LOG"
+        # shellcheck disable=SC2086  # verb is one or two words, split on purpose
+        bash tools/release.sh ${verb} "${comp}" "${stamp}" --dry-run 2>&1 | tee -a "$LOG"
         [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: publish rehearsal failed"
         say "→ ${comp}: --dry-run, nothing published and nothing to push"
         continue
     fi
 
-    say "→ publish (tag, GitHub Release, static surface, marker commit)"
-    bash tools/release.sh --distribute-only "${comp}" "${stamp}" 2>&1 | tee -a "$LOG"
+    if [ "${CHANNEL}" = beta ]; then
+        say "→ publish (tag, R2 beta layout, beta twins, marker commit — no GitHub Release)"
+    else
+        say "→ publish (tag, GitHub Release, static surface, marker commit)"
+    fi
+    # shellcheck disable=SC2086  # verb is one or two words, split on purpose
+    bash tools/release.sh ${verb} "${comp}" "${stamp}" 2>&1 | tee -a "$LOG"
     rc="${PIPESTATUS[0]}"
     [ "${rc}" -eq 0 ] || { say "✗ ${comp} publish failed (exit ${rc}) — later components NOT cut"; say "   already-published components above are PUBLISHED: drop them from COMPONENTS before re-running"; exit "${rc}"; }
 
@@ -286,7 +354,7 @@ for comp in ${COMPONENTS}; do
 
     subject="$($GIT log -1 --format=%s)" || die "cannot read HEAD subject — refusing to push"
     case "${subject}" in
-        "[RELEASED: ${comp}]"*)
+        "[RELEASED: ${comp}]"*|"[RELEASED: ${comp} beta]"*)
             push_marker "${comp}"
             ;;
         *)
