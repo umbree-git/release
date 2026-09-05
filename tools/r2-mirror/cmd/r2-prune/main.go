@@ -2,7 +2,7 @@
 // downloads.umbree.org, ONE CHANNEL per run: it keeps the newest N per-stamp
 // directories for each component under that channel's prefix (<comp>/ on
 // stable, <comp>/beta/ on beta) and deletes every object beneath the older
-// ones. Stable keeps 10, beta keeps 1 (prune.DefaultKeep).
+// ones. Stable keeps 3, beta keeps 1 (prune.DefaultKeep).
 //
 // R2 is the install-time fallback mirror on stable (GitHub Releases stay
 // primary) and the ONLY home of beta bytes, so it accumulated every stamp ever
@@ -12,6 +12,7 @@
 //
 //	r2-prune [--comp umbree|umbreed|all] [--channel stable|beta] [--keep N] [--execute]
 //	         --account <id> --bucket <name> --creds <path to the r2 creds TOML>
+//	         [--protect tools/retain-permanent]
 //
 // Dry-run by default: it prints the planned deletions and removes nothing.
 // --execute performs them. Account, bucket and the S3 credentials are the
@@ -52,7 +53,8 @@ func run() error {
 	creds := flag.String("creds", os.Getenv("UMBREE_R2_CREDS"), "path to the r2 creds TOML: access_key_id + secret_access_key (default: $UMBREE_R2_CREDS)")
 	comp := flag.String("comp", "all", "component: umbree | umbreed | all")
 	channel := flag.String("channel", "stable", "release channel: stable | beta")
-	keep := flag.Int("keep", 0, "stamps to retain per component (default: 10 on stable, 1 on beta)")
+	keep := flag.Int("keep", 0, "stamps to retain per component (default: 3 on stable, 1 on beta)")
+	protectPath := flag.String("protect", "", "permanent pin list (default: tools/retain-permanent or ../retain-permanent)")
 	execute := flag.Bool("execute", false, "actually delete (default: dry-run)")
 	flag.Parse()
 
@@ -84,6 +86,19 @@ func run() error {
 		return err
 	}
 
+	if *protectPath == "" {
+		for _, p := range []string{"tools/retain-permanent", "../retain-permanent"} {
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				*protectPath = p
+				break
+			}
+		}
+	}
+	protect, err := prune.LoadProtectFile(*protectPath)
+	if err != nil {
+		return err
+	}
+
 	client := r2.New(*account, *bucket, accessKeyID, secret, nil)
 	ctx := context.Background()
 
@@ -95,7 +110,7 @@ func run() error {
 
 	total := 0
 	for _, c := range comps {
-		n, err := prune.Prune(ctx, client, c, *channel, *keep, *execute, os.Stdout)
+		n, err := prune.PruneProtect(ctx, client, c, *channel, *keep, *execute, os.Stdout, protect)
 		total += n
 		if err != nil {
 			return fmt.Errorf("prune %s: %w", c, err)

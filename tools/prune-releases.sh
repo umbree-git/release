@@ -18,9 +18,10 @@
 # Env (optional):
 #   CHANNEL                 stable|beta (default stable)
 #   KEEP                    newest versions to retain per component (default
-#                           10 on stable, 1 on beta — beta is disposable, so
+#                           3 on stable, 1 on beta — beta is disposable, so
 #                           cutting a new beta expires the previous one and
-#                           prunes it now; no artifact-level rollback to it)
+#                           prunes it now; no artifact-level rollback to it.
+#                           tools/retain-permanent pins are kept in addition.)
 #   COMPONENTS              space-separated set (default: `go run ./cmd/rkit
 #                           components` — the one list rkit builds from)
 #   UMBREE_RELEASE_REPO     GitHub repo (default umbree-git/release)
@@ -51,8 +52,25 @@ esac
 if [ "${CHANNEL}" = beta ]; then
   KEEP="${KEEP:-1}"
 else
-  KEEP="${KEEP:-10}"
+  KEEP="${KEEP:-3}"
 fi
+PERMANENT_FILE="${HERE}/retain-permanent"
+
+is_permanent() {
+  local tag="$1" stamp="${1##*/}" line
+  [ -r "${PERMANENT_FILE}" ] || return 1
+  while IFS= read -r line || [ -n "${line}" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "${line}" in
+      ''|'#'*) continue ;;
+    esac
+    if [ "${line}" = "${tag}" ] || [ "${line}" = "${stamp}" ]; then
+      return 0
+    fi
+  done < "${PERMANENT_FILE}"
+  return 1
+}
 if [ -z "${COMPONENTS:-}" ]; then
   COMPONENTS="$(cd "${REPO_ROOT}" && go run ./cmd/rkit components | tr '\n' ' ')" \
     || { echo "✗ could not read the component list from rkit" >&2; exit 1; }
@@ -108,6 +126,10 @@ for comp in ${COMPONENTS}; do
   echo "  keep:   $(printf '%s\n' "${sorted}" | tail -n "${KEEP}" | tr '\n' ' ')"
   printf '%s\n' "${sorted}" | head -n "${drop}" | while IFS= read -r tag; do
     [ -n "${tag}" ] || continue
+    if is_permanent "${tag}"; then
+      echo "  keep permanent ${tag}"
+      continue
+    fi
     if [ "${EXECUTE}" = 1 ]; then
       if [ "${CHANNEL}" = beta ]; then
         # No Release to delete: remove the remote tag (and the local one, if

@@ -80,18 +80,23 @@ func TestPruneKeepsNewestNAndDeletesTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	// 12 stamps, keep 10 → the 2 oldest go, 6 objects each.
-	if want := 12; n != want {
+	dropN := len(twelveStamps) - DefaultKeepStable
+	want := dropN * 6
+	if n != want {
 		t.Errorf("deleted count = %d, want %d", n, want)
+	}
+	keepSet := map[string]bool{}
+	for _, s := range twelveStamps[:dropN] {
+		keepSet[s] = true // actually the DROP set
 	}
 	for _, k := range store.deleted {
 		stamp := strings.Split(k, "/")[1]
-		if stamp != twelveStamps[0] && stamp != twelveStamps[1] {
+		if !keepSet[stamp] {
 			t.Errorf("deleted a stamp that should have been kept: %s", k)
 		}
 	}
-	if len(store.deleted) != 12 {
-		t.Errorf("recorded %d deletes, want 12", len(store.deleted))
+	if len(store.deleted) != want {
+		t.Errorf("recorded %d deletes, want %d", len(store.deleted), want)
 	}
 }
 
@@ -103,8 +108,9 @@ func TestPruneDryRunDeletesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	if n != 12 {
-		t.Errorf("planned count = %d, want 12", n)
+	want := (len(twelveStamps) - DefaultKeepStable) * 6
+	if n != want {
+		t.Errorf("planned count = %d, want %d", n, want)
 	}
 	if len(store.deleted) != 0 {
 		t.Fatalf("dry-run deleted %d objects, want 0: %v", len(store.deleted), store.deleted)
@@ -137,7 +143,7 @@ func TestManifestsAreNeverCandidates(t *testing.T) {
 // TestStablePassIgnoresBetaPrefix: the stable pass lists <comp>/ and therefore
 // sees <comp>/beta/<stamp>/… — those keys have "beta" as their stamp segment,
 // which is no stamp at all, and must be neither counted nor deleted. With
-// 12 stables and keep 10, exactly the 12 objects of the 2 oldest stables go.
+// 12 stables and keep 3, exactly the objects of the 9 oldest stables go.
 func TestStablePassIgnoresBetaPrefix(t *testing.T) {
 	keys := append(objectsFor("umbree", "", twelveStamps...), objectsFor("umbree", "beta/", threeBetas...)...)
 	store := &fakeStore{keys: keys}
@@ -146,8 +152,9 @@ func TestStablePassIgnoresBetaPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	if n != 12 {
-		t.Errorf("stable pass deleted %d objects, want 12 (the 2 oldest stables only)", n)
+	want := (len(twelveStamps) - DefaultKeepStable) * 6
+	if n != want {
+		t.Errorf("stable pass deleted %d objects, want %d (oldest stables only)", n, want)
 	}
 	for _, k := range store.deleted {
 		if strings.HasPrefix(k, "umbree/beta/") {
@@ -215,7 +222,7 @@ func TestNeitherShapeIgnored(t *testing.T) {
 }
 
 func TestPruneUnderRetentionDoesNothing(t *testing.T) {
-	store := &fakeStore{keys: objectsFor("umbree", "", twelveStamps[:5]...)}
+	store := &fakeStore{keys: objectsFor("umbree", "", twelveStamps[:DefaultKeepStable]...)}
 
 	var out strings.Builder
 	n, err := Prune(context.Background(), store, "umbree", "stable", DefaultKeepStable, true, &out)
@@ -223,10 +230,28 @@ func TestPruneUnderRetentionDoesNothing(t *testing.T) {
 		t.Fatalf("Prune: %v", err)
 	}
 	if n != 0 {
-		t.Errorf("deleted %d objects with 5 stamps and keep=10, want 0", n)
+		t.Errorf("deleted %d objects with %d stamps and keep=%d, want 0", n, DefaultKeepStable, DefaultKeepStable)
 	}
 	if !strings.Contains(out.String(), "nothing to prune") {
 		t.Errorf("expected 'nothing to prune', got:\n%s", out.String())
+	}
+}
+
+func TestPruneSkipsPermanentInDropWindow(t *testing.T) {
+	store := &fakeStore{keys: objectsFor("umbree", "", twelveStamps[:5]...)}
+	protect := map[string]struct{}{"umbree/" + twelveStamps[0]: {}}
+	n, err := PruneProtect(context.Background(), store, "umbree", "stable", 3, true, io.Discard, protect)
+	if err != nil {
+		t.Fatalf("PruneProtect: %v", err)
+	}
+	// 5 stamps, keep 3 → drop window is [0] and [1]; pin skips [0], so only [1] × 6.
+	if n != 6 {
+		t.Errorf("deleted count = %d, want 6", n)
+	}
+	for _, k := range store.deleted {
+		if strings.Contains(k, twelveStamps[0]) {
+			t.Errorf("deleted the permanent stamp: %s", k)
+		}
 	}
 }
 
@@ -241,8 +266,8 @@ func TestPruneRejectsKeepBelowOneAndUnknownChannel(t *testing.T) {
 	if len(store.deleted) != 0 {
 		t.Errorf("a refused call deleted %d objects", len(store.deleted))
 	}
-	if DefaultKeep("stable") != 10 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
-		t.Fatal("DefaultKeep: want stable 10, beta 1, unknown 0")
+	if DefaultKeep("stable") != 3 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
+		t.Fatal("DefaultKeep: want stable 3, beta 1, unknown 0")
 	}
 }
 
