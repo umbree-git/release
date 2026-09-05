@@ -42,7 +42,8 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 		}
 	}
 	// one assembled zip per target, containing exactly the umbree bin and
-	// install.sh — nothing else (umbree has no dispatcher, no updater).
+	// install.sh — nothing else (umbree has no dispatcher, no updater, and
+	// the fixture tree carries no install/migrations/).
 	if len(res.Zips) != len(relconfig.Targets()) {
 		t.Fatalf("got %d zips, want %d: %v", len(res.Zips), len(relconfig.Targets()), res.Zips)
 	}
@@ -439,12 +440,77 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 //     from this repo's inner/, and inner/umbreed/install.sh does not exist
 //     (deleted; see the comment in renderInstall's "umbreed" case).
 func TestRenderInstall(t *testing.T) {
+	// The tree copy wins whenever the cli source carries install/install.sh —
+	// on either channel — and the repo's inner/ copy is then never read.
+	t.Run("umbree prefers the component tree's install/install.sh", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+		srcDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh"), "#!/bin/sh\necho FROM TREE\n")
+		for _, ch := range []string{"stable", "beta"} {
+			dst := filepath.Join(t.TempDir(), "install.sh")
+			fromTree, err := renderInstall("umbree", "v0", srcDir, repoDir, dst, ch)
+			if err != nil {
+				t.Fatalf("%s: %v", ch, err)
+			}
+			if !fromTree {
+				t.Fatalf("%s: tree copy not reported as from-tree", ch)
+			}
+			got, _ := os.ReadFile(dst)
+			if !strings.Contains(string(got), "FROM TREE") {
+				t.Fatalf("%s: shipped %q, want the tree copy", ch, got)
+			}
+		}
+	})
+
+	// Beta never falls back to the release repo's copy: that would be the
+	// burrowee split all over again. The error names the feature that moves
+	// the installer into the tree.
+	t.Run("umbree beta refuses the inner/ fallback", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "beta")
+		if err == nil {
+			t.Fatal("beta shipped the release repo's inner installer")
+		}
+		if !strings.Contains(err.Error(), "feature 02") {
+			t.Fatalf("error = %q, want it to name feature 02", err.Error())
+		}
+		if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+			t.Fatal("beta refusal still wrote install.sh")
+		}
+	})
+
+	// Stable keeps the fallback (unchanged by this feature) and says so.
+	t.Run("umbree stable falls back to inner/ with a warning", func(t *testing.T) {
+		repoDir := t.TempDir()
+		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+		dst := filepath.Join(t.TempDir(), "install.sh")
+		stderr := captureStderr(t, func() {
+			fromTree, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fromTree {
+				t.Fatal("fallback reported as from-tree")
+			}
+		})
+		if !strings.Contains(stderr, "inner/umbree/install.sh is a fallback") {
+			t.Fatalf("stderr = %q, want the fallback warning", stderr)
+		}
+	})
+
 	t.Run("umbree verbatim copy from inner/umbree/install.sh", func(t *testing.T) {
 		repoDir := t.TempDir()
 		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi from umbree\n")
 		dst := filepath.Join(t.TempDir(), "out", "install.sh")
-		if err := renderInstall("umbree", "v0.1.0.x", "/unused/src", repoDir, dst); err != nil {
+		fromTree, err := renderInstall("umbree", "v0.1.0.x", t.TempDir(), repoDir, dst, "stable")
+		if err != nil {
 			t.Fatal(err)
+		}
+		if fromTree {
+			t.Fatal("fallback copy reported as from-tree")
 		}
 		got, err := os.ReadFile(dst)
 		if err != nil {
@@ -478,7 +544,7 @@ func TestRenderInstall(t *testing.T) {
 			"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
 		dst := filepath.Join(t.TempDir(), "out", "install.sh")
 		stamp := "v0.2.0.2026.08.30.deadbeef"
-		if err := renderInstall("umbreed", stamp, srcDir, repoDir, dst); err != nil {
+		if _, err := renderInstall("umbreed", stamp, srcDir, repoDir, dst, "stable"); err != nil {
 			t.Fatal(err)
 		}
 		got, err := os.ReadFile(dst)
@@ -503,7 +569,7 @@ func TestRenderInstall(t *testing.T) {
 	t.Run("umbree missing install.sh names the inner path", func(t *testing.T) {
 		repoDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		err := renderInstall("umbree", "v0", "/unused/src", repoDir, dst)
+		_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
 		if err == nil {
 			t.Fatal("expected error for a missing inner/umbree/install.sh")
 		}
@@ -520,7 +586,7 @@ func TestRenderInstall(t *testing.T) {
 		repoDir := t.TempDir()
 		srcDir := t.TempDir() // no install/install.sh.in inside it
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		err := renderInstall("umbreed", "v0", srcDir, repoDir, dst)
+		_, err := renderInstall("umbreed", "v0", srcDir, repoDir, dst, "stable")
 		if err == nil {
 			t.Fatal("expected error for a missing install/install.sh.in")
 		}
@@ -536,7 +602,7 @@ func TestRenderInstall(t *testing.T) {
 	t.Run("unknown component is rejected, not silently rendered", func(t *testing.T) {
 		repoDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		err := renderInstall("nope", "v0", "/unused/src", repoDir, dst)
+		_, err := renderInstall("nope", "v0", "/unused/src", repoDir, dst, "stable")
 		if err == nil {
 			t.Fatal("expected error for an unrecognized component")
 		}
@@ -621,5 +687,143 @@ func TestSrcDirRefusesWithoutEnv(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREE") {
 		t.Fatalf("refusal does not name the variable to set: %v", err)
+	}
+}
+
+// captureStderr runs fn with os.Stderr swapped for a pipe and returns what
+// was written.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	fn()
+	os.Stderr = orig
+	w.Close()
+	out := <-done
+	r.Close()
+	return out
+}
+
+// TestBuildRunRefusesUnknownChannel: an unknown channel is refused by
+// runBuild's flag validation before srcDirFor, and by buildRun before any
+// file is touched.
+func TestBuildRunRefusesUnknownChannel(t *testing.T) {
+	t.Setenv("UMBREE_SRC_UMBREE", "")
+	err := runBuild([]string{"--component", "umbree", "--channel", "bogus"})
+	if err == nil || !strings.Contains(err.Error(), "unknown channel") {
+		t.Fatalf("runBuild --channel bogus: err = %v, want unknown channel (before srcDirFor)", err)
+	}
+	repo := t.TempDir()
+	writeFixtureModule(t, repo)
+	err = buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "bogus",
+		DryRun: true, NoVulncheck: true})
+	if err == nil || !strings.Contains(err.Error(), "unknown channel") {
+		t.Fatalf("buildRun Channel=bogus: err = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, "dist")); !os.IsNotExist(statErr) {
+		t.Fatal("dist/ created despite the refused channel")
+	}
+}
+
+// TestBuildRunBetaAssertsBeforeBump: with versions/umbree.beta not above
+// versions/umbree the build fails at the assert, BEFORE any bump, leaving
+// versions/umbree.beta untouched and no dist/.
+func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
+	repo := t.TempDir()
+	writeFixtureModule(t, repo) // versions/umbree = 0.1.0
+	mustWriteFile(t, filepath.Join(repo, "versions", "umbree.beta"), "0.1.0\n")
+	commitAll(t, repo, "seed beta")
+	// Any existing file serves as the sign key: it is only stat'ed before
+	// the assert, and the build never gets far enough to use it.
+	key := filepath.Join(t.TempDir(), "key")
+	mustWriteFile(t, key, "not a key")
+	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "beta",
+		Bump: "patch", NoVulncheck: true, SignKey: key})
+	if err == nil || !strings.Contains(err.Error(), "beta version assert") {
+		t.Fatalf("err = %v, want the beta assert to fail", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(repo, "versions", "umbree.beta"))
+	if string(got) != "0.1.0\n" {
+		t.Fatalf("versions/umbree.beta = %q — the bump ran before the assert", got)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, "dist")); !os.IsNotExist(statErr) {
+		t.Fatal("dist/ exists — the build ran past a failed beta assert")
+	}
+}
+
+// TestBuildRunBetaStampsBetaScheme: a beta build lands under
+// dist/v<beta-semver>.beta.<date>.<sha>/ and, on --dry-run, restores BOTH
+// version files.
+func TestBuildRunBetaStampsBetaScheme(t *testing.T) {
+	repo := t.TempDir()
+	writeFixtureModule(t, repo)
+	mustWriteFile(t, filepath.Join(repo, "versions", "umbree.beta"), "0.2.0\n")
+	mustWriteFile(t, filepath.Join(repo, "install", "install.sh"), "#!/bin/sh\necho tree\n")
+	commitAll(t, repo, "seed beta")
+	if err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "beta",
+		DryRun: true, NoVulncheck: true, SignKey: testMinisignKey(t)}); err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := relconfig.StampFor(context.Background(), "beta", filepath.Join(repo, "versions"), "umbree", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(stamp, "v0.2.0.beta.") {
+		t.Fatalf("stamp = %q", stamp)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "dist", stamp, "umbree-linux-amd64.zip")); err != nil {
+		t.Errorf("beta artifacts not under dist/<beta stamp>: %v", err)
+	}
+	out, _ := exec.Command("git", "-C", repo, "status", "--porcelain", "versions").CombinedOutput()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("versions/ not clean after a beta dry run: %q", out)
+	}
+}
+
+// TestOrchestrateBetaWarnsWithoutLadder: a beta build whose tree carries
+// install/install.sh but no install/migrations/ is NOT refused — it warns on
+// stderr naming the feature that adds the ladder, and returns nil.
+func TestOrchestrateBetaWarnsWithoutLadder(t *testing.T) {
+	repo := t.TempDir()
+	writeFixtureModule(t, repo)
+	mustWriteFile(t, filepath.Join(repo, "versions", "umbree.beta"), "0.2.0\n")
+	mustWriteFile(t, filepath.Join(repo, "install", "install.sh"), "#!/bin/sh\necho tree\n")
+	commitAll(t, repo, "beta tree installer")
+	var err error
+	stderr := captureStderr(t, func() {
+		_, err = orchestrate(context.Background(), Options{
+			Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
+			MinisignKey: testMinisignKey(t), SkipGate: true, Channel: "beta",
+		})
+	})
+	if err != nil {
+		t.Fatalf("a beta with an installer and no ladder must build: %v", err)
+	}
+	if !strings.Contains(stderr, "feature 02") || !strings.Contains(stderr, "no install/migrations/") {
+		t.Fatalf("stderr = %q, want the no-ladder warning naming feature 02", stderr)
+	}
+}
+
+// commitAll commits the fixture's working tree so a later `git status` is a
+// clean baseline and relconfig.Stamp has a HEAD.
+func commitAll(t *testing.T, repo, msg string) {
+	t.Helper()
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", msg}} {
+		c := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		c.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
 	}
 }
