@@ -68,9 +68,13 @@ printf '  OK\n'
 # Shared by the DEPS loop and the GENERATOR diff below.
 COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || die "could not read the component list from rkit"
 [ -n "$COMPONENTS" ] || die "rkit returned no components"
+# The beta twin <comp>/beta.install.sh exists only while a beta cycle is open
+# AND cut (versions/<comp>.beta.stamp present — tools/gen-bootstraps.sh) and
+# is swept otherwise, so it joins the generated set on exactly that condition.
 GENERATED_REL=""
 for c in $COMPONENTS; do
     GENERATED_REL="$GENERATED_REL $c/install.sh"
+    [ -f "$ROOT/versions/$c.beta.stamp" ] && GENERATED_REL="$GENERATED_REL $c/beta.install.sh"
 done
 GENERATED_REL="${GENERATED_REL# }"
 

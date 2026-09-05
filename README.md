@@ -120,29 +120,34 @@ verifier.
   An uninstall (`UMBREE_UNINSTALL=1`) never touches your package manager; if
   it had to fetch the pinned `minisign` build to verify its payload, that
   single file stays in the bin directory afterwards.
-- **umbreed** is the sudo-minimal daemon installer. Run it **as your user**,
-  never under `sudo`. It escalates for exactly two steps:
-
-  1. the root-owned `umbreed` binary in `/usr/local/bin` — a boot unit that
-     runs as root must not name a path an ordinary account can rewrite, so the
-     installer refuses a destination that is not root-owned and unwritable all
-     the way up;
-  2. the system boot unit (`/Library/LaunchDaemons` on macOS,
-     `/etc/systemd/system` on Linux).
-
-  **The daemon runs as root, and its data stays yours.** It has to: the
-  gateway's register socket is root-owned inside a directory only root can
-  enter, so a daemon running as you cannot open it — it would retry forever
-  while every status command reported healthy. The unit therefore names no
-  user, and stamps `HOME` to the account that installed it. Everything the
-  daemon then creates under that home — `~/.umbree`, its logs, its data
-  directory and the device trust store — is handed to you, so
-  `umbreed devices list|approve` works unprivileged, as you. `sudo` is not the
-  answer to a permissions error there; report it instead.
+- **umbreed** is the daemon repo's own sudo-minimal installer (shipped inside
+  the release zip as `install.sh`, rendered from `install/install.sh.in` in
+  the tree the release was built from). Run it **as your user**, never under
+  `sudo`: it escalates for exactly two steps — the root-owned binary, and the
+  **host-level** system boot unit (`com.umbree.umbreed` in
+  `/Library/LaunchDaemons` on macOS, `umbreed.service` in
+  `/etc/systemd/system` on Linux) — one unit per machine, running as root
+  because the gateway's register socket is root-owned inside a directory only
+  root can enter. Where the binary, the `version` record and the device trust
+  store live, and how an existing host migrates between layouts, is the
+  daemon repo's to say: read its `install/README.md` for the exact tree the
+  version you are installing creates (it moves to the machine-owned brand
+  root in the `0.2` line). `umbreed devices list|approve` is meant to work
+  unprivileged, as you; `sudo` is not the answer to a permissions error there
+  — report it instead.
 
   `UMBREED_NO_SERVICE=1` installs the binary only, into `$HOME/.local/bin`
   (override with `PREFIX`), with no elevation and no unit. `UMBREED_UNINSTALL=1`
   unloads and removes the service, then the binary.
+
+- **`beta.install.sh`** — each component also has a beta twin at the same
+  base URL (`https://release.umbree.org/<comp>/beta.install.sh`), served only
+  while a beta cycle is open. It resolves the **newest of beta-or-stable**
+  comparing `X.Y.Z`, tie to stable, so a host that installed a beta graduates
+  onto the stable release when the cycle closes without ever changing which
+  URL it uses. Beta bytes are served from the downloads mirror only (a beta is
+  never a GitHub Release). Same `UMBREE_VERSION` pin, same env contract as
+  `install.sh`. See "Beta channel" below.
 
 ## Verify by hand
 
@@ -206,9 +211,21 @@ Building and publishing are two separate steps:
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
 - **`tools/release.sh --distribute-only <umbree|umbreed> <stamp>`** **publishes**
-  a staged `dist/<stamp>/`: GitHub Release on this repo, bootstrap + `version.js`
+  a staged `dist/<stamp>/`: GitHub Release on this repo, R2 mirror, the
+  component's `versions/<comp>.stamp` (the version floor every bootstrap bakes
+  — a resolved release older than it is refused), bootstrap + `version.js`
   render, scp to the static host, `[RELEASED]` marker commit. There is no
-  shell build path — `rkit build` is the only builder.
+  shell build path — `rkit build` is the only builder. The beta channel's
+  publish is the sibling verb `--channel beta <comp> <stamp>` (below).
+- **Before either half runs, the cut origin is asserted**
+  (`tools/release_origin.sh`, in `release.command` before `rkit build` and again
+  in `release.sh`): each component's source must be its registry `code/main`
+  folder (or its `code/beta` linked worktree on beta), on the right branch,
+  clean, and in sync with `origin`; and this repo must be on `main`, clean
+  except the version bump `rkit build` just staged, and **not ahead of
+  `origin/main`** — an unpushed marker, or any unpushed commit here, refuses
+  the cut before anything is bumped or built. Under `--dry-run` the same
+  findings print as `⚠` and the rehearsal continues.
 - **`tools/release.command`** runs those two steps, for one or more components,
   in a **desktop session** — and that is not a convenience. `rcodesign` signs in
   any session, but `notarytool` reaches Apple through frameworks that need a
@@ -221,15 +238,70 @@ Building and publishing are two separate steps:
   `RELEASE_HOST`/`STATIC_DIR` and signing key from the operator's sealed
   configuration, and
   pushes each `[RELEASED: <comp>]` marker before the next component starts —
-  the pre-flight refuses to cut while this repo is ahead of its remote, so an
-  unpushed marker aborts the following component. Output goes to `.release.log`,
-  ending in `RELEASE-EXIT:<code>`.
+  the cut-origin guard refuses to cut while this repo is ahead of its remote,
+  so an unpushed marker aborts the following component. Output goes to
+  `.release.log`, ending in `RELEASE-EXIT:<code>`. Operator hazards the
+  tooling does not prevent are collected in `tools/RUNBOOK.md`.
 
 Built binaries for the private component sources (`umbree-git/cli` for
 `umbree`, `umbree-git/daemon` for `umbreed`) are published as **GitHub
 Release assets on this repo** (the sources are private and can't be `curl`'d
 anonymously). The static bootstrap scripts are mirrored to
 `release.umbree.org` (nginx + Cloudflare).
+
+## Beta channel
+
+A beta cycle soaks a batch of work on a beta fleet before it reaches stable
+users. The mechanics are burrowee's, in umbree's three-step cut shape; the
+rules are the shared beta guideline's. **Opening, approving and closing a cycle
+are operator decisions — no tool here does any of them unasked.**
+
+- **Marker.** `versions/<comp>.beta` present = a cycle is open for that
+  component. Its cut companion `versions/<comp>.beta.stamp` is what renders the
+  `beta.install.sh` twin. Stamps are `v<X.Y.Z>.beta.<YYYY>.<MM>.<DD>.<sha8>`,
+  tags `<comp>/<stamp>`; a stable stamp never carries `.beta.`, so one anchored
+  regex per channel keeps them apart everywhere (bootstraps, retention, R2).
+- **Open.** In each participating repo (cli, daemon, core) create the permanent
+  `beta` branch and a `code/beta` sibling worktree (`git worktree add
+  ../beta beta`; the tooling never creates one), and PR `dev → beta` as one
+  changeset. Then seed each cut component at the next minor:
+  `bash tools/version.sh umbree --channel beta --seed` writes
+  `versions/umbree.beta` = stable minor + 1, patch 0 (`0.1.8 → 0.2.0`); same for
+  `umbreed`. Commit and push both files.
+- **Cut.** `.release-request` with `CHANNEL="beta"` (and `BETA_BRANCH=` only for
+  a second concurrent cycle or an experiment), then `open tools/release.command`.
+  The first beta cut of a component takes **no bump flag** — the seed is the
+  version; later beta cuts of a moved component take `--bump-patch`. A beta cut
+  builds from `code/beta`, tags `<comp>/<stamp>`, uploads to the downloads
+  mirror under `<comp>/beta/<stamp>/` with `<comp>/beta/latest.json` written
+  last, renders `<comp>/beta.install.sh` + `<comp>/beta.version.js` and scp's
+  **only those two** to the static host, and records
+  `[RELEASED: <comp> beta] … (private)`. **No GitHub Release is created** —
+  "private" means the beta exists only on the mirror, is not advertised, and
+  is never seen by the stable `install.sh`. By hand:
+  `bash tools/release.sh --channel beta <comp> <stamp> [--dry-run]`.
+- **Promote (close, step 1).** Operator approves the beta; PR `beta → main`
+  in each repo, merged with `--merge`. Then per component
+  `bash tools/adopt-beta-version.sh <comp>` copies `versions/<comp>.beta` into
+  `versions/<comp>`, and the stable cut runs with **no bump flag**
+  (`CHANNEL="stable"`, `FLAGS="--public"`) so the stable release carries
+  exactly the version the beta fleet soaked. That equality is graduation: the
+  twin's "newest of beta-or-stable, tie to stable" now resolves to the stable
+  release, and every beta host installs it on its next update without changing
+  channel.
+- **Close (step 2).** Remove `versions/<comp>.beta` and
+  `versions/<comp>.beta.stamp`, commit and push. The next
+  `tools/gen-bootstraps.sh` run (the next stable cut runs it) deletes the local
+  twins and the stable marker commit stages that deletion. The **served**
+  `beta.install.sh` / `beta.version.js` on the release host are untouched by
+  any tool — remove them over ssh by hand, or leave them: they keep resolving
+  to the stable release (`tools/RUNBOOK.md`). `beta` is not deleted; it carries
+  the next cycle.
+- **Retention.** `CHANNEL=beta bash tools/prune-releases.sh [--execute]` keeps
+  the newest 1 beta tag per component (stable keeps 10 Releases), and
+  `cd tools/r2-mirror && go run ./cmd/r2-prune --channel beta [--execute]` keeps
+  the newest 1 beta stamp on the mirror. Run the GitHub pass before the R2
+  pass; a tag or key matching neither channel's shape is ignored by both.
 
 ## Keys
 

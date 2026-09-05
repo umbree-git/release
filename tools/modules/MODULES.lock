@@ -1,5 +1,6 @@
 # module            version  sha256-of-authored-text
 # rewritten by tools/lock-modules.sh — do not hand-edit
+channel-pick       v1       07e2c711fcbe85e4da75070c5543be4775b6d9c5b5ba1e0e42a3a6f1ce539193
 helpers            v1       e84df2c8a4bd2a4be9b0182739be87d0db8cbac2ae0ce9de9dd21741360b0595
 install-minisign-common v1       a99204f6af06b41f306b210861a39f5f481a3edfd8f129d113256034da039cb5
 install-minisign-darwin v1       99e7c93fb5b3b7fb3eb0fd8c9bcfd406463474f0238377e967ee8f8dda32a02b

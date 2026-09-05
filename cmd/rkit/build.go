@@ -42,6 +42,11 @@ type Options struct {
 	// instead) — a dry run's artifacts are throwaway and notarization is a real
 	// Apple API call.
 	DryRun bool
+	// Channel is "stable" (the zero value resolves to it) or "beta": it picks
+	// the version file (versions/<comp> vs versions/<comp>.beta), the stamp
+	// scheme (relconfig.StampFor), and whether renderInstall may fall back to
+	// the release repo's inner installer (never on beta).
+	Channel string
 }
 
 type Result struct {
@@ -62,6 +67,9 @@ type buildOpts struct {
 	// Bump is "", "patch", "minor", or "major" — the tools/version.sh
 	// --bump-<kind> action to run before stamping. Empty means no bump.
 	Bump string
+	// Channel is "stable" or "beta" (see Options.Channel). Beta asserts
+	// versions/<comp>.beta sorts above versions/<comp> BEFORE any bump.
+	Channel string
 }
 
 func runBuild(args []string) error {
@@ -79,7 +87,13 @@ func runBuild(args []string) error {
 	bumpPatch := fs.Bool("bump-patch", false, "bump the component's patch version before building")
 	bumpMinor := fs.Bool("bump-minor", false, "bump the component's minor version before building (prompts unless UMBREE_RELEASE_YES=1)")
 	bumpMajor := fs.Bool("bump-major", false, "bump the component's major version before building (prompts unless UMBREE_RELEASE_YES=1)")
+	fs.StringVar(&o.Channel, "channel", relconfig.ChannelStable, "release channel: stable | beta (beta reads versions/<comp>.beta and stamps v<X.Y.Z>.beta.<date>.<sha>)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// Refused before srcDirFor and before anything touches the tree: a
+	// misspelled channel must not silently cut stable.
+	if _, err := relconfig.VersionFile(o.Channel, "", ""); err != nil {
 		return err
 	}
 	// --public / --public-release is the standard ship path: Apple sign+notarize + CVE gate.
@@ -173,18 +187,46 @@ func buildRun(o buildOpts) (err error) {
 		}
 	}
 
+	if o.Channel == "" {
+		o.Channel = relconfig.ChannelStable
+	}
+	versionsDir := filepath.Join(o.RepoDir, "versions")
+	versionFile, err := relconfig.VersionFile(o.Channel, versionsDir, o.Component)
+	if err != nil {
+		return err
+	}
+	versionSh := filepath.Join(o.RepoDir, "tools", "version.sh")
+
+	// Beta: refuse before touching anything. A beta that does not read newer
+	// than its stable sibling would ship a `version` a beta host (and the
+	// follow-on stable cut) cannot trust — and refusing here, before the
+	// bump, leaves versions/<comp>.beta exactly as it was.
+	if o.Channel == relconfig.ChannelBeta {
+		cmd := exec.Command("bash", versionSh, o.Component, "--channel", "beta", "--assert-beta-above-stable")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("beta version assert: %w", err)
+		}
+	}
+
 	// Revert the version bump if the build fails, or unconditionally on
 	// --dry-run — a dry run must never leave a bumped versions/<comp> behind.
 	// Registered BEFORE the bump step below so it also covers the bump
 	// step's own failure (version.sh writes the file then `git add` fails).
+	// Both channels' files are restored, EACH IN ITS OWN CALL: git aborts a
+	// restore whose pathspec matches nothing tracked, and versions/<comp>.beta
+	// is untracked whenever no cycle is open — one combined call would then
+	// restore neither and leave a stable bump staged after a failed build.
 	defer func() {
 		if err != nil || o.DryRun {
-			exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "versions/"+o.Component).Run()
+			for _, f := range []string{"versions/" + o.Component, "versions/" + o.Component + ".beta"} {
+				exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "--", f).Run()
+			}
 		}
 	}()
 
 	if !o.DryRun && o.Bump != "" {
-		cmd := exec.Command("bash", filepath.Join(o.RepoDir, "tools", "version.sh"), o.Component, "--bump-"+o.Bump)
+		cmd := exec.Command("bash", versionSh, o.Component, "--channel", o.Channel, "--bump-"+o.Bump)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("version bump: %w", err)
@@ -192,9 +234,9 @@ func buildRun(o buildOpts) (err error) {
 	}
 
 	ctx := context.Background()
-	stamp, err := relconfig.Stamp(ctx, filepath.Join(o.RepoDir, "versions", o.Component), o.SrcDir)
+	stamp, err := relconfig.StampFor(ctx, o.Channel, versionsDir, o.Component, o.SrcDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("stamp from %s: %w", versionFile, err)
 	}
 	distDir := filepath.Join(o.RepoDir, "dist", stamp)
 
@@ -220,6 +262,7 @@ func buildRun(o buildOpts) (err error) {
 		MinisignKey: key,
 		SkipGate:    true, // the gate above already ran (or was explicitly bypassed)
 		Apple:       o.Apple, DryRun: o.DryRun,
+		Channel: o.Channel,
 	})
 	return err
 }
@@ -245,33 +288,51 @@ func notarizerFor(apple bool) (sign.Notarizer, bool) {
 	return sign.Notarizer{}, false
 }
 
-// renderInstall writes comp's install.sh into the stamp dir. Two modes, not
-// one generic path — a client and a daemon ship their installer from
-// fundamentally different places, and treating them the same is the mistake
-// this function used to make:
+// renderInstall writes comp's install.sh into the stamp dir and reports
+// whether it came from the component tree. ONE rule for both components: the
+// installer travels with the source being built (burrowee relay's shape) —
+// the tree copy is the one that matches the binary by construction, and a
+// release-repo copy can only ever match by coincidence:
 //
-//   - umbree (a client) ships the repo-committed inner/umbree/install.sh
-//     verbatim — this release repo owns that file.
-//   - umbreed (the daemon) does NOT get a copy here. It ships its own repo's
-//     canonical install/install.sh.in, rendered with the build stamp
-//     substituted for the __UMBREED_VERSION__ placeholder. There used to be
-//     an inner/umbreed/install.sh in this repo too — see the comment at the
-//     "umbreed" case below for why it was deleted.
+//   - umbree (the client) ships <srcDir>/install/install.sh verbatim when the
+//     cli tree carries one (feature 02 of the brand-root project moves it
+//     there). Until it does, STABLE falls back to this repo's committed
+//     inner/umbree/install.sh with a loud warning — that path is unchanged
+//     and already hazardous (it assumes a `service` verb the stable cli may
+//     not have; release README). BETA refuses the fallback outright: a beta
+//     that ships the release repo's copy would be the split burrowee is
+//     stuck in. Once feature 02 is on main the fallback and inner/umbree/
+//     are deleted together.
+//   - umbreed (the daemon) ships its own repo's canonical
+//     install/install.sh.in, rendered with the build stamp substituted for
+//     the __UMBREED_VERSION__ placeholder — the same rule, a different file
+//     name. There used to be an inner/umbreed/install.sh in this repo too —
+//     see the comment at the "umbreed" case below for why it was deleted.
 //
 // Mirrors render_inner in clawee's tools/release.sh, which draws the same
 // line between clawee and claweed for the same reason.
-func renderInstall(comp, stamp, srcDir, repoDir, dst string) error {
+func renderInstall(comp, stamp, srcDir, repoDir, dst, channel string) (fromTree bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	var data []byte
 	switch comp {
 	case "umbree":
-		src := filepath.Join(repoDir, "inner", comp, "install.sh")
-		raw, err := os.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("renderInstall %s: read %s: %w", comp, src, err)
+		tree := filepath.Join(srcDir, "install", "install.sh")
+		if raw, terr := os.ReadFile(tree); terr == nil {
+			data = raw
+			fromTree = true
+			break
 		}
+		if channel == relconfig.ChannelBeta {
+			return false, fmt.Errorf("renderInstall umbree: beta build has no install/install.sh in %s — feature 02 (cli/install/) has not reached beta; a beta must ship the installer from the tree it was built from", srcDir)
+		}
+		fallback := filepath.Join(repoDir, "inner", comp, "install.sh")
+		raw, ferr := os.ReadFile(fallback)
+		if ferr != nil {
+			return false, fmt.Errorf("renderInstall %s: neither %s nor %s: %w", comp, tree, fallback, ferr)
+		}
+		fmt.Fprintf(os.Stderr, "⚠ renderInstall umbree: %s is a fallback — the cli tree carries no install/install.sh; this copy already assumes a `service` verb the stable cli may not have (release README, feature 02)\n", fallback)
 		data = raw
 	case "umbreed":
 		// No inner/umbreed/install.sh in this repo — deliberately. Clawee
@@ -283,20 +344,24 @@ func renderInstall(comp, stamp, srcDir, repoDir, dst string) error {
 		// the daemon repo's canonical template instead, at build time, from
 		// its own source worktree (SrcDir, resolved from UMBREE_SRC_UMBREED).
 		src := filepath.Join(srcDir, "install", "install.sh.in")
-		raw, err := os.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("renderInstall %s: canonical installer template missing: %s (set UMBREE_SRC_UMBREED to the daemon source worktree): %w", comp, src, err)
+		raw, rerr := os.ReadFile(src)
+		if rerr != nil {
+			return false, fmt.Errorf("renderInstall %s: canonical installer template missing: %s (set UMBREE_SRC_UMBREED to the daemon source worktree): %w", comp, src, rerr)
 		}
 		data = []byte(strings.ReplaceAll(string(raw), "__UMBREED_VERSION__", stamp))
+		fromTree = true
 	default:
-		return fmt.Errorf("renderInstall: unknown component %q", comp)
+		return false, fmt.Errorf("renderInstall: unknown component %q", comp)
 	}
-	return os.WriteFile(dst, data, 0o755)
+	return fromTree, os.WriteFile(dst, data, 0o755)
 }
 
 func orchestrate(ctx context.Context, o Options) (*Result, error) {
 	if o.SrcDir == "" {
 		o.SrcDir = o.RepoDir
+	}
+	if o.Channel == "" {
+		o.Channel = relconfig.ChannelStable
 	}
 	// 1. CVE gate (fail-closed) — scan the component module. Skipped only
 	//    when o.SkipGate is set, which buildRun does once the gate has
@@ -308,8 +373,8 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 			return nil, fmt.Errorf("cve gate: %w", err)
 		}
 	}
-	// 2. Stamp (read-only, no bump).
-	stamp, err := relconfig.Stamp(ctx, filepath.Join(o.RepoDir, "versions", o.Component), o.SrcDir)
+	// 2. Stamp (read-only, no bump), from the channel's version file.
+	stamp, err := relconfig.StampFor(ctx, o.Channel, filepath.Join(o.RepoDir, "versions"), o.Component, o.SrcDir)
 	if err != nil {
 		return nil, err
 	}
@@ -340,15 +405,31 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("verify-no-env: %w", err)
 	}
 
-	// 4. install.sh — a verbatim copy of inner/umbree/install.sh (see
+	// 4. install.sh — from the component tree when it carries one (see
 	//    renderInstall).
 	installSh := filepath.Join(o.OutDir, stamp, "install.sh")
-	if err := renderInstall(o.Component, stamp, o.SrcDir, o.RepoDir, installSh); err != nil {
+	installFromTree, err := renderInstall(o.Component, stamp, o.SrcDir, o.RepoDir, installSh, o.Channel)
+	if err != nil {
 		return nil, fmt.Errorf("install.sh: %w", err)
 	}
 
-	// 5. Assemble one flat zip per target: component bins + install.sh.
-	zips, err := assemble(o.Component, stamp, o.OutDir, installSh, arts)
+	// 4b. The migration ladder beside the installer — <SrcDir>/install/
+	//     migrations/, staged into every zip under migrations/. Absent ⇒
+	//     nothing staged (stageMigrations). A beta that ships a tree
+	//     installer with no ladder is still a valid beta; say so where the
+	//     operator reads .release.log rather than refusing.
+	migs, err := stageMigrations(o.SrcDir)
+	if err != nil {
+		return nil, err
+	}
+	if o.Channel == relconfig.ChannelBeta && len(migs) == 0 && installFromTree {
+		feature := map[string]string{"umbree": "02", "umbreed": "03"}[o.Component]
+		fmt.Fprintf(os.Stderr, "⚠ %s: beta build ships an installer from %s but no install/migrations/ — feature %s adds the ladder; this beta carries none\n", o.Component, o.SrcDir, feature)
+	}
+
+	// 5. Assemble one flat zip per target: component bins + install.sh +
+	//    the ladder.
+	zips, err := assemble(o.Component, stamp, o.OutDir, installSh, migs, arts)
 	if err != nil {
 		return nil, fmt.Errorf("assemble: %w", err)
 	}

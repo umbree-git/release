@@ -23,5 +23,5 @@
 # the code that runs.
 
 download           local fork in tools/bootstrap.template.sh — the shared module builds "umbree-umbree-<os>-<arch>.zip" for a single-component product and would 404 on every real release, and its exhausted-fallback would replace Umbree's $UMBREE_DOWNLOADS_BASE mirror rather than add to it
-version-resolve    local fork in tools/bootstrap.template.sh — the shared module's PIN case is hardcoded over Burrowee's four components and fails on anything else, so adopting it would abort EVERY Umbree install; it also asserts a $MIN_VERSION floor this generator never bakes
+version-resolve    local fork in tools/bootstrap.template.sh — the shared module's PIN case is hardcoded over Burrowee's four components and fails on anything else, so adopting it would abort EVERY Umbree install, and it resolves through Burrowee's console catalog, which Umbree has none of; the local fork bakes and asserts the same $MIN_VERSION floor (versions/<comp>.stamp, versions/<comp>.beta.stamp on the beta twin) and picks the beta channel via the shared channel-pick module
 download-r2-only   Burrowee's private, console-gated relay channel only — Umbree has no gated channel
