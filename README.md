@@ -249,6 +249,41 @@ Release assets on this repo** (the sources are private and can't be `curl`'d
 anonymously). The static bootstrap scripts are mirrored to
 `release.umbree.org` (nginx + Cloudflare).
 
+## Has it been promoted? Ask the manifest, never a person
+
+A cut ends at the gated store; going public is the operator's own act. Nothing
+here described the **return leg** — how a later session learns the promote
+happened — so work waiting on a go-live was resolved by asking, and believing
+the answer. An answer reports an *intention to promote*. The one worth catching
+is the promote that was carried out and still left no manifest: bytes copied,
+row flipped, manifest write failed. An assertion cannot see that, and neither
+can an authenticated read of the catalog, which reaches the row rather than the
+thing installers resolve.
+
+```sh
+tools/promote-check.sh <component> <stable|beta> [--expect <version>]
+```
+
+One unauthenticated, cache-defeating GET of `<comp>[/beta]/latest.json` over
+`UMBREE_R2_DOWNLOADS_BASE` — the same mirror catalog `gen-version-jsonp.sh`
+reads, and the same component set, derived from `versions/`. No credentials, no
+writes. Exit **0** live · **1** not yet · **2** usage · **3** cannot determine —
+unreachable, absent, malformed, or a version **newer** than expected. `1` and
+`3` are separate exits deliberately: a caller that collapses them treats an
+outage as patience and waits for something that will never happen. An empty base
+is a refusal, not a skip — a check with no surface to read is not a check.
+
+> **Today every component answers `3` here**, because this repo still publishes
+> its component binaries as GitHub Release assets (above) and the mirror carries
+> no `latest.json` for `umbree` or `umbreed`. The check is correct and says so
+> rather than guessing; it starts answering the moment a promote writes a channel
+> manifest. Moving this repo's distribution onto the downloads surface is its own
+> piece of work.
+
+Work blocked on a promote is written `blocked: promote <component> <version>
+<channel>` — this script's arguments — and the resuming session runs it before
+the plan, the worktree, or any question.
+
 ## Beta channel
 
 A beta cycle soaks a batch of work on a beta fleet before it reaches stable
