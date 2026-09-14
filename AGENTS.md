@@ -38,7 +38,7 @@ for `cmd/rkit`. A change to a tool changes its test in the same commit.
 ## Cutting a release
 
 The whole procedure is `README.md` → "How releases are made", with the beta
-channel in "Beta channel". Three repo-specific facts that decide whether a cut
+channel in "Beta channel". Four repo-specific facts that decide whether a cut
 can run at all:
 
 - **Launch `tools/release.command` in a real desktop session**, unmodified.
@@ -50,6 +50,12 @@ can run at all:
   repo is on `main`, clean and `== origin/main`, including a `[RELEASED]` marker
   from an earlier cut that was never pushed. `--dry-run` reports instead of
   refusing, so a rehearsal still shows what a real cut would trip on.
+- **A `main` not merged back into `dev` refuses the cut**, for this repo and
+  each component source (`check_sync_back`: `origin/main` must be an ancestor
+  of `origin/dev`). The launcher carries every marker into `dev` right after
+  pushing it, so a batch passes it: a fast-forward, or a merge (no checkout, no
+  force) when `dev` has diverged; it stops only on a conflict or a `dev` that
+  moved mid-cut, naming the manual merge (`tools/RUNBOOK.md`).
 - **Hosts, static paths and credentials are never written in this repo.** They
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).

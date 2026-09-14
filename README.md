@@ -224,8 +224,11 @@ Building and publishing are two separate steps:
   clean, and in sync with `origin`; and this repo must be on `main`, clean
   except the version bump `rkit build` just staged, and **not ahead of
   `origin/main`** — an unpushed marker, or any unpushed commit here, refuses
-  the cut before anything is bumped or built. Under `--dry-run` the same
-  findings print as `⚠` and the rehearsal continues.
+  the cut before anything is bumped or built. Both trees must also carry their
+  sync-back — **`origin/main` contained in `origin/dev`** (`check_sync_back`,
+  `dev.md` check 4) — so a cut whose predecessor never merged `main` back into
+  `dev` is refused, naming the merge. Under `--dry-run` the same findings print
+  as `⚠` and the rehearsal continues (the sync-back check stays offline there).
 - **`tools/release.command`** runs those two steps, for one or more components,
   in a **desktop session** — and that is not a convenience. `rcodesign` signs in
   any session, but `notarytool` reaches Apple through frameworks that need a
@@ -239,7 +242,13 @@ Building and publishing are two separate steps:
   configuration, and
   pushes each `[RELEASED: <comp>]` marker before the next component starts —
   the cut-origin guard refuses to cut while this repo is ahead of its remote,
-  so an unpushed marker aborts the following component. Output goes to
+  so an unpushed marker aborts the following component. Right after each push
+  it carries the marker into `dev`, for the same reason: the sync-back check
+  would otherwise refuse the next component on the marker just pushed. That is
+  a fast-forward, or — when `dev` carries commits `main` lacks, its normal
+  state — a merge of `main` into `dev` built without a checkout and pushed
+  without force. The launcher stops only on a merge conflict or a `dev` that
+  moved during the cut, naming the manual merge. Output goes to
   `.release.log`, ending in `RELEASE-EXIT:<code>`. Operator hazards the
   tooling does not prevent are collected in `tools/RUNBOOK.md`.
 

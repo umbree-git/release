@@ -34,6 +34,30 @@ component with it published and unrecorded on the remote; push the marker by
 hand, then re-run with the remaining components only (the published one's tag
 already exists and would be refused).
 
+## `dev` must contain `main` — the sync-back check
+
+The cut-origin guard also asserts, for each component source and for this
+repo, that `origin/main` is an ancestor of `origin/dev` (`tools/release_origin.sh`
+`check_sync_back`, `dev.md` check 4). A refusal means something that reached
+`main` — a previous cut's marker, a hotfix, a `dev → main` release — was never
+merged back down. Fix it on `dev`: `git merge origin/main` (a merge, never a
+rebase — a rebase drops the merge commits and takes `main` back out of `dev`),
+push, re-run. A PR merged into `main`, a hotfix included, therefore has to be
+synced into `dev` **before** the next cut from that repo, or the cut refuses.
+
+The launcher keeps this repo's side true as it goes: after each marker push it
+carries the marker into `dev` (`sync_marker_into_dev`) — a fast-forward when
+`dev` has nothing `main` lacks, otherwise a merge commit `Merge branch 'main'
+into dev` (dev first parent, the marker second), built with `git merge-tree
+--write-tree` and `git commit-tree` so no branch or working tree is touched
+(git 2.38 or newer), and pushed without force. It stops after that component,
+its marker already published, in two cases: the merge **conflicts** (the paths
+are named), or the push is refused because **`dev` moved during the cut** — it
+is never forced. Then merge `main` into `dev` by hand, push, and re-run with
+the cut components dropped. Clawee shipped the guard without this sync on
+2026-09-14 and its second component, `claweed`, refused on the first one's
+marker — which is why the two landed together here.
+
 ## Beta: what the twins are, and what closing does not do
 
 `<comp>/beta.install.sh` and `<comp>/beta.version.js` are rendered only while

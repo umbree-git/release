@@ -57,6 +57,8 @@ printf 'module_gate() { :; }\n' > "$REL/tools/module_gate.sh"
 /usr/bin/git init -q --bare "$T/release.git"
 /usr/bin/git -C "$REL" remote add origin "$T/release.git"
 /usr/bin/git -C "$REL" push -q -u origin main
+# dev at main: the sync-back check (dev.md check 4) reads origin/dev too.
+/usr/bin/git -C "$REL" push -q origin main:refs/heads/dev
 
 # ---- the component repo (registry main) ------------------------------------
 CLI="$T/Umbree/cli/code/main"
@@ -65,6 +67,7 @@ echo x > "$CLI/f"; /usr/bin/git -C "$CLI" add f; /usr/bin/git -C "$CLI" commit -
 /usr/bin/git init -q --bare "$T/cli.git"
 /usr/bin/git -C "$CLI" remote add origin "$T/cli.git"
 /usr/bin/git -C "$CLI" push -q -u origin main
+/usr/bin/git -C "$CLI" push -q origin main:refs/heads/dev
 export UMBREE_SRC_UMBREE="$CLI"
 
 # ---- a staged dist/<stamp>/ for each stamp shape ---------------------------
@@ -145,6 +148,32 @@ check "stable --dry-run → 0" "$rc" "0"
 check_contains "…plans the GitHub Release" "$out" "gh release create umbree/$STABLE_STAMP"
 check_contains "…plans the version floor" "$out" "write versions/umbree.stamp"
 check_lacks "…the stable rehearsal prints no ⚠ for an in-sync registry main" "$out" "⚠ umbree"
+
+echo "# the sync-back check: origin/main must be contained in origin/dev"
+# The release repo's main advances past dev — a cut whose predecessor skipped
+# the sync-back. REL stays == origin/main, so assert_release_origin passes and
+# check_sync_back is the only thing left that can refuse.
+echo m > "$REL/prior-marker.txt"; /usr/bin/git -C "$REL" add prior-marker.txt
+/usr/bin/git -C "$REL" commit -q -m "[RELEASED: umbree] prior cut"
+/usr/bin/git -C "$REL" push -q origin main
+run --distribute-only umbree "$STABLE_STAMP"
+check "release repo main not in dev → 1" "$rc" "1"
+check_contains "…names the missing sync-back" "$out" "✗ release repo: origin/main is not an ancestor of dev"
+check_contains "…names the fix" "$out" "a merge, never a rebase"
+check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
+run --distribute-only umbree "$STABLE_STAMP" --dry-run
+check "…the same state under --dry-run reports and continues → 0" "$rc" "0"
+check_contains "…as a ⚠" "$out" "⚠ release repo: origin/main is not an ancestor of dev"
+/usr/bin/git -C "$REL" push -q origin main:refs/heads/dev   # the sync-back (a fast-forward)
+
+# The component source: its main advances past its dev.
+echo y > "$CLI/g"; /usr/bin/git -C "$CLI" add g; /usr/bin/git -C "$CLI" commit -q -m "hotfix on main"
+/usr/bin/git -C "$CLI" push -q origin main
+run --distribute-only umbree "$STABLE_STAMP"
+check "component source main not in dev → 1" "$rc" "1"
+check_contains "…names the component" "$out" "✗ umbree: origin/main is not an ancestor of dev"
+check_lacks "…and not the release repo" "$out" "release repo: origin/main"
+/usr/bin/git -C "$CLI" push -q origin main:refs/heads/dev
 
 echo "# stable strict: an unpushed release repo is refused"
 echo local > "$REL/local.txt"; /usr/bin/git -C "$REL" add local.txt; /usr/bin/git -C "$REL" commit -q -m local

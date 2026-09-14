@@ -639,5 +639,76 @@ check "tolerance: an explicit stable is the stable pair" \
     "$(staged_tolerance_for 1 umbree stable)" "$(printf 'versions/umbree\nversions/umbree.stamp')"
 check "tolerance: beta with distribute_only=0 yields nothing" "$(staged_tolerance_for 0 umbree beta)" ""
 
+# ── check_sync_back (dev.md check 4, ported from clawee-git/release) ────────
+# origin/main must be an ancestor of origin/dev. Clawee 2026-09-14 is why it
+# is here: every cut left dev behind main silently until a guard said so.
+#
+# spine <name> — new_origin_and_clone plus dev on the origin at main: a
+# converted repo whose sync-back is current. Prints the clone path.
+spine() {
+    local c
+    c="$(new_origin_and_clone "$1")"
+    /usr/bin/git -C "${c}" push --quiet origin main:refs/heads/dev
+    printf '%s' "${c}"
+}
+# advance <name> <branch> — one commit on <branch>, pushed from a SECOND clone,
+# so the fixture's own remote-tracking refs are left stale on purpose.
+advance() {
+    local o="${WORK}/$1-advance-$2"
+    rm -rf "${o}"
+    /usr/bin/git clone --quiet "${WORK}/$1.git" "${o}" 2>/dev/null
+    /usr/bin/git -C "${o}" checkout --quiet "$2"
+    /usr/bin/git -C "${o}" commit --quiet --allow-empty -m "advance $2"
+    /usr/bin/git -C "${o}" push --quiet origin "$2"
+}
+
+SB="$(spine syncback)"
+out="$(check_sync_back umbree "${SB}" strict 2>&1)" && r=0 || r=1
+check "sync-back: dev == main passes" "${r}" "0"
+check "sync-back: the pass is silent" "${out}" ""
+
+# Unreleased work on dev is the normal state: dev ahead of main still contains it.
+advance syncback dev
+out="$(check_sync_back umbree "${SB}" strict 2>&1)" && r=0 || r=1
+check "sync-back: dev ahead of main (unreleased work) passes" "${r}" "0"
+check "sync-back: strict fetched the moved dev through an explicit refspec" \
+    "$(/usr/bin/git -C "${SB}" rev-parse refs/remotes/origin/dev)" \
+    "$(/usr/bin/git -C "${WORK}/syncback.git" rev-parse refs/heads/dev)"
+
+# A marker pushed to main and never merged down. SB's refs are stale again, so
+# report mode — which never fetches — still reads the old, contained state:
+# that is the proof it stays offline. strict fetches and refuses.
+advance syncback main
+out="$(check_sync_back umbree "${SB}" report 2>&1)" && r=0 || r=1
+check "sync-back: report mode is offline (stale refs, no finding)" "${r}:${out}" "0:"
+out="$(check_sync_back umbree "${SB}" strict 2>&1)" && r=0 || r=1
+check "sync-back: main not in dev is refused under strict" "${r}" "1"
+check_contains "sync-back: refusal names the tree and the gap" "${out}" "✗ umbree: origin/main is not an ancestor of dev"
+check_contains "sync-back: refusal names the fix, a merge" "${out}" "merge origin/main into dev (a merge, never a rebase)"
+out="$(check_sync_back umbree "${SB}" report 2>&1)" && r=0 || r=1
+check "sync-back: report mode returns 0 on the same (now fetched) state" "${r}" "0"
+check_contains "sync-back: report mode marks it ⚠" "${out}" "⚠ umbree: origin/main is not an ancestor of dev"
+
+# Fetch failure: strict refuses rather than trusting old refs; report never
+# fetched, so it answers from the (contained) refs it has.
+SBG="$(spine syncback-gone)"
+/usr/bin/git -C "${SBG}" remote set-url origin "${WORK}/no-such-repo.git"
+out="$(check_sync_back "release repo" "${SBG}" strict 2>&1)" && r=0 || r=1
+check "sync-back: an unreachable origin is refused under strict" "${r}" "1"
+check_contains "sync-back: fetch refusal says so" "${out}" "✗ release repo: could not fetch origin/main and origin/dev"
+out="$(check_sync_back "release repo" "${SBG}" report 2>&1)" && r=0 || r=1
+check "sync-back: report mode does not fetch, so an unreachable origin is no finding" "${r}:${out}" "0:"
+
+# An origin with no dev at all (an unconverted repo, dev.md §1): strict cannot
+# fetch dev and refuses; report names the missing ref instead of misreporting
+# it as a missing sync-back.
+SBN="$(new_origin_and_clone syncback-nodev)"
+out="$(check_sync_back umbreed "${SBN}" strict 2>&1)" && r=0 || r=1
+check "sync-back: no dev on origin is refused under strict" "${r}" "1"
+check_contains "sync-back: that refusal names creating dev" "${out}" "create dev from main"
+out="$(check_sync_back umbreed "${SBN}" report 2>&1)" && r=0 || r=1
+check "sync-back: report mode returns 0 with no origin/dev" "${r}" "0"
+check_contains "sync-back: report names the missing ref, not a missing sync" "${out}" "⚠ umbreed: no origin/main or origin/dev"
+
 echo
 if [ "${fail}" = 0 ]; then echo "ALL OK"; else echo "TESTS FAILED"; exit 1; fi
