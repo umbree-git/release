@@ -13,8 +13,9 @@
 #
 # Both verbs publish THAT already-staged dist/<stamp>/ WITHOUT building,
 # signing, notarizing, or bumping a version — they run only the publish half.
-# They share the pre-flight (staged dir, module gate, cut-origin guard, the
-# release key check) and differ in where the bytes go:
+# They share the pre-flight (staged dir, module gate, cut-origin guard with its
+# main→dev sync-back check, the release key check) and differ in where the
+# bytes go:
 #
 # --distribute-only (STABLE):
 #   1. git-tags <comp>/<stamp> + publishes a GitHub Release on umbree-git/release.
@@ -181,6 +182,14 @@ registry_main_for() {
 # script is also run by hand, and `rkit build` has staged the version bump by
 # the time it runs — which is exactly the staged tolerance the release repo
 # gets (versions/<comp>[.beta] + its stamp, nothing else).
+#
+# Each tree is also checked for the main→dev sync-back (check_sync_back,
+# dev.md check 4), on both verbs: they are the only publish paths this script
+# has, and a re-run by hand must not be the door that skips the check. Under a
+# launcher batch this re-check runs after the previous component's marker was
+# pushed, so it passes only because release.command synced that marker into
+# dev right after the push (Clawee 2026-09-14: without the sync, claweed refused here
+# on clawee's marker).
 assert_origins() {
     local comp="$1" channel="$2" mode="$3" reg src
     reg="$(registry_main_for "${comp}")"; src="$(src_for "${comp}")"
@@ -189,11 +198,13 @@ assert_origins() {
     else
         assert_release_origin "${comp}" "${src}" "${reg}" "${mode}" || exit 1
     fi
+    check_sync_back "${comp}" "${src}" "${mode}" || exit 1
     local -a staged=()
     while IFS= read -r p; do [ -n "$p" ] && staged+=("$p"); done <<EOF
 $(staged_tolerance_for 1 "${comp}" "${channel}")
 EOF
     assert_release_origin "release repo" "${REPO_ROOT}" "${REPO_ROOT}" "${mode}" ${staged[@]+"${staged[@]}"} || exit 1
+    check_sync_back "release repo" "${REPO_ROOT}" "${mode}" || exit 1
 }
 
 # The GitHub CLI to publish with. Defaults to `gh`; set UMBREE_GH when your

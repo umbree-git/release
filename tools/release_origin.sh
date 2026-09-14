@@ -335,3 +335,70 @@ assert_release_origin() {
     esac
     return "${rc}"
 }
+
+# check_sync_back <label> <dir> <mode> — dev.md pre-flight check 4:
+# origin/main is an ancestor of origin/dev, i.e. everything main has published
+# (the previous cut's [RELEASED] marker included) was merged back down into dev.
+#
+# Ported from clawee-git/release tools/release_origin.sh check_sync_back
+# (main @ 05b75fa, 2026-09-14), in this file's style: git by absolute path, the
+# ✗/⚠ mark and return code chosen inline as assert_release_origin does, and the
+# fix named in the refusal. Same predicate exactly: origin/main ⊂ origin/dev.
+#
+# Why it is a check and not a habit: a skipped sync-back has no symptom when it
+# happens. dev falls behind main, every branch cut from dev starts behind
+# stable, and the gap surfaces at PR time far from the merge that caused it.
+# The cut is the one routine event guaranteed to run, so it is where the gap
+# becomes loud — it catches the PREVIOUS release's skipped sync, not this one.
+# Before this existed, every stable cut here left dev behind main silently.
+#
+# It cannot ship alone. tools/release.command pushes a marker to main per
+# component, so unless the launcher also syncs dev after each push, the
+# second component of a batch refuses here on the first one's marker. That is
+# what happened to Clawee on 2026-09-14: the clawee cut pushed its marker, then
+# claweed refused on the missing sync-back. The launcher half is
+# release.command's sync_marker_into_dev, landed in the same change.
+#
+# origin/main against origin/dev, never a local `dev`: a permanent folder is
+# checked out on main and has no local dev branch to read.
+#
+# mode=strict fetches both refs with explicit refspecs first — a bare
+# `git fetch origin dev` moves only FETCH_HEAD (see origin_sync_status), and an
+# ancestor test is only as fresh as the refs it reads. A failed fetch refuses,
+# and that includes an origin with no dev branch at all: an unconverted repo
+# (dev.md §1), which has nowhere for the sync-back to go.
+# mode=report (--dry-run) stays OFFLINE and reads whatever the last fetch left:
+# a rehearsal that fetches writes refs and invokes the credential helper, so it
+# would be neither read-only nor offline. Its answer is only as fresh as that
+# last fetch, which is what a rehearsal is worth.
+check_sync_back() {
+    local label="$1" dir="$2" mode="${3:-strict}"
+    local mark="✗" rc=1
+    if [ "${mode}" = report ]; then mark="⚠"; rc=0; fi
+
+    if [ "${mode}" != report ]; then
+        if ! /usr/bin/git -C "${dir}" fetch --quiet origin \
+                "+refs/heads/main:refs/remotes/origin/main" \
+                "+refs/heads/dev:refs/remotes/origin/dev" 2>/dev/null; then
+            printf '%s %s: could not fetch origin/main and origin/dev for the sync-back check: %s\n    a cut may not proceed against a stale remote ref — fix connectivity or credentials, or create dev from main if origin has none (dev.md)\n' \
+                "${mark}" "${label}" "${dir}" >&2
+            return "${rc}"
+        fi
+    fi
+
+    # Resolved first so a missing ref is named as missing (report mode never
+    # fetched it) instead of being misreported as a missing sync-back.
+    if ! /usr/bin/git -C "${dir}" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null \
+        || ! /usr/bin/git -C "${dir}" rev-parse --verify --quiet refs/remotes/origin/dev >/dev/null; then
+        printf '%s %s: no origin/main or origin/dev to compare for the sync-back check: %s\n    fetch both (a real cut does), or create dev from main if origin has none (dev.md)\n' \
+            "${mark}" "${label}" "${dir}" >&2
+        return "${rc}"
+    fi
+
+    if ! /usr/bin/git -C "${dir}" merge-base --is-ancestor refs/remotes/origin/main refs/remotes/origin/dev 2>/dev/null; then
+        printf '%s %s: origin/main is not an ancestor of dev — the sync-back from main into dev is missing: %s\n    merge origin/main into dev (a merge, never a rebase), push dev, then re-run the cut\n' \
+            "${mark}" "${label}" "${dir}" >&2
+        return "${rc}"
+    fi
+    return 0
+}

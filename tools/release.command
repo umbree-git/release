@@ -58,6 +58,10 @@
 # cut-origin guard (tools/release_origin.sh) runs BEFORE `rkit build` for the
 # component source and for this repo, so a stale tree or an unpushed main is
 # refused before anything is bumped or built. It never creates a worktree.
+# Beside it runs the sync-back check (origin/main must be contained in
+# origin/dev, dev.md check 4), and after each marker push this launcher
+# carries the marker into dev — a fast-forward, or a merge when dev has
+# diverged — so the next component passes that check.
 #
 # Output: .release.log, ending in RELEASE-EXIT:<code> so a watcher can block on it
 # rather than guess when the run finished. Exactly one run per log — the previous
@@ -226,10 +230,16 @@ for comp in ${COMPONENTS}; do
         assert_release_origin "${comp}" "${src}" "${reg}" "${origin_mode}" 2>&1 | tee -a "$LOG"
         [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: cut origin refused — nothing built"
     fi
+    # dev.md check 4: origin/main contained in origin/dev (tools/release_origin.sh
+    # check_sync_back) — refuses a cut whose predecessor skipped the sync-back.
+    check_sync_back "${comp}" "${src}" "${origin_mode}" 2>&1 | tee -a "$LOG"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: main is not merged back into dev — nothing built"
 done
 assert_release_origin "release repo" "$REPO_ROOT" "$REPO_ROOT" "${origin_mode}" 2>&1 | tee -a "$LOG"
 [ "${PIPESTATUS[0]}" -eq 0 ] || die "release repo is not in sync with origin/main — push or pull before cutting"
-say "✓ cut origin: ${COMPONENTS} (${CHANNEL}) and this repo"
+check_sync_back "release repo" "$REPO_ROOT" "${origin_mode}" 2>&1 | tee -a "$LOG"
+[ "${PIPESTATUS[0]}" -eq 0 ] || die "release repo: main is not merged back into dev — nothing built"
+say "✓ cut origin: ${COMPONENTS} (${CHANNEL}) and this repo, main contained in dev"
 
 # 6. Sealed inputs: this channel's publish destination and its signing key.
 #    release.sh REQUIRES them and refuses to invent them, because this repo is
@@ -297,6 +307,103 @@ push_marker() {
     $GIT push origin HEAD:refs/heads/main 2>&1 | tee -a "$LOG"
     [ "${PIPESTATUS[0]}" -eq 0 ] || die "marker push failed for ${comp}"
     say "✓ ${comp} marker pushed"
+    sync_marker_into_dev "${comp}"
+}
+
+# sync_marker_into_dev <comp> — carry the marker push_marker just put on main
+# down into dev, before the next component starts.
+#
+# Every push to main is merged straight back down into dev (dev.md, "main
+# advances, dev follows"), and the cut is the work that advanced main. It also
+# has to happen HERE, between components, not after the batch: release.sh
+# re-runs the sync-back guard (tools/release_origin.sh check_sync_back) per
+# component, so an unsynced marker from component 1 refuses component 2. That
+# is Clawee 2026-09-14 exactly — the clawee cut pushed its marker, then claweed
+# refused on the missing sync-back — and why this ships with the guard.
+#
+# Called only from push_marker, i.e. only after a marker really reached main:
+# never on --dry-run (which pushes nothing) and never on the identical-stamp
+# path (no marker). push_marker refuses any branch but main, so a beta-branch
+# push never gets here; a beta-CHANNEL marker does, because this repo has no
+# beta branch and records beta markers on main too — which advances main just
+# the same.
+#
+# Three outcomes. Every write is a push; no local branch, index or working
+# tree is touched, so the checkout this cut runs from is left exactly as the
+# cut left it:
+#   - the marker is already in dev          → say so, nothing to do
+#   - dev is an ancestor of the marker      → fast-forward dev to it
+#   - dev has commits main does not         → merge the marker into dev
+#     (merge_marker_into_dev), which is dev's NORMAL state: it carries
+#     unreleased work between releases.
+# Every push is non-force: the remote refuses a non-fast-forward, so a dev that
+# moved between this fetch and the push is refused rather than rewound.
+sync_marker_into_dev() {
+    local comp="$1" new
+    new="$($GIT rev-parse HEAD)" \
+        || die "${comp}: cannot read the marker commit just pushed — $(dev_sync_fix "${comp}")"
+    $GIT fetch --quiet origin \
+            "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/heads/dev:refs/remotes/origin/dev" \
+        || die "${comp}: marker pushed to main, but cannot fetch origin/main and origin/dev to sync it into dev — $(dev_sync_fix "${comp}")"
+    if $GIT merge-base --is-ancestor "${new}" refs/remotes/origin/dev; then
+        say "→ ${comp} marker already in dev — nothing to sync"
+        return 0
+    fi
+    if ! $GIT merge-base --is-ancestor refs/remotes/origin/dev "${new}"; then
+        merge_marker_into_dev "${comp}" "${new}"
+        return 0
+    fi
+    $GIT push origin "${new}:refs/heads/dev" 2>&1 | tee -a "$LOG"
+    [ "${PIPESTATUS[0]}" -eq 0 ] \
+        || die "${comp}: marker pushed to main, but the fast-forward push to dev was refused (did dev move during the cut? it is never forced) — $(dev_sync_fix "${comp}")"
+    say "✓ ${comp} marker synced into dev"
+}
+
+# merge_marker_into_dev <comp> <new> — the sync-back as a real merge, for a dev
+# that has diverged from main.
+#
+# Merging rather than stopping is an operator decision (2026-09-14): dev
+# normally carries unreleased work, so a launcher that refused whenever dev
+# could not fast-forward would halt most stable cuts after their first
+# component. This is the merge dev.md prescribes for the sync-back — a merge,
+# never a rebase — with dev as first parent and main second, exactly what
+# `git merge origin/main` on dev would record; and no content is decided here,
+# because a conflict stops the launcher for a human instead.
+#
+# Built with no checkout: `git merge-tree --write-tree` computes the merged
+# tree in the object store (exit 1 = conflicts, with the paths named after the
+# tree id; needs git 2.38 or newer), `git commit-tree` records it, and one
+# non-force push publishes it. The message is fixed and carries no attribution.
+merge_marker_into_dev() {
+    local comp="$1" new="$2" gv gmaj gmin dev out mrc merge
+    gv="$($GIT --version 2>/dev/null)"
+    gmaj="$(printf '%s' "${gv}" | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1/p')"
+    gmin="$(printf '%s' "${gv}" | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\2/p')"
+    if [ -z "${gmaj}" ] || [ "${gmaj}" -lt 2 ] || { [ "${gmaj}" -eq 2 ] && [ "${gmin}" -lt 38 ]; }; then
+        die "${comp}: marker pushed to main and dev has diverged; merging it without a checkout needs git 2.38 or newer (merge-tree --write-tree), and ${GIT} reports '${gv:-no version}' — nothing was pushed to dev; $(dev_sync_fix "${comp}")"
+    fi
+    dev="$($GIT rev-parse refs/remotes/origin/dev)" \
+        || die "${comp}: cannot read origin/dev to merge the marker into — $(dev_sync_fix "${comp}")"
+    out="$($GIT merge-tree --write-tree --name-only --no-messages "${dev}" "${new}")"; mrc=$?
+    if [ "${mrc}" -eq 1 ]; then
+        die "${comp}: marker pushed to main, but merging main into dev conflicts in: $(printf '%s\n' "${out}" | sed 1d | sort -u | tr '\n' ' ')— nothing was pushed to dev; $(dev_sync_fix "${comp}")"
+    fi
+    [ "${mrc}" -eq 0 ] \
+        || die "${comp}: git merge-tree failed (exit ${mrc}) merging main into dev — nothing was pushed to dev; $(dev_sync_fix "${comp}")"
+    merge="$($GIT commit-tree "$(printf '%s\n' "${out}" | sed -n 1p)" -p "${dev}" -p "${new}" -m "Merge branch 'main' into dev")" \
+        || die "${comp}: cannot record the merge of main into dev — nothing was pushed to dev; $(dev_sync_fix "${comp}")"
+    $GIT push origin "${merge}:refs/heads/dev" 2>&1 | tee -a "$LOG"
+    [ "${PIPESTATUS[0]}" -eq 0 ] \
+        || die "${comp}: marker pushed to main, but the merge push to dev was refused — dev moved during the cut, and it is never forced; $(dev_sync_fix "${comp}")"
+    say "✓ ${comp} marker merged into dev ($($GIT rev-parse --short "${merge}"))"
+}
+
+# dev_sync_fix <comp> — the manual step every dev-sync refusal names, spelled
+# once so the refusals cannot drift apart. CUT_DONE is every component already
+# published in this run, this one included: a re-run must drop them all.
+dev_sync_fix() {
+    printf '%s' "merge origin/main into dev by hand (git merge — never a rebase, which drops the merge commits and takes main back out of dev), push dev, then, if components remain, re-run with ${CUT_DONE:-$1} dropped from COMPONENTS"
 }
 
 # 7. Cut each component: build, resolve its stamp, publish it, push its marker
@@ -309,6 +416,9 @@ push_marker() {
 #    marker belongs to which cut. Worse here than in the siblings: this repo's
 #    own pre-flight refuses to cut while the release repo is ahead of its remote,
 #    so an unpushed marker does not merely confuse the next component, it aborts it.
+#    The same holds for dev: push_marker carries the marker into dev
+#    (sync_marker_into_dev), or the next component's sync-back check refuses.
+CUT_DONE=""
 for comp in ${COMPONENTS}; do
     say ""
     say "── cut: ${comp} ──"
@@ -348,6 +458,9 @@ for comp in ${COMPONENTS}; do
     bash tools/release.sh ${verb} "${comp}" "${stamp}" 2>&1 | tee -a "$LOG"
     rc="${PIPESTATUS[0]}"
     [ "${rc}" -eq 0 ] || { say "✗ ${comp} publish failed (exit ${rc}) — later components NOT cut"; say "   already-published components above are PUBLISHED: drop them from COMPONENTS before re-running"; exit "${rc}"; }
+    # Published from here on: a refusal below (push, dev sync) must tell the
+    # operator to drop this one too when re-running.
+    CUT_DONE="${CUT_DONE:+${CUT_DONE} }${comp}"
 
     state="$(tree_state)" || die "cannot read git status — refusing to push (is git reachable on PATH set by ${ENV_FILE}?)"
     [ -z "${state}" ] || die "${comp} cut left an unclean tree — refusing to push; inspect before continuing"
