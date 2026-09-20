@@ -1,7 +1,9 @@
 # release — the Umbree public install channel
 
-- Repo: `umbree-git/release` · `gh.account = umbree-git` (call gh via `ghp`,
-  never bare `gh`) · Go + shell.
+- Repo: `umbree-git/release` · `gh.account = umbree-git` (several accounts are
+  in play across sibling channels, so call the GitHub CLI through the
+  account-scoped wrapper your environment provides — never bare `gh`, which
+  uses whichever account is globally active) · Go + shell.
 - **Kind `code`, on the branch spine**: `dev` is the integration point, `main`
   is the publishing branch, and there is **no permanent `beta` git branch** —
   Umbree has no beta line (registry ruling, 2026-09-12). A release repo is code
@@ -66,6 +68,7 @@ links and installing on a node are operator steps (`release-management.md`).
 
 ## Global policy
 
-Load `~/.agents/AGENTS.md` (hard rules) and `~/.agents/CONCEPTS.md` every
-session and follow them; the full guidelines are `~/.agents/guidelines/<id>.md`.
+Load your environment's global agent policy — its hard rules and its
+always-on concepts — every session and follow them; its full per-topic
+guidelines are loaded on task. Your environment names where that tree lives.
 This file holds only what is true of *this* repo.
