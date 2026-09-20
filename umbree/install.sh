@@ -104,7 +104,7 @@ PUBKEY="RWQZyK0l3lgdSYfj8VXhoTWlVVVcRqfnuVROJzloNrw9NBFm11IeD3HN"
 # static channel, over the same TLS fetch, that delivered $PUBKEY, so it costs
 # no trust the installer did not already require; and no download source gets
 # to choose it.
-MIN_VERSION="v0.1.8.2026.08.31.46b36734"
+MIN_VERSION="v0.1.8.2026.09.20.7162a3f3"
 REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 PREFIX="${PREFIX:-$HOME/.local}"
 DL_BASE="${UMBREE_DL_BASE:-}"           # test hook (undocumented to users)
