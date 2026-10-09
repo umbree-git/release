@@ -26,7 +26,7 @@ type retentionPage struct {
 }
 
 func retentionPath(channel, component string, w retention.Window) string {
-	return pagePath(channel, component) + "/retention/" + string(w)
+	return "/manage/retention/" + channel + "/" + component + "/" + string(w)
 }
 
 func retentionAction(w retention.Window, channel, component, fingerprint string) string {

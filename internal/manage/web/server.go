@@ -94,7 +94,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /manage/releases/{id}/"+action, s.writeGuard(s.handleAction(action, false)))
 		mux.HandleFunc("POST /manage/api/releases/{id}/"+action, s.writeGuard(s.handleAction(action, true)))
 	}
-	mux.HandleFunc("POST /manage/{channel}/{component}/retention/{window}", s.writeGuard(s.handleRetention))
+	mux.HandleFunc("POST /manage/retention/{channel}/{component}/{window}", s.writeGuard(s.handleRetention))
 	mux.HandleFunc("/manage/", s.guard(handleNoPage))
 	mux.HandleFunc("/", http.NotFound)
 	return secureHeaders(mux)

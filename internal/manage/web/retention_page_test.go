@@ -12,7 +12,7 @@ import (
 	"github.com/umbree-git/release/internal/manage/backend/backendtest"
 )
 
-const gatedControl = "/manage/production/umbree/retention/gated"
+const gatedControl = "/manage/retention/production/umbree/gated"
 
 var (
 	fingerprintRe = regexp.MustCompile(`name="fingerprint" value="([0-9a-f]{64})"`)
@@ -68,7 +68,7 @@ func TestRetentionPreviewNoDelete(t *testing.T) {
 	c.fourStaged()
 	b := c.signedIn("ops")
 	if r := b.get("/manage/production/umbree"); !strings.Contains(r.body, `action="`+gatedControl+`"`) ||
-		!strings.Contains(r.body, `action="/manage/production/umbree/retention/public"`) {
+		!strings.Contains(r.body, `action="/manage/retention/production/umbree/public"`) {
 		t.Fatalf("the overview offers no retention controls: %s", r.body)
 	}
 	p := b.preview(gatedControl)
@@ -184,7 +184,7 @@ func TestRetentionConfirmReplayRefused(t *testing.T) {
 	if r := b.confirmPlan(gatedControl, forged); r.status != http.StatusForbidden {
 		t.Fatalf("a token with another fingerprint: HTTP %d, want 403", r.status)
 	}
-	if r := b.confirmPlan("/manage/production/umbree/retention/public", p); r.status != http.StatusForbidden {
+	if r := b.confirmPlan("/manage/retention/production/umbree/public", p); r.status != http.StatusForbidden {
 		t.Fatalf("a gated token on the public control: HTTP %d, want 403", r.status)
 	}
 	if r := b.confirmPlan(gatedControl, p); r.status != http.StatusOK {
