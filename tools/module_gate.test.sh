@@ -37,7 +37,7 @@ fake_repo() {
     printf '%s\n' "${root}"
 }
 
-ALL_GREEN=(test-modules.sh:0 test-checksum-verify.sh:0 sync-modules.test.sh:0)
+ALL_GREEN=(test-modules.sh:0 test-checksum-verify.sh:0 test-install-minisign.sh:0 sync-modules.test.sh:0 public-hygiene.sh:0)
 
 root="$(fake_repo "${ALL_GREEN[@]}")"
 out="$( REPO_ROOT="${root}"; source "${HERE}/module_gate.sh"; module_gate 2>&1 )"; rc=$?
@@ -45,9 +45,11 @@ check "all green: exit 0" "${rc}" "0"
 check_contains "all green: test-modules.sh ran and passed"        "${out}" "✓ module gate: test-modules.sh clean"
 check_contains "all green: test-checksum-verify.sh ran and passed" "${out}" "✓ module gate: test-checksum-verify.sh clean"
 check_contains "all green: sync-modules.test.sh ran and passed"   "${out}" "✓ module gate: sync-modules.test.sh clean"
+check_contains "all green: test-install-minisign.sh ran and passed" "${out}" "✓ module gate: test-install-minisign.sh clean"
+check_contains "all green: public-hygiene.sh ran and passed"      "${out}" "✓ module gate: public-hygiene.sh clean"
 check_lacks "all green: a passing suite's output is not echoed"   "${out}" "detail line from test-modules.sh"
 
-root="$(fake_repo test-modules.sh:1 test-checksum-verify.sh:0 sync-modules.test.sh:0)"
+root="$(fake_repo test-modules.sh:1 test-checksum-verify.sh:0 test-install-minisign.sh:0 sync-modules.test.sh:0 public-hygiene.sh:0)"
 out="$( REPO_ROOT="${root}"; source "${HERE}/module_gate.sh"; module_gate 2>&1 )"; rc=$?
 check "red test-modules.sh: exit 1"           "${rc}" "1"
 check_contains "red test-modules.sh: says which suite" "${out}" "✗ module gate: test-modules.sh failed"
@@ -56,24 +58,24 @@ check_contains "red test-modules.sh: carries the suite's own output" "${out}" "d
 check_lacks "red test-modules.sh: later suite did not run" "${out}" "ran test-checksum-verify.sh"
 
 check_contains "red test-modules.sh: points at the dirty tree" "${out}" "git diff"
-root="$(fake_repo test-modules.sh:0 test-checksum-verify.sh:1 sync-modules.test.sh:0)"
+root="$(fake_repo test-modules.sh:0 test-checksum-verify.sh:1 test-install-minisign.sh:0 sync-modules.test.sh:0 public-hygiene.sh:0)"
 out="$( REPO_ROOT="${root}"; source "${HERE}/module_gate.sh"; module_gate 2>&1 )"; rc=$?
 check "red checksum suite: exit 1" "${rc}" "1"
 check_contains "red checksum suite: names itself" "${out}" "✗ module gate: test-checksum-verify.sh failed"
 check_lacks "red checksum suite: no GENERATOR hint" "${out}" "git diff"
 
-root="$(fake_repo test-modules.sh:0 test-checksum-verify.sh:0 sync-modules.test.sh:1)"
+root="$(fake_repo test-modules.sh:0 test-checksum-verify.sh:0 test-install-minisign.sh:0 sync-modules.test.sh:1 public-hygiene.sh:0)"
 out="$( REPO_ROOT="${root}"; source "${HERE}/module_gate.sh"; module_gate 2>&1 )"; rc=$?
 check "red sync-modules.test.sh: exit 1" "${rc}" "1"
 check_contains "red sync-modules.test.sh: names itself" "${out}" "✗ module gate: sync-modules.test.sh failed"
 
-root="$(fake_repo test-checksum-verify.sh:0 sync-modules.test.sh:0)"
+root="$(fake_repo test-checksum-verify.sh:0 test-install-minisign.sh:0 sync-modules.test.sh:0 public-hygiene.sh:0)"
 out="$( REPO_ROOT="${root}"; source "${HERE}/module_gate.sh"; module_gate 2>&1 )"; rc=$?
 check "missing suite: exit 1" "${rc}" "1"
 check_contains "missing suite: names the missing file" "${out}" "test-modules.sh is missing"
 
 gate_list="$(sed -n 's/.*for suite in \(.*\); do.*/\1/p' "${HERE}/module_gate.sh")"
-check "wired set is the green set" "${gate_list}" "test-modules.sh test-checksum-verify.sh sync-modules.test.sh"
+check "wired set is the green set" "${gate_list}" "test-modules.sh test-checksum-verify.sh test-install-minisign.sh sync-modules.test.sh public-hygiene.sh"
 for red in test-e2e.sh sync-modules.sh; do
     check_lacks "not wired: ${red}" " ${gate_list} " " ${red} "
 done
