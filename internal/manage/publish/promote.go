@@ -154,5 +154,5 @@ func (r *Run) afterPromote(ctx context.Context, st *stream) {
 		st.send(Event{Step: "retention", Status: "error", Message: err.Error()})
 		return
 	}
-	_ = summary
+	st.send(Event{Step: "retention", Status: "ok", Message: summary})
 }
