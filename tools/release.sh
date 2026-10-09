@@ -389,7 +389,7 @@ release_changes() {
         | grep -E "^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$" | tail -n1 || true)"
     prev_sha="${prev_tag##*.}"
     if [ -n "${prev_sha}" ] && git -C "${src}" cat-file -e "${prev_sha}^{commit}" 2>/dev/null; then
-        changes="$(git -C "${src}" log --oneline --no-merges "${prev_sha}..HEAD" 2>/dev/null)"
+        changes="$(git -C "${src}" log --oneline --no-merges "${prev_sha}..HEAD" 2>/dev/null)" || return 1
         [ -n "${changes}" ] || changes="No code changes since ${prev_tag} (re-release)."
     else
         changes="Initial release."
@@ -425,10 +425,8 @@ NOTES
 }
 
 stage_and_publish() {
-    local comp="$1" stamp="$2" stage="$3"
+    local comp="$1" stamp="$2" stage="$3" changes="$4"
     stage_gated "${comp}" "${stamp}" "${stage}"
-    local src changes; src="$(src_for "${comp}")"
-    changes="$(release_changes "${comp}" "${src}")"
     local tag="${comp}/${stamp}"
     create_tag "${comp}" "${stamp}"
     local notes; notes="${stage}/release-notes.md"
@@ -478,8 +476,13 @@ distribute_only() {
         distribute_dry_run "${comp}" "${stamp}"
         return 0
     fi
+    local src changes; src="$(src_for "${comp}")"
+    changes="$(release_changes "${comp}" "${src}")" || {
+        echo "✗ cannot read the change summary for ${comp} from ${src} (git log failed) — nothing published" >&2
+        exit 1
+    }
     distribute_preflight "${stage}"
-    stage_and_publish "${comp}" "${stamp}" "${stage}"
+    stage_and_publish "${comp}" "${stamp}" "${stage}" "${changes}"
     mark_release "${comp}" "${stamp}"
 }
 
