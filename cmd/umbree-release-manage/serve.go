@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/umbree-git/release/internal/manage/intake"
@@ -42,7 +43,7 @@ func runServe(e *env, v *verb, args []string) error {
 }
 
 func checkServeOptions(v *verb, o *options) error {
-	if o.dataDir == "" {
+	if strings.TrimSpace(o.dataDir) == "" {
 		return usagef(v, "--data-dir is required; a guessed data directory is either an empty second catalog or another deployment's")
 	}
 	if o.gatedBucket != "" && o.gatedBucket == o.publicBucket {

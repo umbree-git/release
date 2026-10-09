@@ -15,7 +15,7 @@ func runMigrate(e *env, v *verb, args []string) error {
 	if !o.check {
 		return usagef(v, "migrate takes --check only; migrations apply when serve starts, never from a separate verb")
 	}
-	if o.dataDir == "" {
+	if strings.TrimSpace(o.dataDir) == "" {
 		return usagef(v, "--data-dir is required")
 	}
 	report, err := store.CheckLedger(o.dataDir)

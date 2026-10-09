@@ -83,6 +83,9 @@ func TestServeRequiresDataDir(t *testing.T) {
 	if r.code != exitUsage || !strings.Contains(r.stderr, "--data-dir is required") {
 		t.Fatalf("no data dir: exit %d stderr %q", r.code, r.stderr)
 	}
+	if r := invoke(t, nil, "serve", "--data-dir", " ", "--listen", "127.0.0.1:0"); r.code != exitUsage {
+		t.Fatalf("blank --data-dir: exit %d", r.code)
+	}
 	r = invoke(t, map[string]string{"UMBREE_MANAGE_DATA_DIR": "  "}, "serve", "--listen", "127.0.0.1:0")
 	if r.code != exitUsage {
 		t.Fatalf("blank data dir from the environment: exit %d", r.code)
