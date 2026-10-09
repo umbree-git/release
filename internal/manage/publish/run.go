@@ -38,6 +38,7 @@ type Confirmer struct {
 }
 
 type Run struct {
+	actor   string
 	d       Deps
 	row     store.ReleaseVersion
 	release func()

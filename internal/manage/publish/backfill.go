@@ -40,7 +40,7 @@ func Backfill(ctx context.Context, d Deps, component, actor string) (BackfillRep
 		return rep, err
 	}
 	defer release()
-	r := &Run{d: d, row: store.ReleaseVersion{Component: component, Channel: catalog.ChannelProduction}}
+	r := &Run{d: d, row: store.ReleaseVersion{Component: component, Channel: catalog.ChannelProduction}, actor: actor}
 	live, err := r.publicManifestStamp(ctx, component)
 	if err != nil {
 		return rep, err
@@ -86,8 +86,11 @@ func (r *Run) publicStamps(ctx context.Context, rep *BackfillReport) (map[string
 
 func (r *Run) backfillStamp(ctx context.Context, stamp string, files []string, live string, rep *BackfillReport) {
 	component := r.row.Component
-	if _, err := r.d.Store.ByStamp(component, catalog.ChannelProduction, stamp); err == nil {
+	if existing, err := r.d.Store.ByStamp(component, catalog.ChannelProduction, stamp); err == nil {
 		rep.Existing = append(rep.Existing, stamp)
+		if stamp == live {
+			r.adoptCurrent(*existing, rep)
+		}
 		return
 	}
 	rv, err := r.publicRow(ctx, stamp, files)
@@ -178,4 +181,16 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func (r *Run) adoptCurrent(rv store.ReleaseVersion, rep *BackfillReport) {
+	reason := "backfill: the public manifest names " + rv.Stamp + " and the catalog had no current row"
+	adopted, err := r.d.Store.AdoptCurrent(rv.ID, r.actor, reason, r.now())
+	if err != nil {
+		rep.Failed = append(rep.Failed, rv.Stamp+": the public manifest names it, but "+err.Error())
+		return
+	}
+	if adopted {
+		rep.Current = rv.Stamp
+	}
 }
