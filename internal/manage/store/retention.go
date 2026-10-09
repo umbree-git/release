@@ -76,6 +76,10 @@ func (s *Store) SetPermanent(component, channel, stamp string, pinned bool, acto
 	if err != nil {
 		return nil, err
 	}
+	if pinned && !rv.PublicPruningAt.IsZero() && rv.PublicPrunedAt.IsZero() {
+		return nil, fmt.Errorf("%w: %s %s: its public bytes are being pruned (a pass stopped partway); a pin would strand it half-deleted, so let the next pass finish it",
+			ErrBadState, component, stamp)
+	}
 	if pinned && (rv.PromotedAt.IsZero() || !rv.PublicPrunedAt.IsZero() || rv.State == catalog.StateExpired) {
 		return nil, fmt.Errorf("%w: %s %s is %s and holds no public bytes to keep; only a row that was promoted and still has its public bytes is pinned",
 			ErrBadState, component, stamp, rv.State)
