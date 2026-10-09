@@ -16,6 +16,8 @@ type options struct {
 	publicBucket  string
 	publicBaseURL string
 	check         bool
+	reason        string
+	args          []string
 }
 
 type envTwin struct {
@@ -80,4 +82,9 @@ func (o *options) applyEnv(set map[string]bool, getenv func(string) string) {
 	if o.listen == "" {
 		o.listen = defaultListen
 	}
+}
+
+func registerMarkYanked(fs *flag.FlagSet, o *options) {
+	registerDataDir(fs, o)
+	fs.StringVar(&o.reason, "reason", "", "why the row is yanked by hand; recorded in the audit log (required)")
 }

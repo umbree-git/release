@@ -45,12 +45,11 @@ func run(e *env, args []string) int {
 		fmt.Fprint(e.stdout, rootPage())
 		return 0
 	}
-	v := lookupVerb(args[0])
+	v, rest, code := resolveVerb(e, args)
 	if v == nil {
-		fmt.Fprintf(e.stderr, "%s: unknown command %q\n\n%s", toolName, args[0], rootPage())
-		return exitUsage
+		return code
 	}
-	err := v.run(e, v, args[1:])
+	err := v.run(e, v, rest)
 	var ue *usageError
 	switch {
 	case err == nil:
@@ -63,4 +62,23 @@ func run(e *env, args []string) int {
 	}
 	fmt.Fprintf(e.stderr, "✗ %s %s: %v\n", toolName, v.name, err)
 	return 1
+}
+
+func resolveVerb(e *env, args []string) (*verb, []string, int) {
+	if args[0] != "admin" {
+		if v := lookupVerb(args[0]); v != nil {
+			return v, args[1:], 0
+		}
+		fmt.Fprintf(e.stderr, "%s: unknown command %q\n\n%s", toolName, args[0], rootPage())
+		return nil, nil, exitUsage
+	}
+	if len(args) == 1 || isHelp(args[1]) {
+		fmt.Fprint(e.stdout, groupPage("admin"))
+		return nil, nil, 0
+	}
+	if v := lookupVerb("admin " + args[1]); v != nil {
+		return v, args[2:], 0
+	}
+	fmt.Fprintf(e.stderr, "%s admin: unknown subcommand %q\n\n%s", toolName, args[1], groupPage("admin"))
+	return nil, nil, exitUsage
 }
