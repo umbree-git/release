@@ -1,43 +1,5 @@
 #!/usr/bin/env bash
-# prune-releases.sh — keep only the newest N releases per component on the
-# Umbree release repo, ON ONE CHANNEL; delete the older GitHub Releases AND
-# their git tags (stable), or the older beta tags (beta — a beta is never a
-# GitHub Release, so on that channel only the tag exists to delete).
-#
-# Copied from burrowee-git/release tools/prune-releases.sh; umbree differences:
-# the GitHub CLI is ${UMBREE_GH:-gh} (this repo is public and names no internal
-# wrapper), components come from `rkit components`, and the beta pass deletes
-# tags rather than Releases.
-#
-# ORDERING: run this (the GitHub side) BEFORE tools/r2-mirror/cmd/r2-prune.
-#
-# Usage:
-#   tools/prune-releases.sh            # DRY-RUN (default): list what would be deleted
-#   tools/prune-releases.sh --execute  # actually delete
-#
-# Env (optional):
-#   CHANNEL                 stable|beta (default stable)
-#   KEEP                    newest versions to retain per component (default
-#                           3 on stable, 1 on beta — beta is disposable, so
-#                           cutting a new beta expires the previous one and
-#                           prunes it now; no artifact-level rollback to it.
-#                           tools/retain-permanent pins are kept in addition.)
-#   COMPONENTS              space-separated set (default: `go run ./cmd/rkit
-#                           components` — the one list rkit builds from)
-#   UMBREE_RELEASE_REPO     GitHub repo (default umbree-git/release)
-#   UMBREE_GH               GitHub CLI to use (default `gh`)
-#
-# Per component it lists the release tags matching CHANNEL's anchored pattern
-# (spec §4.1 — stable never contains ".beta.", beta always does, so the same
-# tag can never be counted on both channels), version-sorts them with
-# `sort -V` (so v0.1.12 > v0.1.9), keeps the highest KEEP, and deletes the rest
-# via `gh release delete --cleanup-tag` (removes the Release AND the tag) on
-# stable, or `git push --delete` of the tag on beta. A stable prune never
-# counts or deletes a beta tag, and a beta prune never counts or deletes a
-# stable one. A tag matching NEITHER shape is ignored on both passes.
 set -euo pipefail
-# The per-dir PATH hook on this tree strips /opt/homebrew/bin; re-add a sane
-# PATH so grep/sort/sed/tr + gh resolve.
 export PATH="/usr/bin:/bin:/opt/homebrew/bin:${PATH}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -121,10 +83,6 @@ mode="DRY-RUN"; [ "$EXECUTE" = 1 ] && mode="EXECUTE"
 echo "repo=${REPO}  channel=${CHANNEL}  keep=${KEEP}  components=[${COMPONENTS}]  mode=${mode}"
 echo
 
-# One API pass each. Stable: the Releases (a stable cut is a GitHub Release,
-# and deleting one with --cleanup-tag removes its tag). Beta: the TAGS — a beta
-# cut pushes a tag and creates no Release, so the Releases listing would never
-# show one. --paginate walks every page so nothing is missed past page 1.
 if [ "${CHANNEL}" = beta ]; then
   tags="$("${GH_CLI}" api "repos/${REPO}/git/matching-refs/tags/" --paginate --jq '.[].ref' | sed 's#^refs/tags/##')"
 else
@@ -133,8 +91,6 @@ fi
 
 planned=0
 for comp in ${COMPONENTS}; do
-  # Anchored per spec §4.1 — a tag matching neither channel's pattern is
-  # ignored here, same as everywhere else that consumes these tags.
   if [ "${CHANNEL}" = beta ]; then
     pattern="^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$"
   else
@@ -161,8 +117,6 @@ for comp in ${COMPONENTS}; do
     fi
     if [ "${EXECUTE}" = 1 ]; then
       if [ "${CHANNEL}" = beta ]; then
-        # No Release to delete: remove the remote tag (and the local one, if
-        # this checkout has it — prune runs from the release repo).
         if "${GH_CLI}" api -X DELETE "repos/${REPO}/git/refs/tags/${tag}" >/dev/null 2>&1; then
           /usr/bin/git -C "${REPO_ROOT}" tag -d "${tag}" >/dev/null 2>&1 || true
           echo "  ✓ deleted ${tag}"

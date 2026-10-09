@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# tools/prune-releases.test.sh — channel-filtered retention: a stable prune
-# must never count or delete a beta tag, and vice versa, and a tag matching
-# NEITHER shape appears in neither pass. Stubs `gh` on PATH (the script never
-# has real network/GitHub access here) so the delete list can be asserted
-# directly from DRY-RUN output. Copied from burrowee's, umbree tags.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fail=0
@@ -34,8 +29,6 @@ umbree/v0.2.2.beta.2026.07.02.ffffffff
 umbree/v0.2.3.beta.2026.07.03.11111111
 EOF
 
-# UMBREE_GH names the stub outright, so a real gh anywhere on PATH is never
-# reached; COMPONENTS is set so the script does not need `go run`.
 run() { CHANNEL="$1" KEEP="$2" COMPONENTS=umbree UMBREE_GH="${STUB}/gh" GH_STUB_TAGS="${WORK}/tags" \
   bash "${HERE}/prune-releases.sh"; }
 
@@ -50,9 +43,6 @@ check_contains  "beta drops the oldest beta tag" "${out_beta}" "would delete umb
 check_not_contains "beta keeps v0.2.2/v0.2.3" "${out_beta}" "would delete umbree/v0.2.2"
 check_not_contains "beta never lists a stable tag" "${out_beta}" "would delete umbree/v0.1."
 
-# A tag matching neither shape is ignored everywhere: never counted (the
-# beta pass with KEEP=1 must still keep v0.2.3 and drop exactly the two older
-# betas), never deleted.
 out_beta1="$(run beta 1)"
 check_contains  "beta KEEP=1 drops v0.2.1" "${out_beta1}" "would delete umbree/v0.2.1.beta"
 check_contains  "beta KEEP=1 drops v0.2.2" "${out_beta1}" "would delete umbree/v0.2.2.beta"
