@@ -258,6 +258,28 @@ Release assets on this repo** (the sources are private and can't be `curl`'d
 anonymously). The static bootstrap scripts are mirrored to
 `release.umbree.org` (nginx + Cloudflare).
 
+## The manage console
+
+Promote and yank are operator acts, done in the manage console. It is served by
+`umbree-release-manage serve` beside the catalog intake every cut registers
+through. Signing in takes a password and then a TOTP code. Every write needs the
+session's CSRF token. Promote and yank each ask once more on a confirm page, and
+only the confirmed second request acts. The overview shows, per component, the
+current public release and the newest staged one that may be promoted, and a
+history lists every row. Download links appear for public releases only, as
+public URLs.
+
+Admins are added on the service host, never through the web:
+
+```sh
+umbree-release-manage admin add <name> --data-dir <MANAGE_DATA_DIR> --secret-key <SECRET_KEY_FILE>
+```
+
+That prints the admin's TOTP enrolment once. `admin list`, `admin remove` and
+`admin reset-totp` do the rest, and `docs/manage-help.txt` is the full command
+reference. Deploying the service is the operator's step: `ops/README.md` →
+"Manage service".
+
 ## Has it been promoted? Ask the manifest, never a person
 
 A cut ends at the gated store; going public is the operator's own act. Nothing

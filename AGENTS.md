@@ -25,6 +25,7 @@
 | Path | What lives there |
 |---|---|
 | `cmd/rkit` | the release kit — `rkit build` assembles and signs a cut |
+| `cmd/umbree-release-manage`, `internal/manage/` | the manage service: the catalog intake a cut registers through, and the operator console that promotes and yanks |
 | `tools/` | the cut itself: `release.command` (desktop launcher), `release.sh`, the bootstrap/JSONP generators, retention, hygiene checks |
 | `tools/RUNBOOK.md` | **the hazards the tooling cannot prevent** — read before a cut |
 | `tools/modules/`, `tools/lock-modules.sh`, `sync-modules.sh` | shared shell modules and their pinning |
@@ -65,6 +66,12 @@ can run at all:
 The agent chain ends at the **cut**: build, cut, report the stamp, sync `main`
 back down into `dev`. Promoting a cut to the public surface, minting invite
 links and installing on a node are operator steps (`release-management.md`).
+Promote and yank run in the manage console (`umbree-release-manage serve`), an
+authenticated operator surface: password, then a TOTP second factor, CSRF on
+every write and a two-step confirm on promote and yank. Its admins are added on
+the service host with `umbree-release-manage admin add`; there is no sign-up.
+Agents do not sign in to it, add admins, or deploy it. Its address reaches the
+cut only as the sealed `UMBREE_MANAGE_URL`, and no host is named here.
 
 ## Global policy
 
