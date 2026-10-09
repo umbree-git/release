@@ -56,7 +56,7 @@ func openReadOnly(dataDir string) (*Store, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("store: no catalog at %s: %w", path, err)
 	}
-	db, err := sql.Open("sqlite", "file:"+url.PathEscape(path)+"?mode=ro&immutable=1")
+	db, err := sql.Open("sqlite", "file:"+url.PathEscape(path)+readOnlyParams(path))
 	if err != nil {
 		return nil, fmt.Errorf("store: open %q read-only: %w", path, err)
 	}
@@ -65,6 +65,13 @@ func openReadOnly(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("store: open %q read-only: %w", path, err)
 	}
 	return &Store{db: db}, nil
+}
+
+func readOnlyParams(path string) string {
+	if wal, err := os.Stat(path + "-wal"); err == nil && wal.Size() > 0 {
+		return "?mode=ro&_pragma=busy_timeout(5000)"
+	}
+	return "?mode=ro&immutable=1"
 }
 
 func (s *Store) Close() error { return s.db.Close() }
