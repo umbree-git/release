@@ -45,6 +45,52 @@ set -eu
 REPO="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 BASE="${UMBREE_R2_DOWNLOADS_BASE-https://downloads.umbree.org}"
 
+help() {
+    cat <<'HELP'
+promote-check.sh — has this version actually gone public?
+
+A promote is an operator action (release-management.md §5) and the cut chain
+ends before it. So every session that must wait for a go-live faces one
+question, and until this script existed the only way to answer it was to ask a
+human — who can only report an INTENTION to promote. The failure worth
+catching is the promote that was carried out and still did not land: bytes
+copied, row flipped, manifest write failed. An assertion cannot see that, and
+neither can an authenticated read of the catalog, which reaches the row rather
+than the thing installers actually resolve.
+
+So this asks the way the public does: an unauthenticated GET of the channel
+manifest over the public downloads base, cache-defeating, reading nothing else.
+No token, no bucket credential, no console session, and no write of any kind.
+
+Usage:
+  tools/promote-check.sh <component> <stable|beta> [--expect <version>]
+
+The component SET is derived from versions/ — what release.sh actually bumps —
+so a component added there is checkable here with no edit — the same source
+gen-version-jsonp.sh derives its set from.
+
+Prints ONE line — component, channel, the version the manifest names, its
+stamp, its `updated` — so the answer is quotable as evidence without a second
+command.
+
+Exit:
+  0  the expected version is live (or, with no --expect, the manifest was read)
+  1  not yet — the manifest resolves and names an OLDER version
+  2  usage error
+  3  cannot determine — unreachable, absent, malformed, or a NEWER version
+     than expected (someone promoted past this work)
+
+1 and 3 are deliberately different exits. A caller that cannot tell them apart
+treats an outage as patience, and waits for something that will never happen.
+
+Env (optional):
+  UMBREE_R2_DOWNLOADS_BASE   downloads-mirror base (default https://downloads.umbree.org;
+                             empty is a refusal here — a check with no surface to read
+                             is not a check, so it says so rather than passing)
+  UMBREE_CHECK_ALLOW_HTTP  set to 1 to allow a plain-http base — the TEST fixture only
+HELP
+}
+
 usage() {
     cat >&2 <<USAGE
 usage: tools/promote-check.sh <component> <stable|beta> [--expect <version>]
@@ -64,13 +110,7 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { echo "✗ --expect needs a version" >&2; usage; }
             EXPECT="$2"; shift 2 ;;
         --expect=*) EXPECT="${1#--expect=}"; shift ;;
-        -h|--help)
-            # Explicit help is stdout and exit 0; a refusal is stderr and 2.
-            # The header block IS the help, so the two cannot drift apart; the
-            # range is found, never counted, because a counted range rots on the
-            # first added line.
-            awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
-            exit 0 ;;
+        -h|--help) help; exit 0 ;;
         -*) echo "✗ unknown flag: $1" >&2; usage ;;
         *)
             if   [ -z "${COMP}" ];    then COMP="$1"

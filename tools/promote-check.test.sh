@@ -139,6 +139,13 @@ set +e; OUT="$(UMBREE_CHECK_ALLOW_HTTP= "${CHECK}" umbreed beta --expect 0.3.9 2
 [ "${RC}" -eq 2 ] || die "expected 2 for an http base, got ${RC}: ${OUT}"
 has "https" "${OUT}" || die "did not explain why the base was refused: ${OUT}"
 
+say "explicit help is stdout and exit 0, with the exits spelled out"
+set +e; HELP_OUT="$("${CHECK}" --help 2>/dev/null)"; RC=$?; HELP_ERR="$("${CHECK}" -h 2>&1 >/dev/null)"; set -e
+[ "${RC}" -eq 0 ] || die "expected 0 for --help, got ${RC}"
+[ -z "${HELP_ERR}" ] || die "help wrote to stderr: ${HELP_ERR}"
+has "Usage:" "${HELP_OUT}" || die "help has no usage line: ${HELP_OUT}"
+has "3  cannot determine" "${HELP_OUT}" || die "help does not name exit 3: ${HELP_OUT}"
+
 say "the check writes nothing and needs no credentials"
 if grep -qE '\b(aws|rclone|scp|ssh)\b' "${CHECK}"; then die "the check reached for a credentialed tool"; fi
 if grep -qE '(-X *(PUT|POST|DELETE)|--upload-file)' "${CHECK}"; then die "the check names a write verb"; fi
