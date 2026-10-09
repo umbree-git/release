@@ -113,3 +113,8 @@ func registerAdminAdd(fs *flag.FlagSet, o *options) {
 }
 
 func registerNothing(*flag.FlagSet, *options) {}
+
+func registerUnlock(fs *flag.FlagSet, o *options) {
+	registerDataDir(fs, o)
+	fs.StringVar(&o.reason, "reason", "", "why the admin is unlocked; recorded in the audit log (required)")
+}

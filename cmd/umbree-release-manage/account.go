@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/store"
@@ -175,6 +176,26 @@ func runAdminUnlock(e *env, v *verb, args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = adminName(v, o)
-	return err
+	name, err := adminName(v, o)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(o.reason) == "" {
+		return usagef(v, "--reason is required; it is what the audit log records")
+	}
+	st, err := store.Open(o.dataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	actor := actorOf(e)
+	n, err := st.UnlockAdmin(name, auth.FailureKeySuffix(name), actor, o.reason, time.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no admin named %q; `%s admin list` shows the ones that exist", name, toolName)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.stdout, "✓ admin %q unlocked by %s; %d failed sign-ins cleared\n", name, actor, n)
+	return nil
 }

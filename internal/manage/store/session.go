@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -117,5 +118,51 @@ func (s *Store) PurgeExpiredSessions(now time.Time, failuresBefore time.Time) er
 }
 
 func (s *Store) UnlockAdmin(name, keySuffix, actor, reason string, at time.Time) (int, error) {
-	return 0, nil
+	if strings.TrimSpace(actor) == "" || strings.TrimSpace(reason) == "" || keySuffix == "" {
+		return 0, fmt.Errorf("%w: unlock needs a key suffix, an actor and a reason", ErrBadValue)
+	}
+	cleared := 0
+	err := s.tx(func(tx *sql.Tx) error {
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM admins WHERE name = ?`, name).Scan(&exists); err != nil {
+			return fmt.Errorf("store: unlock %q: %w", name, err)
+		}
+		if exists == 0 {
+			return fmt.Errorf("%w: admin %q", ErrNotFound, name)
+		}
+		keys, err := failureKeys(tx)
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			if !strings.HasSuffix(key, keySuffix) {
+				continue
+			}
+			res, err := tx.Exec(`DELETE FROM login_failures WHERE key = ?`, key)
+			if err != nil {
+				return fmt.Errorf("store: unlock %q: %w", name, err)
+			}
+			n, _ := res.RowsAffected()
+			cleared += int(n)
+		}
+		return auditTx(tx, at, actor, "unlock", 0, fmt.Sprintf("admin %s: %s (%d failed sign-ins cleared)", name, reason, cleared))
+	})
+	return cleared, err
+}
+
+func failureKeys(tx *sql.Tx) ([]string, error) {
+	rows, err := tx.Query(`SELECT DISTINCT key FROM login_failures`)
+	if err != nil {
+		return nil, fmt.Errorf("store: read login failures: %w", err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, fmt.Errorf("store: read login failures: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
 }

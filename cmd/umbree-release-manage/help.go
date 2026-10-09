@@ -30,7 +30,7 @@ func init() {
 		{name: "admin list", summary: "list the console admins and their open sessions; shows no secret", register: registerDataDir, run: runAdminList},
 		{name: "admin remove", shape: "<name>", summary: "remove a console admin and end its sessions", register: registerDataDir, run: runAdminRemove},
 		{name: "admin reset-totp", shape: "<name>", summary: "replace an admin's second factor, print the new enrolment once, and end its sessions", register: registerAdminKeyed, run: runAdminResetTOTP},
-		{name: "admin unlock", shape: "<name>", summary: "clear an admin's failed sign-in count so it can sign in again, audited", register: registerMarkYanked, run: runAdminUnlock},
+		{name: "admin unlock", shape: "<name>", summary: "clear an admin's failed sign-in count so it can sign in again, audited", register: registerUnlock, run: runAdminUnlock},
 		{name: "docs", summary: "print the command reference that " + referenceFile + " holds", register: registerNothing, run: runDocs},
 	}
 }
