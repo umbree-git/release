@@ -19,7 +19,7 @@ import (
 //go:embed templates static
 var assets embed.FS
 
-var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention"}
+var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention", "republish"}
 
 type Routes interface {
 	Routes(mux *http.ServeMux)
@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /manage/api/releases/{id}/"+action, s.writeGuard(s.handleAction(action, true)))
 	}
 	mux.HandleFunc("POST /manage/retention/{channel}/{component}/{window}", s.writeGuard(s.handleRetention))
+	mux.HandleFunc("POST /manage/republish/{channel}/{component}", s.writeGuard(s.handleRepublish))
 	mux.HandleFunc("/manage/", s.guard(handleNoPage))
 	mux.HandleFunc("/", http.NotFound)
 	return secureHeaders(mux)

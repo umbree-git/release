@@ -56,7 +56,8 @@ func TestRepublishControlRefusedWithoutSessionCSRFConfirm(t *testing.T) {
 	if r := b.confirmed(republishControl, token); r.status != http.StatusForbidden || len(fake.calls) != 1 {
 		t.Fatalf("a replayed confirm: HTTP %d, calls %v", r.status, fake.calls)
 	}
-	other := c.signedIn("ops")
+	c.addAdmin("ops2")
+	other := c.signedIn("ops2")
 	if r := other.confirmed(republishControl, b.confirmToken(republishControl)); r.status != http.StatusForbidden {
 		t.Fatalf("another session's confirm token: HTTP %d", r.status)
 	}

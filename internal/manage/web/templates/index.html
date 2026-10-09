@@ -29,4 +29,12 @@
     <button class="btn" type="submit">Preview: clean {{.Name}}</button>
   </form>{{end}}
 </section>
+{{with .Republish}}<section class="panel">
+  <h2>Static surface</h2>
+  <p class="dim">Promote and yank republish the installer, <code>version.js</code>, the public key and the site page. If that step failed, republish them here from the live manifest.</p>
+  <form class="act" method="post" action="{{.}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn" type="submit">Republish static</button>
+  </form>
+</section>{{end}}
 {{end}}

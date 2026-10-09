@@ -28,6 +28,7 @@ type overviewPage struct {
 	Current    *rowView
 	Promotable *rowView
 	Retention  []navItem
+	Republish  string
 }
 
 type historyPage struct {
@@ -88,6 +89,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 		for _, win := range retention.Windows {
 			page.Retention = append(page.Retention, navItem{Name: string(win), Path: retentionPath(channel, comp, win)})
 		}
+	}
+	if s.cfg.Publish.Static != nil {
+		page.Republish = republishPath(channel, comp)
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel)
 	page.Nav = componentNav(channel, comp, pagePath)
