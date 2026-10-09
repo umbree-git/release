@@ -100,6 +100,12 @@ var migrations = []migration{
 			`CREATE INDEX login_failures_name ON login_failures (step, name, at)`,
 		},
 	},
+	{
+		Migration: Migration{Version: 4, Name: "retention pruning mark"},
+		stmts: []string{
+			`ALTER TABLE release_versions ADD COLUMN public_pruning_at INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
 }
 
 func Migrations() []Migration {

@@ -98,5 +98,20 @@ func (s *Store) SetPermanent(component, channel, stamp string, pinned bool, acto
 }
 
 func (s *Store) MarkPublicPruning(id int64, at time.Time) error {
+	if _, err := s.db.Exec(`UPDATE release_versions SET public_pruning_at = ? WHERE id = ? AND public_pruning_at = 0`, at.Unix(), id); err != nil {
+		return fmt.Errorf("store: mark %d public pruning: %w", id, err)
+	}
 	return nil
+}
+
+func (s *Store) RecordPartialPrune(id int64, copyName string, deleted []string, failure, actor string, at time.Time) error {
+	if _, ok := prunedColumn[copyName]; !ok {
+		return fmt.Errorf("%w: copy %q", ErrBadValue, copyName)
+	}
+	if err := requireActor("prune", actor); err != nil {
+		return err
+	}
+	return s.tx(func(tx *sql.Tx) error {
+		return auditTx(tx, at, actor, "prune-"+copyName+"-partial", id, pruneDetail(deleted)+"; stopped: "+failure)
+	})
 }
