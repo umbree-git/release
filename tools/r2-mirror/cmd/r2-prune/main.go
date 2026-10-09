@@ -13,25 +13,13 @@ import (
 
 var components = []string{"umbree", "umbreed"}
 
-const protectUsage = "permanent pin list (default: tools/retain-permanent or ../retain-permanent)"
+const protectUsage = "a pin list file, one <comp>/<stamp> or stamp per line, kept from deletion; with no --protect nothing is pinned, and --execute deletes pinned releases too: this manual tool never reads the catalog's admin pin rows"
 
 func loadProtect(path string) (map[string]struct{}, error) {
 	if path == "" {
-		for _, p := range []string{"tools/retain-permanent", "../retain-permanent"} {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				path = p
-				break
-			}
-		}
+		return map[string]struct{}{}, nil
 	}
 	return prune.LoadProtectFile(path)
-}
-
-func main() {
-	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "✗ r2-prune: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 func run() error {
