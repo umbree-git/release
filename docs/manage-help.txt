@@ -16,6 +16,8 @@ Commands:
   backfill                 once per component: catalog the releases already on the public surface, verified, writing the catalog only
   retain                   run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing
   admin mark-yanked <id>   mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand
+  admin pin <component> <stamp> keep a promoted release's public bytes outside the retention window, audited
+  admin unpin <component> <stamp> let retention prune a pinned release again, audited
   admin add <name>         add a console admin; prints its TOTP enrolment once, and only here
   admin list               list the console admins and their open sessions; shows no secret
   admin remove <name>      remove a console admin and end its sessions
@@ -90,6 +92,8 @@ Usage:
 
 Subcommands:
   mark-yanked <id>         mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand
+  pin <component> <stamp>  keep a promoted release's public bytes outside the retention window, audited
+  unpin <component> <stamp> let retention prune a pinned release again, audited
   add <name>               add a console admin; prints its TOTP enrolment once, and only here
   list                     list the console admins and their open sessions; shows no secret
   remove <name>            remove a console admin and end its sessions
@@ -106,6 +110,26 @@ mark a public row yanked in the catalog only, audited; for a manifest already pu
 Flags:
   --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
   --reason <string>            why the row is yanked by hand; recorded in the audit log (required)
+
+==> umbree-release-manage admin pin --help
+
+Usage:
+  umbree-release-manage admin pin <component> <stamp> [flags]
+
+keep a promoted release's public bytes outside the retention window, audited
+
+Flags:
+  --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
+
+==> umbree-release-manage admin unpin --help
+
+Usage:
+  umbree-release-manage admin unpin <component> <stamp> [flags]
+
+let retention prune a pinned release again, audited
+
+Flags:
+  --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
 
 ==> umbree-release-manage admin add --help
 

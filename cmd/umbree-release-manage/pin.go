@@ -14,7 +14,6 @@ func runAdminPin(e *env, v *verb, args []string) error { return setPin(e, v, arg
 func runAdminUnpin(e *env, v *verb, args []string) error { return setPin(e, v, args, false) }
 
 func setPin(e *env, v *verb, args []string, pinned bool) error {
-	return nil
 	o, err := parseVerb(e, v, args)
 	if err != nil {
 		return err
