@@ -37,6 +37,8 @@ func New(accountID, bucket, accessKeyID, secret string, doer Doer) *Client {
 	}
 }
 
+func (c *Client) Bucket() string { return c.bucket }
+
 func (c *Client) Put(ctx context.Context, key string, body []byte, contentType string) error {
 	url := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
