@@ -81,5 +81,33 @@ func rowErr(id int64, err error) error {
 }
 
 func (s *Store) AdoptCurrent(id int64, actor, reason string, at time.Time) (bool, error) {
-	return false, errors.New("store: not built")
+	adopted := false
+	err := s.tx(func(tx *sql.Tx) error {
+		var component, channel, state string
+		if err := tx.QueryRow(`SELECT component, channel, state FROM release_versions WHERE id = ?`, id).
+			Scan(&component, &channel, &state); err != nil {
+			return rowErr(id, err)
+		}
+		if state != catalog.StatePublic {
+			return fmt.Errorf("%w: row %d is %s; only a public row can be current", ErrBadState, id, state)
+		}
+		var current int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM release_versions WHERE component = ? AND channel = ? AND is_current = 1`,
+			component, channel).Scan(&current); err != nil {
+			return fmt.Errorf("store: adopt %d: %w", id, err)
+		}
+		if current != 0 {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("store: adopt %d: %w", id, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO audit (at, actor, action, row_id, detail) VALUES (?, ?, 'backfill-current', ?, ?)`,
+			at.Unix(), actor, id, reason); err != nil {
+			return fmt.Errorf("store: adopt %d: audit: %w", id, err)
+		}
+		adopted = true
+		return nil
+	})
+	return adopted, err
 }
