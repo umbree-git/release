@@ -171,3 +171,43 @@ func TestPromoteFlipsCurrent(t *testing.T) {
 		t.Fatal("a public row was promoted again")
 	}
 }
+
+func TestPromotableFloorIsHighWaterMark(t *testing.T) {
+	t.Run("current row below a yanked mark", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		low := insert(t, s, stagedRow("umbree", "0.2.0", 1, epoch))
+		promoteRow(t, s, low)
+		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
+		promoteRow(t, s, top)
+		if err := s.Yank(top, low, epoch.Add(2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		insert(t, s, stagedRow("umbree", "0.2.5", 3, epoch))
+		assertPromotable(t, s)
+		insert(t, s, stagedRow("umbree", "0.4.0", 4, epoch))
+		assertPromotable(t, s, "0.4.0")
+	})
+	t.Run("no current row after mark-yanked", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		low := insert(t, s, stagedRow("umbree", "0.2.0", 1, epoch))
+		promoteRow(t, s, low)
+		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
+		promoteRow(t, s, top)
+		if err := s.MarkYanked(top, "op", "manifest deleted by hand", epoch); err != nil {
+			t.Fatal(err)
+		}
+		insert(t, s, stagedRow("umbree", "0.1.0", 3, epoch))
+		insert(t, s, stagedRow("umbree", "0.2.5", 4, epoch))
+		assertPromotable(t, s)
+		insert(t, s, stagedRow("umbree", "0.3.1", 5, epoch))
+		assertPromotable(t, s, "0.3.1")
+	})
+	t.Run("current row is the mark", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		cur := insert(t, s, stagedRow("umbree", "0.5.0", 1, epoch))
+		promoteRow(t, s, cur)
+		insert(t, s, stagedRow("umbree", "0.4.0", 2, epoch))
+		insert(t, s, stagedRow("umbree", "0.6.0", 3, epoch))
+		assertPromotable(t, s, "0.6.0")
+	})
+}

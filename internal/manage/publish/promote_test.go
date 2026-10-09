@@ -266,3 +266,44 @@ func TestPromoteUsesStoredKeysVerbatim(t *testing.T) {
 		}
 	}
 }
+
+func TestPromoteFloorAfterYankAndManifestDeleted(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.0", 1)
+	top := w.live("0.2.0", 2)
+	if err := w.st.MarkYanked(top, "test-operator", "manifest deleted by hand", epoch); err != nil {
+		t.Fatal(err)
+	}
+	w.public.Remove("umbree/latest.json")
+	between, _ := w.stage("0.1.5", 3)
+	err, ev := w.promote(between)
+	wantRefused(t, err, ev, "not newer than")
+	if !strings.Contains(err.Error(), w.row(top).Stamp) || !strings.Contains(err.Error(), "yanked") {
+		t.Fatalf("the refusal %q does not name the mark's stamp and state", err)
+	}
+	newer, _ := w.stage("0.3.0", 4)
+	if err, ev := w.promote(newer); err != nil {
+		t.Fatalf("a row above the yanked mark: %v %+v", err, ev)
+	}
+}
+
+func TestPromoteFloorAfterYankSkippedPrunedRow(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.0", 1)
+	mid := w.live("0.2.0", 2)
+	top := w.live("0.3.0", 3)
+	w.public.Remove("umbree/" + w.row(mid).Stamp + "/umbree-linux-amd64.zip")
+	if err, ev := w.yank(top); err != nil {
+		t.Fatalf("yank: %v %+v", err, ev)
+	}
+	below, _ := w.stage("0.1.5", 4)
+	err, ev := w.promote(below)
+	wantRefused(t, err, ev, "not newer than")
+	between, _ := w.stage("0.2.5", 5)
+	err, ev = w.promote(between)
+	wantRefused(t, err, ev, "not newer than")
+	above, _ := w.stage("0.3.1", 6)
+	if err, ev := w.promote(above); err != nil {
+		t.Fatalf("a row above the mark: %v %+v", err, ev)
+	}
+}

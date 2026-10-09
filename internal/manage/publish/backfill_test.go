@@ -186,8 +186,37 @@ func TestBackfillAdoptsCurrentAfterManualReplace(t *testing.T) {
 	if err != nil || len(log) != 2 || log[1].Action != "backfill-current" || log[1].RowID != older || log[1].Actor != "test-operator" {
 		t.Fatalf("audit %+v, %v", log, err)
 	}
+	between, _ := w.stage("0.1.5", 4)
+	err, ev = w.promote(between)
+	wantRefused(t, err, ev, "not newer than")
 	if err, ev := w.promote(newer); err != nil {
 		t.Fatalf("promote after backfill: %v %+v", err, ev)
+	}
+}
+
+func TestBackfillManifestNamingYankedOrStagedChangesNothing(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.0", 1)
+	yanked := w.live("0.2.0", 2)
+	if err := w.st.MarkYanked(yanked, "test-operator", "pulled", epoch); err != nil {
+		t.Fatal(err)
+	}
+	w.seedManifest("0.2.0", w.row(yanked).Stamp)
+	rep := w.backfill()
+	if rep.Current != "" || w.row(yanked).State != "yanked" || w.row(yanked).IsCurrent || !strings.Contains(strings.Join(rep.Skipped, "\n"), "yanked") {
+		t.Fatalf("a manifest naming a yanked row: %+v", rep)
+	}
+	staged, _ := w.stage("0.3.0", 3)
+	w.seedManifest("0.3.0", w.row(staged).Stamp)
+	rep = w.backfill()
+	if rep.Current != "" || w.row(staged).State != "staged" || w.row(staged).IsCurrent {
+		t.Fatalf("a manifest naming a staged row: %+v", rep)
+	}
+	if _, err := w.st.Current("umbree", "production"); err == nil {
+		t.Fatal("backfill made a row current")
+	}
+	if log, _ := w.st.AuditLog(); len(log) != 1 {
+		t.Fatalf("audit %+v, want only the mark-yanked entry", log)
 	}
 }
 
