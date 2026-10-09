@@ -67,6 +67,11 @@ func TestServeRefusesSameBucket(t *testing.T) {
 	if r := invoke(t, vars, "serve", "--data-dir", dir, "--listen", "127.0.0.1:0"); r.code != exitUsage {
 		t.Fatalf("same bucket through the environment: exit %d, want %d", r.code, exitUsage)
 	}
+	for k, v := range serveVars(t) {
+		if _, set := vars[k]; !set {
+			vars[k] = v
+		}
+	}
 	r = invoke(t, vars, "serve", "--data-dir", dir, "--gated-bucket", "gated-private", "--listen", "127.0.0.1:0")
 	if r.code != 0 {
 		t.Fatalf("keep-control: exit %d; stderr %s", r.code, r.stderr)
@@ -92,7 +97,9 @@ func TestServeRequiresDataDir(t *testing.T) {
 		t.Fatalf("blank data dir from the environment: exit %d", r.code)
 	}
 	dir := t.TempDir()
-	r = invoke(t, map[string]string{"UMBREE_MANAGE_DATA_DIR": dir}, "serve", "--listen", "127.0.0.1:0")
+	vars := serveVars(t)
+	vars["UMBREE_MANAGE_DATA_DIR"] = dir
+	r = invoke(t, vars, "serve", "--listen", "127.0.0.1:0")
 	if r.code != 0 {
 		t.Fatalf("data dir from the environment: exit %d stderr %s", r.code, r.stderr)
 	}

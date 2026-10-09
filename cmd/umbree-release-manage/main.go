@@ -16,10 +16,12 @@ const (
 )
 
 type env struct {
-	ctx    context.Context
-	stdout io.Writer
-	stderr io.Writer
-	getenv func(string) string
+	ctx            context.Context
+	stdin          io.Reader
+	stdout         io.Writer
+	stderr         io.Writer
+	getenv         func(string) string
+	promptPassword func(out io.Writer) (string, error)
 }
 
 type usageError struct {
@@ -35,7 +37,7 @@ func usagef(v *verb, format string, a ...any) error {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(&env{ctx: ctx, stdout: os.Stdout, stderr: os.Stderr, getenv: os.Getenv}, os.Args[1:])
+	code := run(&env{ctx: ctx, stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, getenv: os.Getenv}, os.Args[1:])
 	stop()
 	os.Exit(code)
 }

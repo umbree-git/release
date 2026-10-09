@@ -15,6 +15,8 @@ type options struct {
 	gatedBucket   string
 	publicBucket  string
 	publicBaseURL string
+	secretKey     string
+	passwordStdin bool
 	check         bool
 	reason        string
 	component     string
