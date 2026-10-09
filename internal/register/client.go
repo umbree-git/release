@@ -47,8 +47,7 @@ func (c *Client) Register(ctx context.Context, p Payload, key SigningKey) (RowSt
 		return RowStatus{}, err
 	}
 	p.Nonce = nonce
-	var created RowStatus
-	if err := c.signedPost(ctx, "/api/v1/releases/register", p, key, &created); err != nil {
+	if err := c.signedPost(ctx, "/api/v1/releases/register", p, key, nil); err != nil {
 		return RowStatus{}, err
 	}
 	row, err := c.Status(ctx, p.Component, p.Channel, p.Stamp, key)
@@ -125,6 +124,9 @@ func (c *Client) post(ctx context.Context, path string, body []byte, out any) er
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("POST %s: HTTP %d %s", target, resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if out == nil {
+		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("POST %s: decode response: %w", target, err)
