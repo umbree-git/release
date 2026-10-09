@@ -184,6 +184,15 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 func (r *Run) adoptCurrent(rv store.ReleaseVersion, rep *BackfillReport) {
+	switch rv.State {
+	case catalog.StatePublic:
+	case catalog.StateStaged:
+		rep.Skipped = append(rep.Skipped, rv.Stamp+": the public manifest names a staged row; re-run its promote to complete the flip")
+		return
+	default:
+		rep.Skipped = append(rep.Skipped, rv.Stamp+": the public manifest names a "+rv.State+" row; it is not made current")
+		return
+	}
 	reason := "backfill: the public manifest names " + rv.Stamp + " and the catalog had no current row"
 	adopted, err := r.d.Store.AdoptCurrent(rv.ID, r.actor, reason, r.now())
 	if err != nil {

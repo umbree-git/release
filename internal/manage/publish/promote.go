@@ -63,24 +63,30 @@ func (r *Run) checkPromotable(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	current, cerr := r.d.Store.Current(r.row.Component, r.row.Channel)
-	if cerr != nil && !errors.Is(cerr, store.ErrNotFound) {
-		return cerr
-	}
-	if !ok && cerr == nil {
-		return fmt.Errorf("%w: row %d (%s) is not newer than the current %s; rolling back is a yank", ErrNotPromotable, r.row.ID, r.row.Stamp, current.Stamp)
-	}
 	if !ok {
-		return fmt.Errorf("%w: row %d", ErrNotPromotable, r.row.ID)
+		return r.notPromotable()
 	}
+	_, cerr := r.d.Store.Current(r.row.Component, r.row.Channel)
 	if cerr == nil {
 		return nil
+	}
+	if !errors.Is(cerr, store.ErrNotFound) {
+		return cerr
 	}
 	live, err := r.publicManifestStamp(ctx, r.row.Component)
 	if err != nil || live == "" || live == r.row.Stamp {
 		return err
 	}
 	return fmt.Errorf("%w: the public manifest names %s and the catalog has no current %s row", ErrNeedsBackfill, live, r.row.Component)
+}
+
+func (r *Run) notPromotable() error {
+	mark, err := r.d.Store.HighWaterMark(r.row.Component, r.row.Channel)
+	if err != nil {
+		return fmt.Errorf("%w: row %d", ErrNotPromotable, r.row.ID)
+	}
+	return fmt.Errorf("%w: row %d (%s) is not newer than the high-water mark %s (%s); roll back by yank, or cut again and promote the newer stamp",
+		ErrNotPromotable, r.row.ID, r.row.Stamp, mark.Stamp, mark.State)
 }
 
 func (r *Run) publicManifestStamp(ctx context.Context, component string) (string, error) {
