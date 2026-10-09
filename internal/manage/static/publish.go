@@ -2,11 +2,14 @@ package static
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -152,16 +155,40 @@ func (p *Publisher) copyRemote(ctx context.Context, component string, files []fi
 	if err := writeLocal(stage, files); err != nil {
 		return err
 	}
+	batch, err := uploadBatch(stage, p.Dest.Dir, component, files)
+	if err != nil {
+		return err
+	}
 	run := p.Run
 	if run == nil {
 		run = ExecRunner
 	}
-	args := []string{"-q", "-r", "-i", p.Dest.SSHKey, "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+	args := []string{"-q", "-b", batch, "-i", p.Dest.SSHKey, "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
 		"-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile=" + p.Dest.KnownHosts, "-o", "ConnectTimeout=15",
-		filepath.Join(stage, component), filepath.Join(stage, "umbree-release.pub"), filepath.Join(stage, "index.html"),
-		p.Dest.Host + ":" + p.Dest.Dir + "/"}
-	if out, err := run(ctx, "scp", args...); err != nil {
-		return fmt.Errorf("scp to %s: %v: %s", p.Dest, err, strings.TrimSpace(string(out)))
+		p.Dest.Host}
+	if out, err := run(ctx, "sftp", args...); err != nil {
+		return fmt.Errorf("sftp to %s: %v: %s", p.Dest, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func uploadBatch(stage, dir, component string, files []file) (string, error) {
+	if strings.ContainsAny(stage, "\"\\\n ") {
+		return "", fmt.Errorf("the staging dir %q cannot be named in an sftp batch", stage)
+	}
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	suffix := "." + hex.EncodeToString(nonce)
+	var puts, renames strings.Builder
+	fmt.Fprintf(&puts, "-mkdir %q\n", dir+"/"+component)
+	for _, f := range files {
+		final := dir + "/" + f.rel
+		tmp := path.Join(path.Dir(final), "."+path.Base(final)+suffix)
+		fmt.Fprintf(&puts, "put %q %q\n", filepath.Join(stage, f.rel), tmp)
+		fmt.Fprintf(&renames, "rename %q %q\n", tmp, final)
+	}
+	batch := filepath.Join(stage, ".batch")
+	return batch, os.WriteFile(batch, []byte(puts.String()+renames.String()), 0o600)
 }

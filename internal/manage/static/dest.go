@@ -11,11 +11,11 @@ import (
 var (
 	ErrNoDest     = errors.New("static: no --static-dest is configured, so nothing republishes the static surface")
 	ErrNeedSSHKey = errors.New("static: a remote --static-dest needs --static-ssh-key, a key restricted to the static dir on that host")
-	ErrBadDest    = errors.New("static: --static-dest must be an absolute directory or <host>:<absolute directory>")
+	ErrBadDest    = errors.New("static: --static-dest must be an absolute directory other than / or [<user>@]<host>:<absolute directory other than />")
 )
 
 var (
-	hostRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._@-]*$`)
+	hostRe = regexp.MustCompile(`^([A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 	dirRe  = regexp.MustCompile(`^/[A-Za-z0-9._/-]*$`)
 )
 
@@ -37,19 +37,21 @@ func (d Dest) String() string {
 
 func cleanAbsolute(p string) bool { return dirRe.MatchString(p) && filepath.Clean(p) == p }
 
+func cleanStaticDir(p string) bool { return cleanAbsolute(p) && p != "/" }
+
 func ParseDest(dest, sshKey, knownHosts string) (Dest, error) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return Dest{}, ErrNoDest
 	}
 	if strings.HasPrefix(dest, "/") {
-		if !cleanAbsolute(dest) {
+		if !cleanStaticDir(dest) {
 			return Dest{}, fmt.Errorf("%w (got %q)", ErrBadDest, dest)
 		}
 		return Dest{Dir: dest}, nil
 	}
 	host, dir, ok := strings.Cut(dest, ":")
-	if !ok || !hostRe.MatchString(host) || !cleanAbsolute(dir) {
+	if !ok || !hostRe.MatchString(host) || !cleanStaticDir(dir) {
 		return Dest{}, fmt.Errorf("%w (got %q)", ErrBadDest, dest)
 	}
 	if strings.TrimSpace(sshKey) == "" {
