@@ -96,6 +96,11 @@ check "--channel beta with a stable-shaped stamp → 1" "$rc" "1"
 check_contains "…says not a beta stamp" "$out" "not a beta stamp"
 run --frobnicate
 check "unknown verb → 2" "$rc" "2"
+run --help
+check "--help → 0" "$rc" "0"
+check_contains "…prints the usage" "$out" "bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]"
+check_contains "…and the Env list" "$out" "UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)"
+check "…its first line is the title" "$(printf '%s\n' "$out" | head -n1)" "release.sh — PUBLISH an already-staged umbree|umbreed release."
 
 echo "# beta pre-flight: origin"
 run --channel beta umbree "$BETA_STAMP" --dry-run

@@ -79,6 +79,87 @@
 #   UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)
 set -euo pipefail
 
+read -r -d '' HELP_TEXT <<'HELP' || true
+release.sh — PUBLISH an already-staged umbree|umbreed release.
+
+Usage:
+  bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   # stable publish
+  bash tools/release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   # beta publish
+
+This repo has NO shell build path. Building, signing, and (with --apple)
+notarizing the artifact set live entirely in `rkit build` (the produce half),
+which stamps + cross-compiles the component for darwin/{arm64,amd64} +
+linux/{arm64,amd64}, writes SHA256SUMS.txt, and minisign-signs it into
+dist/<stamp>/.
+
+Both verbs publish THAT already-staged dist/<stamp>/ WITHOUT building,
+signing, notarizing, or bumping a version — they run only the publish half.
+They share the pre-flight (staged dir, module gate, cut-origin guard with its
+main→dev sync-back check, the release key check) and differ in where the
+bytes go:
+
+--distribute-only (STABLE):
+  1. git-tags <comp>/<stamp> + publishes a GitHub Release on umbree-git/release.
+  2. mirrors the artifacts to the R2 download mirror and rewrites its catalog,
+     when the mirror is configured — skipped, loudly, when it is not.
+  3. records versions/<comp>.stamp (the version floor the bootstrap bakes),
+     regenerates the outer bootstrap + version JSONP and scp's the static
+     surface (install.sh, version.js, umbree-release.pub, site/index.html)
+     to the release host.
+  4. records a [RELEASED: <comp>] marker commit.
+  GitHub Releases host the zips and stay primary; the R2 mirror is a fallback
+  and the source of the published-stamp catalog.
+
+--channel beta (BETA — beta.md; "private" = R2-only, no GitHub Release):
+  1. asserts versions/<comp>.beta sorts above versions/<comp>, and that the
+     stamp is beta-shaped (v<X.Y.Z>.beta.<date>.<sha8>).
+  2. REQUIRES the R2 mirror: a beta cut creates no GitHub Release, so an
+     unconfigured mirror is a refusal (exit 1, before any write), not a skip.
+  3. git-tags <comp>/<stamp> and pushes the tag (history; what
+     prune-releases.sh --channel beta counts) — no Release is created, so the
+     stable bootstrap's /releases resolution never sees it.
+  4. uploads every artifact to R2 <comp>/beta/<stamp>/<file>, then
+     <comp>/beta/latest.json LAST.
+  5. records versions/<comp>.beta.stamp, renders <comp>/beta.install.sh and
+     <comp>/beta.version.js (the twins feature 02's `umbree update` fetches —
+     their names and URLs never move), and scp's ONLY those two to the
+     release host. install.sh / version.js / the pubkey / site are the stable
+     surface and are not touched.
+  6. records a [RELEASED: <comp> beta] … (private) marker commit.
+
+There is no console/dispatcher. Opening, approving and closing a cycle are
+operator steps (tools/version.sh --seed; tools/adopt-beta-version.sh;
+README "Beta channel") — nothing here does them.
+
+On --dry-run: validates the staged dir + component, runs the gates in
+report mode, then prints "would: ..." for every publish action and returns —
+no GitHub/git/ssh/scp/network writes.
+
+Env:
+  RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default --
+                          this repo is public, so a default would ship the production
+                          hostname)
+  STATIC_DIR             absolute static dir on that host — REQUIRED (no default,
+                          same reason)
+  UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED (no default) when
+                          distributing umbree. The cut-origin guard requires it to BE
+                          the registry main folder (<brand>/cli/code/main) on stable, or
+                          its code/beta sibling worktree on beta; a different tree is
+                          permitted only under --dry-run
+  UMBREE_SRC_UMBREED     umbreed component source worktree — REQUIRED (no default) when
+                          distributing umbreed; same rule (<brand>/daemon/code/{main,beta})
+  BETA_BRANCH            beta only — the branch the beta worktree must be on
+                          (default: config/beta-branch, else "beta"; beta.md §2)
+  UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
+  UMBREE_GH              GitHub CLI to publish with (default `gh`) — set it when
+                          your environment provides a different one
+  UMBREE_R2_ACCOUNT      Cloudflare account id for the download mirror. Unset =
+                          stable skips the mirror (GitHub remains the only channel);
+                          beta REFUSES
+  UMBREE_R2_CREDS        path to the R2 S3 credentials TOML. Unset = same
+  UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)
+HELP
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
@@ -89,7 +170,7 @@ source "${REPO_ROOT}/tools/release_origin.sh"
 
 usage() { echo "✗ usage: release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   (stable)
          release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   (beta)" >&2; }
-print_help() { awk 'NR==1{next} !/^#/{exit} {sub(/^# ?/,""); print}' "$0"; }
+print_help() { printf '%s\n' "${HELP_TEXT}"; }
 
 # Two entry verbs, each taking its component + stamp positionally right after
 # the verb. --distribute-only is the GitHub-Release path and is therefore a
