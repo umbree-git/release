@@ -48,7 +48,10 @@ func TestValidation422(t *testing.T) {
 			if code != http.StatusUnprocessableEntity {
 				t.Fatalf("HTTP %d %s, want 422", code, body)
 			}
-			if !strings.Contains(body, tc.want) {
+			var refusal struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(body), &refusal); err != nil || !strings.Contains(refusal.Error, tc.want) {
 				t.Fatalf("body %s does not say %q", body, tc.want)
 			}
 		})
