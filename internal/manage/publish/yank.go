@@ -84,7 +84,7 @@ func (r *Run) publicBytesPresent(ctx context.Context, rv store.ReleaseVersion) (
 		return false, nil
 	}
 	for _, a := range arts {
-		size, err := r.d.Public.Head(ctx, publicKey(rv.Component, rv.Stamp, a.Key))
+		size, err := r.d.Public.Head(ctx, PublicKey(rv.Component, rv.Stamp, a.Key))
 		if errors.Is(err, backend.ErrNotFound) {
 			return false, nil
 		}

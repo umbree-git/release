@@ -115,7 +115,7 @@ func artifactsOf(artifactsJSON string) ([]register.Artifact, error) {
 	return arts, nil
 }
 
-func publicKey(component, stamp, key string) string {
+func PublicKey(component, stamp, key string) string {
 	return component + "/" + stamp + "/" + path.Base(key)
 }
 

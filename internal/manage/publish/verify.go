@@ -75,7 +75,7 @@ func (r *Run) verifySums(sumsBody, signature []byte, arts []register.Artifact) e
 
 func (r *Run) copyAll(ctx context.Context, st *stream, arts []register.Artifact) error {
 	for _, a := range arts {
-		dst := publicKey(r.row.Component, r.row.Stamp, a.Key)
+		dst := PublicKey(r.row.Component, r.row.Stamp, a.Key)
 		size, err := r.d.Public.Head(ctx, dst)
 		switch {
 		case err == nil && size == a.Size:
