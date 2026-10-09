@@ -66,6 +66,10 @@ func (s *Store) InsertStaged(rv ReleaseVersion) (int64, error) {
 }
 
 func (s *Store) Transition(id int64, from, to string, at time.Time) error {
+	return s.tx(func(tx *sql.Tx) error { return transitionTx(tx, id, from, to, at) })
+}
+
+func transitionTx(tx *sql.Tx, id int64, from, to string, at time.Time) error {
 	column, ok := transitionStampColumn[edge{from, to}]
 	if !ok {
 		return fmt.Errorf("%w: %q -> %q is not a catalog transition", ErrBadState, from, to)
@@ -74,25 +78,23 @@ func (s *Store) Transition(id int64, from, to string, at time.Time) error {
 	if from == catalog.StatePublic {
 		clearCurrent = ", is_current = 0"
 	}
-	return s.tx(func(tx *sql.Tx) error {
-		var state string
-		err := tx.QueryRow(`SELECT state FROM release_versions WHERE id = ?`, id).Scan(&state)
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: release row %d", ErrNotFound, id)
-		}
-		if err != nil {
-			return fmt.Errorf("store: transition %d: %w", id, err)
-		}
-		if state != from {
-			return fmt.Errorf("%w: row %d is %s, not %s", ErrBadState, id, state, from)
-		}
-		res, err := tx.Exec(`UPDATE release_versions SET state = ?, `+column+` = ?`+clearCurrent+`
-			WHERE id = ? AND state = ?`, to, at.Unix(), id, from)
-		if err != nil {
-			return fmt.Errorf("store: transition %d %s -> %s: %w", id, from, to, err)
-		}
-		return requireOneRow(res, fmt.Errorf("%w: row %d moved concurrently", ErrBadState, id))
-	})
+	var state string
+	err := tx.QueryRow(`SELECT state FROM release_versions WHERE id = ?`, id).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: release row %d", ErrNotFound, id)
+	}
+	if err != nil {
+		return fmt.Errorf("store: transition %d: %w", id, err)
+	}
+	if state != from {
+		return fmt.Errorf("%w: row %d is %s, not %s", ErrBadState, id, state, from)
+	}
+	res, err := tx.Exec(`UPDATE release_versions SET state = ?, `+column+` = ?`+clearCurrent+`
+		WHERE id = ? AND state = ?`, to, at.Unix(), id, from)
+	if err != nil {
+		return fmt.Errorf("store: transition %d %s -> %s: %w", id, from, to, err)
+	}
+	return requireOneRow(res, fmt.Errorf("%w: row %d moved concurrently", ErrBadState, id))
 }
 
 func (s *Store) Get(id int64) (*ReleaseVersion, error) {
