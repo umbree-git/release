@@ -53,6 +53,15 @@ for odd in "umbree/v0.9.9-rc1" "22222222.extra"; do
 done
 check_contains "beta KEEP=1 counts exactly three betas" "${out_beta1}" "3 releases → keep newest 1, remove 2"
 
+default_run() { env -u KEEP CHANNEL="$1" COMPONENTS=umbree UMBREE_GH="${STUB}/gh" GH_STUB_TAGS="${WORK}/tags" \
+  bash "${HERE}/prune-releases.sh"; }
+out_default_stable="$(default_run stable)"
+check_contains "default keep stable 5 beta 1: stable keeps 5" "${out_default_stable}" "channel=stable  keep=5 "
+check_contains "default keep stable 5 beta 1: four stable tags are within 5" "${out_default_stable}" "4 release(s) ≤ keep=5 — nothing to prune"
+out_default_beta="$(default_run beta)"
+check_contains "default keep stable 5 beta 1: beta keeps 1" "${out_default_beta}" "channel=beta  keep=1 "
+check_contains "default keep stable 5 beta 1: beta drops two of three" "${out_default_beta}" "3 releases → keep newest 1, remove 2"
+
 help_out="$(COMPONENTS=umbree UMBREE_GH=/nonexistent bash "${HERE}/prune-releases.sh" --help 2>/dev/null)"; help_rc=$?
 check_contains "--help prints the usage on stdout" "${help_out}" "Usage: tools/prune-releases.sh [--execute]"
 check_contains "--help names the KEEP default" "${help_out}" "KEEP "

@@ -248,8 +248,8 @@ func TestPruneRejectsKeepBelowOneAndUnknownChannel(t *testing.T) {
 	if len(store.deleted) != 0 {
 		t.Errorf("a refused call deleted %d objects", len(store.deleted))
 	}
-	if DefaultKeep("stable") != 3 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
-		t.Fatal("DefaultKeep: want stable 3, beta 1, unknown 0")
+	if DefaultKeep("stable") != 5 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
+		t.Fatal("DefaultKeep: want stable 5, beta 1, unknown 0")
 	}
 }
 
@@ -320,5 +320,17 @@ func TestVersionOrderShaTieBreak(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("sha tie-break mismatch:\n got: %v\nwant: %v", got, want)
 		}
+	}
+}
+
+func TestDefaultKeepStableIsFive(t *testing.T) {
+	if DefaultKeepStable != 5 {
+		t.Fatalf("DefaultKeepStable = %d, want 5: the public surface keeps the 5 newest production versions", DefaultKeepStable)
+	}
+	if DefaultKeepBeta != 1 {
+		t.Fatalf("DefaultKeepBeta = %d, want 1", DefaultKeepBeta)
+	}
+	if DefaultKeep("stable") != DefaultKeepStable || DefaultKeep("beta") != DefaultKeepBeta {
+		t.Fatal("DefaultKeep disagrees with the constants")
 	}
 }
