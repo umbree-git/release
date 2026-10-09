@@ -30,3 +30,11 @@ func TestProtectHasNoImplicitDefault(t *testing.T) {
 		}
 	}
 }
+
+var entry func() = main
+
+func TestMainIsDeclared(t *testing.T) {
+	if entry == nil {
+		t.Fatal("r2-prune has no main; the binary would not link")
+	}
+}
