@@ -37,7 +37,8 @@ func usagef(v *verb, format string, a ...any) error {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(&env{ctx: ctx, stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, getenv: os.Getenv}, os.Args[1:])
+	code := run(&env{ctx: ctx, stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, getenv: os.Getenv,
+		promptPassword: terminalPrompt(os.Stdin)}, os.Args[1:])
 	stop()
 	os.Exit(code)
 }

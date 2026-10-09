@@ -32,6 +32,7 @@ type envTwin struct {
 var envTwins = []envTwin{
 	{"data-dir", "UMBREE_MANAGE_DATA_DIR", func(o *options) *string { return &o.dataDir }},
 	{"listen", "UMBREE_MANAGE_LISTEN", func(o *options) *string { return &o.listen }},
+	{"secret-key", "UMBREE_MANAGE_SECRET_KEY", func(o *options) *string { return &o.secretKey }},
 	{"r2-account", "UMBREE_R2_ACCOUNT", func(o *options) *string { return &o.r2Account }},
 	{"r2-creds", "UMBREE_R2_CREDS", func(o *options) *string { return &o.r2Creds }},
 	{"gated-bucket", "UMBREE_R2_GATED_BUCKET", func(o *options) *string { return &o.gatedBucket }},
@@ -42,6 +43,7 @@ var envTwins = []envTwin{
 var flagUsage = map[string]string{
 	"data-dir":        "the `dir` holding the catalog (required; no default)",
 	"listen":          "the `address` to bind (default " + defaultListen + ", loopback)",
+	"secret-key":      "the operator-provisioned `file` that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required)",
 	"r2-account":      "the R2 `account` id",
 	"r2-creds":        "the `file` holding the R2 token",
 	"gated-bucket":    "the private gated `bucket`; must differ from --public-bucket",
@@ -91,3 +93,23 @@ func registerMarkYanked(fs *flag.FlagSet, o *options) {
 	registerDataDir(fs, o)
 	fs.StringVar(&o.reason, "reason", "", "why the row is yanked by hand; recorded in the audit log (required)")
 }
+
+func twinFlag(fs *flag.FlagSet, o *options, name string) {
+	for _, t := range envTwins {
+		if t.flag == name {
+			fs.StringVar(t.dest(o), t.flag, "", twinUsage(t.flag))
+		}
+	}
+}
+
+func registerAdminKeyed(fs *flag.FlagSet, o *options) {
+	registerDataDir(fs, o)
+	twinFlag(fs, o, "secret-key")
+}
+
+func registerAdminAdd(fs *flag.FlagSet, o *options) {
+	registerAdminKeyed(fs, o)
+	fs.BoolVar(&o.passwordStdin, "password-stdin", false, "read the password from the first line of stdin instead of prompting on the terminal")
+}
+
+func registerNothing(*flag.FlagSet, *options) {}

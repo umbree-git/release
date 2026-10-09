@@ -22,10 +22,15 @@ var verbs []*verb
 
 func init() {
 	verbs = []*verb{
-		{name: "serve", summary: "apply pending migrations, then serve the release intake", register: registerServe, run: runServe},
+		{name: "serve", summary: "apply pending migrations, then serve the release intake and the operator console", register: registerServe, run: runServe},
 		{name: "migrate", summary: "with --check, report the migrations ledger against this binary; writes nothing", register: registerMigrate, run: runMigrate},
 		{name: "backfill", summary: "once per component: catalog the releases already on the public surface, verified, writing the catalog only", register: registerBackfill, run: runBackfill},
 		{name: "admin mark-yanked", shape: "<id>", summary: "mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand", register: registerMarkYanked, run: runMarkYanked},
+		{name: "admin add", shape: "<name>", summary: "add a console admin; prints its TOTP enrolment once, and only here", register: registerAdminAdd, run: runAdminAdd},
+		{name: "admin list", summary: "list the console admins and their open sessions; shows no secret", register: registerDataDir, run: runAdminList},
+		{name: "admin remove", shape: "<name>", summary: "remove a console admin and end its sessions", register: registerDataDir, run: runAdminRemove},
+		{name: "admin reset-totp", shape: "<name>", summary: "replace an admin's second factor, print the new enrolment once, and end its sessions", register: registerAdminKeyed, run: runAdminResetTOTP},
+		{name: "docs", summary: "print the command reference that " + referenceFile + " holds", register: registerNothing, run: runDocs},
 	}
 }
 
