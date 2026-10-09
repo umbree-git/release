@@ -184,3 +184,26 @@ func checkVocabulary(component, channel string) error {
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
+
+func (s *Store) InsertBackfilled(rv ReleaseVersion, isCurrent bool, at time.Time) (int64, error) {
+	if err := checkVocabulary(rv.Component, rv.Channel); err != nil {
+		return 0, err
+	}
+	if !catalog.StampMatchesChannel(rv.Stamp, rv.Channel) {
+		return 0, fmt.Errorf("%w: stamp %q is not a %s stamp", ErrBadValue, rv.Stamp, rv.Channel)
+	}
+	res, err := s.db.Exec(`
+		INSERT INTO release_versions
+			(component, channel, version, stamp, artifacts_json, sums_key, minisig_key, state,
+			 is_current, created_at, promoted_at, gated_pruned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rv.Component, rv.Channel, rv.Version, rv.Stamp, rv.ArtifactsJSON, rv.SumsKey, rv.MinisigKey,
+		catalog.StatePublic, isCurrent, at.Unix(), at.Unix(), at.Unix())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return 0, fmt.Errorf("%w: %s %s on %s", ErrDuplicate, rv.Component, rv.Stamp, rv.Channel)
+		}
+		return 0, fmt.Errorf("store: backfill %s %s: %w", rv.Component, rv.Stamp, err)
+	}
+	return res.LastInsertId()
+}
