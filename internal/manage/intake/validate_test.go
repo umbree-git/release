@@ -10,36 +10,37 @@ import (
 	"github.com/umbree-git/release/internal/register"
 )
 
+var invalidRegistrations = []struct {
+	name   string
+	mutate func(*register.Payload)
+	want   string
+}{
+	{"bad stamp shape", func(p *register.Payload) { p.Stamp = "v0.1.8" }, "not a production stamp"},
+	{"beta stamp", func(p *register.Payload) { p.Stamp = "v0.2.0.beta.2026.09.05.deadbeef" }, "not a production stamp"},
+	{"unknown component", func(p *register.Payload) { p.Component = "burrowee" }, "unknown component"},
+	{"beta channel held", func(p *register.Payload) { p.Channel = "beta" }, `channel "beta" is held`},
+	{"stable channel", func(p *register.Payload) { p.Channel = "stable" }, "unknown channel"},
+	{"key outside the stamp", func(p *register.Payload) {
+		p.Artifacts[0].Key = "umbree/production/v0.1.7.2026.09.01.00000000/umbree-darwin-arm64.zip"
+	}, "is not under"},
+	{"key in another component", func(p *register.Payload) {
+		p.Artifacts[0].Key = "umbreed/production/" + testStamp + "/umbreed-linux-arm64.zip"
+	}, "is not under"},
+	{"nested key", func(p *register.Payload) { p.Artifacts[0].Key = testBase + "x/y.zip" }, "is not under"},
+	{"manifest key", func(p *register.Payload) { p.Artifacts[0].Key = testBase + "latest.json" }, "is not under"},
+	{"missing sums", func(p *register.Payload) { p.Artifacts = append(p.Artifacts[:2], p.Artifacts[3]) }, "sums key"},
+	{"missing minisig", func(p *register.Payload) { p.Artifacts = p.Artifacts[:3] }, "signature key"},
+	{"sums key elsewhere", func(p *register.Payload) { p.SumsKey = testBase + "umbree-darwin-arm64.zip" }, "sums key"},
+	{"empty artifact list", func(p *register.Payload) { p.Artifacts = nil }, "lists no artifacts"},
+	{"zero size", func(p *register.Payload) { p.Artifacts[0].Size = 0 }, "has size 0"},
+	{"bad sha256", func(p *register.Payload) { p.Artifacts[0].SHA256 = "abc" }, "sha256"},
+	{"duplicate key", func(p *register.Payload) { p.Artifacts[1] = p.Artifacts[0] }, "listed twice"},
+	{"version mismatch", func(p *register.Payload) { p.Version = "0.1.9" }, "does not match stamp"},
+}
+
 func TestValidation422(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*register.Payload)
-		want   string
-	}{
-		{"bad stamp shape", func(p *register.Payload) { p.Stamp = "v0.1.8" }, "not a production stamp"},
-		{"beta stamp", func(p *register.Payload) { p.Stamp = "v0.2.0.beta.2026.09.05.deadbeef" }, "not a production stamp"},
-		{"unknown component", func(p *register.Payload) { p.Component = "burrowee" }, "unknown component"},
-		{"beta channel held", func(p *register.Payload) { p.Channel = "beta" }, `channel "beta" is held`},
-		{"stable channel", func(p *register.Payload) { p.Channel = "stable" }, "unknown channel"},
-		{"key outside the stamp", func(p *register.Payload) {
-			p.Artifacts[0].Key = "umbree/production/v0.1.7.2026.09.01.00000000/umbree-darwin-arm64.zip"
-		}, "is not under"},
-		{"key in another component", func(p *register.Payload) {
-			p.Artifacts[0].Key = "umbreed/production/" + testStamp + "/umbreed-linux-arm64.zip"
-		}, "is not under"},
-		{"nested key", func(p *register.Payload) { p.Artifacts[0].Key = testBase + "x/y.zip" }, "is not under"},
-		{"manifest key", func(p *register.Payload) { p.Artifacts[0].Key = testBase + "latest.json" }, "is not under"},
-		{"missing sums", func(p *register.Payload) { p.Artifacts = append(p.Artifacts[:2], p.Artifacts[3]) }, "sums key"},
-		{"missing minisig", func(p *register.Payload) { p.Artifacts = p.Artifacts[:3] }, "signature key"},
-		{"sums key elsewhere", func(p *register.Payload) { p.SumsKey = testBase + "umbree-darwin-arm64.zip" }, "sums key"},
-		{"empty artifact list", func(p *register.Payload) { p.Artifacts = nil }, "lists no artifacts"},
-		{"zero size", func(p *register.Payload) { p.Artifacts[0].Size = 0 }, "has size 0"},
-		{"bad sha256", func(p *register.Payload) { p.Artifacts[0].SHA256 = "abc" }, "sha256"},
-		{"duplicate key", func(p *register.Payload) { p.Artifacts[1] = p.Artifacts[0] }, "listed twice"},
-		{"version mismatch", func(p *register.Payload) { p.Version = "0.1.9" }, "does not match stamp"},
-	}
 	f := newFixture(t)
-	for _, tc := range cases {
+	for _, tc := range invalidRegistrations {
 		t.Run(tc.name, func(t *testing.T) {
 			p := payload(f.issueNonce())
 			tc.mutate(&p)
