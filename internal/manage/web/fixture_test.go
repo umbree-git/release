@@ -45,7 +45,7 @@ type console struct {
 	rows    map[string]int64
 }
 
-func newConsole(t *testing.T) *console {
+func newConsole(t *testing.T, with ...func(*publish.Deps)) *console {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -60,6 +60,9 @@ func newConsole(t *testing.T) *console {
 	c.public.Link(c.gated)
 	c.deps = publish.Deps{Store: st, Gated: c.gated, Public: c.public, Key: backendtest.ReleaseKey(),
 		Locks: publish.NewLocks(publish.DefaultLockWait), Now: clock}
+	for _, f := range with {
+		f(&c.deps)
+	}
 	key, err := intake.ReleaseKey()
 	if err != nil {
 		t.Fatal(err)

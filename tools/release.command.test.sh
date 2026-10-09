@@ -302,6 +302,53 @@ BUILD_AT="$(grep -n 'say "→ build' "${CMD}" | head -n1 | cut -d: -f1)"
 check "require_gated_config runs after the sealed config, before the build" \
     "$([ -n "${CALL_AT}" ] && [ "${SEALED_AT}" -lt "${CALL_AT}" ] && [ "${CALL_AT}" -lt "${BUILD_AT}" ] && echo between)" "between"
 
+echo "# a stable request needs the manage URL from the sealed config"
+RMC="$(awk '/^require_manage_config\(\) \{/,/^}/' "${CMD}")"
+check "require_manage_config extracted" "$([ -n "${RMC}" ] && echo yes)" "yes"
+MANAGE_HARNESS="${TMP}/manage-harness.sh"
+{
+    echo 'set -uo pipefail'
+    echo 'LOG=/dev/null'
+    printf '%s\n' "${SAY_DIE}" "${RMC}"
+    echo 'require_manage_config'
+    echo 'bash -c '"'"'printf "child sees %s\n" "${UMBREE_MANAGE_URL:-nothing}"'"'"
+} > "${MANAGE_HARNESS}"
+manage_run() { out="$(env -u UMBREE_MANAGE_URL "$@" bash "${MANAGE_HARNESS}" 2>&1)"; rc=$?; }
+manage_run CHANNEL=stable
+check "stable, manage URL unset: refused" "${rc}" "1"
+check_contains "…names UMBREE_MANAGE_URL" "${out}" "UMBREE_MANAGE_URL"
+check_contains "…before anything is built" "${out}" "nothing built"
+manage_run CHANNEL=stable UMBREE_MANAGE_URL=http://manage.invalid
+check "stable, plain-http manage URL: refused" "${rc}" "1"
+manage_run CHANNEL=stable UMBREE_MANAGE_URL=https://manage.invalid
+check "stable, https manage URL: passes" "${rc}" "0"
+check_contains "…and release.sh inherits it" "${out}" "child sees https://manage.invalid"
+manage_run CHANNEL=beta
+check "beta, manage URL unset: passes (the dormant beta verb registers nothing)" "${rc}" "0"
+RMC_AT="$(grep -n '^require_manage_config$' "${CMD}" | head -n1 | cut -d: -f1)"
+check "require_manage_config runs after the sealed config, before the build" \
+    "$([ -n "${RMC_AT}" ] && [ "${SEALED_AT}" -lt "${RMC_AT}" ] && [ "${RMC_AT}" -lt "${BUILD_AT}" ] && echo between)" "between"
+KEY_AT="$(grep -n '^KEYFILE="$(umask 077; mktemp' "${CMD}" | head -n1 | cut -d: -f1)"
+EXPORT_AT="$(grep -n '^export UMBREE_RELEASE_KEY="${KEYFILE}"$' "${CMD}" | head -n1 | cut -d: -f1)"
+check "the decrypted key reaches release.sh as UMBREE_RELEASE_KEY, before the build" \
+    "$([ -n "${KEY_AT}" ] && [ -n "${EXPORT_AT}" ] && [ "${KEY_AT}" -lt "${EXPORT_AT}" ] && [ "${EXPORT_AT}" -lt "${BUILD_AT}" ] && echo between)" "between"
+
+echo "# launcher report names row not release page"
+CR="$(awk '/^cut_report\(\) \{/,/^}/' "${CMD}")"
+check "cut_report extracted" "$([ -n "${CR}" ] && echo yes)" "yes"
+out="$( { echo 'LOG=/dev/null'; printf '%s\n' "${SAY_DIE}" "${CR}"; echo 'cut_report umbree v0.1.8.2026.08.31.46b36734'; } \
+    | UMBREE_MANAGE_URL=https://manage.invalid/ bash 2>&1)"
+check_contains "launcher report names row not release page" "${out}" "https://manage.invalid/manage/production/umbree"
+check_contains "…names the stamp" "${out}" "v0.1.8.2026.08.31.46b36734"
+check_contains "…says it is staged, not public" "${out}" "not public"
+check_lacks "…names no release page" "${out}" "releases/tag"
+check_lacks "…and no GitHub" "${out}" "github.com"
+check "the launcher names no GitHub Release" "$(grep -c 'GitHub Release' "${CMD}")" "0"
+check "cut_report is called once, after the marker push" "$(grep -c '^ *cut_report "${comp}" "${stamp}"$' "${CMD}")" "1"
+PUSH_AT="$(grep -n '^ *push_marker "${comp}"$' "${CMD}" | head -n1 | cut -d: -f1)"
+REPORT_AT="$(grep -n '^ *cut_report "${comp}" "${stamp}"$' "${CMD}" | head -n1 | cut -d: -f1)"
+check "…in the cut loop, after push_marker" "$([ -n "${PUSH_AT}" ] && [ -n "${REPORT_AT}" ] && [ "${PUSH_AT}" -lt "${REPORT_AT}" ] && echo after)" "after"
+
 echo "# the session guard itself, unstubbed"
 sess_log="${TMP}/sess.log"
 RELEASE_ENV="${TMP}/env" RELEASE_REQUEST="${TMP}/none" RELEASE_LOG="$sess_log" \

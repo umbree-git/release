@@ -12,7 +12,8 @@ export GIT_CONFIG_GLOBAL="$T/gitconfig"
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" user.name t
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" user.email t@t
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
-unset BETA_BRANCH UMBREE_R2_ACCOUNT UMBREE_R2_CREDS UMBREE_R2_GATED_BUCKET STUB_GATED_FAIL
+unset BETA_BRANCH UMBREE_R2_ACCOUNT UMBREE_R2_CREDS UMBREE_R2_GATED_BUCKET STUB_GATED_FAIL \
+    UMBREE_MANAGE_URL UMBREE_RELEASE_KEY STUB_REGISTER STUB_STATUS STUB_STATUS_STAMP
 
 STUB="$T/stub"; mkdir -p "$STUB"
 export CALLS="$T/calls.log"; : > "$CALLS"
@@ -31,16 +32,30 @@ if [ "$1" = run ] && [ "$2" = . ] && [ "$3" = --store ] && [ "$4" = gated ]; the
     done
     exit 0
 fi
+if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = register ]; then
+    case "${STUB_REGISTER:-201}" in
+        2??) echo "✓ registered (stub)"; exit 0 ;;
+        *) echo "✗ rkit register: POST https://manage.invalid/api/v1/releases/register: HTTP ${STUB_REGISTER} refused" >&2; exit 1 ;;
+    esac
+fi
+if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = status ]; then
+    stamp=""
+    while [ $# -gt 0 ]; do
+        if [ "$1" = --stamp ]; then stamp="$2"; fi
+        shift
+    done
+    case "${STUB_STATUS:-staged}" in
+        404) echo "✗ rkit status: the service has no row for this stamp: HTTP 404" >&2; exit 1 ;;
+        *) echo "row 7 ${STUB_STATUS:-staged} 0.1.8 ${STUB_STATUS_STAMP:-$stamp}"; exit 0 ;;
+    esac
+fi
 if [ "$1" = run ] && [ "$2" = . ]; then echo "stub go: public mirror refused by the fixture" >&2; exit 1; fi
 echo "stub go: unexpected invocation: $*" >&2; exit 1
 EOF
 chmod +x "$STUB/go"
 cat > "$STUB/git" <<'EOF'
 #!/bin/sh
-if [ "$1" = -C ] && [ "$3" = log ]; then
-    echo "git $*" >> "$CALLS"
-    [ -z "${STUB_GIT_LOG_FAIL:-}" ] || exit 128
-fi
+if [ "$1" = push ]; then echo "git $*" >> "$CALLS"; fi
 exec /usr/bin/git "$@"
 EOF
 chmod +x "$STUB/git"
@@ -97,7 +112,10 @@ run --help
 check "--help → 0" "$rc" "0"
 check_contains "…prints the usage" "$out" "bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]"
 check_contains "…and the Env list" "$out" "UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)"
-check "…its first line is the title" "$(printf '%s\n' "$out" | head -n1)" "release.sh — PUBLISH an already-staged umbree|umbreed release."
+check "…its first line is the title" "$(printf '%s\n' "$out" | head -n1)" "release.sh — CUT an already-built umbree|umbreed release: stage it to the gated store and register it."
+check_lacks "…the stable verb's help names no GitHub Release" "$(printf '%s\n' "$out" | sed -n '/^--distribute-only/,/^--channel beta/p')" "GitHub Release on"
+check_lacks "…and no /releases resolution" "$out" "/releases resolution"
+check_contains "…and names --register-only" "$out" "--register-only <umbree|umbreed> <stamp>"
 
 echo "# beta pre-flight: origin"
 run --channel beta umbree "$BETA_STAMP" --dry-run
@@ -146,34 +164,56 @@ check_contains "…refused by the origin guard" "$out" "beta source must be the 
 echo "# stable dry run"
 run --distribute-only umbree "$STABLE_STAMP" --dry-run
 check "stable --dry-run → 0" "$rc" "0"
-check_contains "…plans the GitHub Release" "$out" "gh release create umbree/$STABLE_STAMP"
-check_contains "…plans the version floor" "$out" "write versions/umbree.stamp"
+check_lacks "…plans no GitHub Release" "$out" "gh release"
 check_lacks "…the stable rehearsal prints no ⚠ for an in-sync registry main" "$out" "⚠ umbree"
 check_contains "…would refuse with no gated bucket" "$out" "would: REFUSE — UMBREE_R2_GATED_BUCKET is not set"
+check_contains "…would refuse with no manage URL" "$out" "would: REFUSE — UMBREE_MANAGE_URL is not set"
 
 echo "# the gated stage step"
 GATED_PREFIX="umbree/production/$STABLE_STAMP"
 CREDS="$T/r2-creds.toml"; printf 'access_key_id = "a"\nsecret_access_key = "s"\n' > "$CREDS"
+KEY="$T/release-fixture.key"; printf 'untrusted comment: fixture\nRWQfixture\n' > "$KEY"
+MANAGE="https://manage.invalid"
 calls() { cat "$CALLS"; }
 no_public_act() {
     local log="$1" label="$2"
     check_lacks "$label: no gh call" "$log" "gh "
     check_lacks "$label: no ssh call" "$log" "ssh "
     check_lacks "$label: no scp call" "$log" "scp "
-    check_lacks "$label: no upload" "$log" "go run ."
+    check_lacks "$label: no upload" "$log" "go run . "
+    check_lacks "$label: no registration" "$log" "rkit register"
+}
+cutrun() {
+    UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" \
+        UMBREE_MANAGE_URL="$MANAGE" UMBREE_RELEASE_KEY="$KEY" run "$@"
+}
+line_of() { grep -n -- "$1" "$CALLS" | head -n1 | cut -d: -f1; }
+undo_cut() {
+    if /usr/bin/git -C "$REL" log -1 --format=%s | grep -q '^\[RELEASED: umbree\]'; then
+        /usr/bin/git -C "$REL" reset -q --hard HEAD~1
+    fi
+    /usr/bin/git -C "$REL" tag -d "umbree/$STABLE_STAMP" >/dev/null 2>&1
+    /usr/bin/git -C "$T/release.git" tag -d "umbree/$STABLE_STAMP" >/dev/null 2>&1
+    rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json"
 }
 
-UMBREE_R2_GATED_BUCKET=gated-fixture run --distribute-only umbree "$STABLE_STAMP" --dry-run
-check "dry run with the gated bucket → 0" "$rc" "0"
+cutrun --distribute-only umbree "$STABLE_STAMP" --dry-run
+check "dry run with the gated bucket and the manage URL → 0" "$rc" "0"
 check "…one would: stage line per gated key" "$(printf '%s\n' "$out" | grep -c "^would: stage $GATED_PREFIX/")" "4"
 for f in SHA256SUMS.txt SHA256SUMS.txt.minisig umbree-darwin-arm64.zip umbree-linux-amd64.zip; do
     check_contains "…stages $f" "$out" "would: stage $GATED_PREFIX/$f"
 done
-check "…no would: line names a gated manifest" "$(printf '%s\n' "$out" | grep '^would:' | grep -c 'production/.*latest\.json')" "0"
-check_lacks "…no refusal when the bucket is set" "$out" "would: REFUSE"
-stage_line="$(printf '%s\n' "$out" | grep -n '^would: stage ' | head -n1 | cut -d: -f1)"
-gh_line="$(printf '%s\n' "$out" | grep -n '^would: gh release create' | cut -d: -f1)"
-check "…the stage is planned before the GitHub Release" "$([ -n "$stage_line" ] && [ -n "$gh_line" ] && [ "$stage_line" -lt "$gh_line" ] && echo before)" "before"
+check_lacks "…no refusal when both are set" "$out" "would: REFUSE"
+
+echo "# dry run reports stage register confirm tag marker"
+order="$(printf '%s\n' "$out" | grep -oE '^would: (stage|register|confirm row|tag|marker commit)' | sed 's/^would: //' | uniq | tr '\n' ',')"
+check "dry run reports stage register confirm tag marker" "$order" "stage,register,confirm row,tag,marker commit,"
+
+echo "# dry run reports no public act"
+for word in latest.json "gh release" scp mirror retention; do
+    check "dry run reports no public act: no line names '$word'" "$(printf '%s\n' "$out" | grep -ci -- "$word")" "0"
+done
+check "…the tree is untouched" "$(/usr/bin/git -C "$REL" status --porcelain)" ""
 
 : > "$CALLS"
 run --distribute-only umbree "$STABLE_STAMP"
@@ -195,46 +235,154 @@ check_contains "…names the token variables" "$out" "UMBREE_R2_ACCOUNT and UMBR
 no_public_act "$(calls)" "no token"
 
 : > "$CALLS"
-UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" STUB_GATED_FAIL=1 \
-    run --distribute-only umbree "$STABLE_STAMP"
-check "a failed stage → 1" "$rc" "1"
-check_contains "…says nothing was published" "$out" "nothing published"
-check_lacks "…no GitHub Release follows" "$(calls)" "release create"
-check_lacks "…no scp follows" "$(calls)" "scp "
-check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
+UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" run --distribute-only umbree "$STABLE_STAMP"
+check "no manage URL → 1" "$rc" "1"
+check_contains "…names UMBREE_MANAGE_URL" "$out" "UMBREE_MANAGE_URL is not set"
+check_lacks "…refused before the stage" "$(calls)" "--store gated"
+no_public_act "$(calls)" "no manage URL"
 
 : > "$CALLS"
-UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" \
-    run --distribute-only umbree "$STABLE_STAMP"
-gated_call="$(grep -n '^go run \. --store gated' "$CALLS" | head -n1)"
-check_contains "keep-control: the stage step ran" "$gated_call" "--store gated"
+MANAGE=http://manage.invalid cutrun --distribute-only umbree "$STABLE_STAMP"
+check "a plain-http manage URL → 1" "$rc" "1"
+check_contains "…says it must be https" "$out" "UMBREE_MANAGE_URL must be an https:// URL"
+check_lacks "…refused before the stage" "$(calls)" "--store gated"
+
+: > "$CALLS"
+KEY="$T/no-such.key" cutrun --distribute-only umbree "$STABLE_STAMP"
+check "no release key → 1" "$rc" "1"
+check_contains "…names UMBREE_RELEASE_KEY" "$out" "UMBREE_RELEASE_KEY"
+check_lacks "…refused before the stage" "$(calls)" "--store gated"
+
+: > "$CALLS"
+STUB_GATED_FAIL=1 cutrun --distribute-only umbree "$STABLE_STAMP"
+check "a failed stage → 1" "$rc" "1"
+check_contains "…says nothing was registered" "$out" "nothing registered"
+check_lacks "…no registration follows" "$(calls)" "rkit register"
+check_lacks "…no tag push follows" "$(calls)" "git push"
+check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
+undo_cut
+
+echo "# registration keep-control completes"
+: > "$CALLS"
+head_before="$(/usr/bin/git -C "$REL" rev-parse HEAD)"
+floor_before="$(cat "$REL/versions/umbree.stamp")"
+cutrun --distribute-only umbree "$STABLE_STAMP"
+check "registration keep-control completes" "$rc" "0"
+gated_call="$(grep '^go run \. --store gated' "$CALLS" | head -n1)"
+check_contains "…the stage step ran" "$gated_call" "--store gated"
 check_contains "…against the gated bucket" "$gated_call" "--bucket gated-fixture"
 check_contains "…on the production channel" "$gated_call" "--channel production"
 check_contains "…with a receipt" "$gated_call" "--receipt $REL/dist/$STABLE_STAMP/gated-receipt.json"
 check_lacks "…never the public bucket" "$gated_call" "umbree-downloads"
-gated_at="${gated_call%%:*}"
-release_at="$(grep -n '^gh .*release create' "$CALLS" | head -n1 | cut -d: -f1)"
-check "…before the GitHub Release" "$([ -n "$gated_at" ] && [ -n "$release_at" ] && [ "$gated_at" -lt "$release_at" ] && echo before)" "before"
-check "…the receipt was written" "$([ -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" ] && echo yes)" "yes"
-check_contains "…and the public mirror still runs after it" "$out" "R2 mirror FAILED"
-/usr/bin/git -C "$REL" tag -d "umbree/$STABLE_STAMP" >/dev/null 2>&1
-rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" "$REL/dist/$STABLE_STAMP/release-notes.md"
+reg_call="$(grep '^go run ./cmd/rkit register ' "$CALLS" | head -n1)"
+check_contains "…registers with the manage URL" "$reg_call" "--manage-url $MANAGE"
+check_contains "…signed with the release key" "$reg_call" "--sign-key $KEY"
+check_contains "…from the gated receipt" "$reg_call" "--receipt $REL/dist/$STABLE_STAMP/gated-receipt.json"
+check_contains "…as production" "$reg_call" "--channel production"
+check_contains "…for the stamp" "$reg_call" "--stamp $STABLE_STAMP"
+st_call="$(grep '^go run ./cmd/rkit status ' "$CALLS" | head -n1)"
+check_contains "…reads the row back for the stamp" "$st_call" "--stamp $STABLE_STAMP"
+g_at="$(line_of '^go run \. --store gated')"; r_at="$(line_of '^go run ./cmd/rkit register ')"
+s_at="$(line_of '^go run ./cmd/rkit status ')"; p_at="$(line_of '^git push origin refs/tags/')"
+check "…stage, register, read back, then the tag push" \
+    "$([ -n "$g_at" ] && [ -n "$r_at" ] && [ -n "$s_at" ] && [ -n "$p_at" ] && [ "$g_at" -lt "$r_at" ] && [ "$r_at" -lt "$s_at" ] && [ "$s_at" -lt "$p_at" ] && echo ordered)" "ordered"
+check "…one marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "1"
+check_contains "…the marker names the stamp" "$(/usr/bin/git -C "$REL" log -1 --format=%s)" "[RELEASED: umbree]"
+check_contains "…and the stamp" "$(/usr/bin/git -C "$REL" log -1 --format=%s)" "$STABLE_STAMP"
+check_contains "…the report names the stamp" "$out" "cut umbree $STABLE_STAMP"
+check_contains "…and the row's manage page" "$out" "$MANAGE/manage/production/umbree"
+check_contains "…and the row" "$out" "row 7"
+check_contains "…and that nothing is public" "$out" "nothing is public"
+check_lacks "…and no release page" "$out" "releases/tag"
 
-echo "# a failed change summary stops the cut before any network act"
-PREV_TAG="umbree/v0.1.7.2026.08.01.$(/usr/bin/git -C "$CLI" rev-parse --short=8 HEAD)"
-/usr/bin/git -C "$REL" tag "$PREV_TAG"
+echo "# tag pushed at the cut"
+check "tag pushed at the cut" "$(grep -c "^git push origin refs/tags/umbree/$STABLE_STAMP\$" "$CALLS")" "1"
+check "…it is on the remote" "$(/usr/bin/git -C "$T/release.git" tag -l "umbree/$STABLE_STAMP")" "umbree/$STABLE_STAMP"
+
+echo "# stubbed cut runs no publish command"
+for word in "gh " "scp " "ssh " "r2-prune" "gen-bootstraps" "gen-version-jsonp"; do
+    check "stubbed cut runs no publish command: no '$word'" "$(grep -c -- "$word" "$CALLS")" "0"
+done
+check "…no public mirror upload" "$(grep '^go run \. ' "$CALLS" | grep -vc -- '--store gated')" "0"
+
+echo "# cut writes no stamp floor"
+check "cut writes no stamp floor" "$(cat "$REL/versions/umbree.stamp")" "$floor_before"
+check "…the marker does not carry versions/umbree.stamp" \
+    "$(/usr/bin/git -C "$REL" show --name-only --format= HEAD | grep -c '^versions/umbree.stamp$')" "0"
+check "…nothing is left staged or modified" "$(/usr/bin/git -C "$REL" status --porcelain)" ""
+undo_cut
+
+echo "# registration 401 stops the cut"
 : > "$CALLS"
-UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" STUB_GIT_LOG_FAIL=1 \
-    run --distribute-only umbree "$STABLE_STAMP"
-check "failing git log → non-zero" "$([ "$rc" -ne 0 ] && echo refused)" "refused"
-check_contains "…says the summary could not be read" "$out" "cannot read the change summary"
-check_lacks "…never publishes a made-up summary" "$out" "No code changes since"
-check "…the failing git log was reached" "$(grep -c '^git -C .* log ' "$CALLS")" "1"
-no_public_act "$(calls)" "failed change summary"
-check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" "$PREV_TAG"
-check "…no release notes were written" "$([ -f "$REL/dist/$STABLE_STAMP/release-notes.md" ] && echo yes)" ""
-/usr/bin/git -C "$REL" tag -d "$PREV_TAG" >/dev/null 2>&1
-rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" "$REL/dist/$STABLE_STAMP/release-notes.md"
+head_before="$(/usr/bin/git -C "$REL" rev-parse HEAD)"
+STUB_REGISTER=401 cutrun --distribute-only umbree "$STABLE_STAMP"
+check "registration 401 stops the cut" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
+check_contains "…prints the status" "$out" "HTTP 401"
+check_contains "…says the bytes are gated and no row exists" "$out" "bytes are in the gated store, no row exists"
+check_contains "…prints the re-register line" "$out" "re-register with: bash tools/release.sh --register-only umbree $STABLE_STAMP"
+check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
+check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
+check_lacks "…no tag push" "$(calls)" "git push"
+check_lacks "…no read-back after a refusal" "$(calls)" "rkit status"
+undo_cut
+
+echo "# registration 200 without a row stops the cut"
+: > "$CALLS"
+STUB_STATUS=404 cutrun --distribute-only umbree "$STABLE_STAMP"
+check "registration 200 without a row stops the cut" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
+check_contains "…says the row could not be read back" "$out" "could not be read back"
+check_contains "…prints the re-register line" "$out" "re-register with: bash tools/release.sh --register-only umbree $STABLE_STAMP"
+check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
+check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
+undo_cut
+for bad in "STUB_STATUS=public" "STUB_STATUS_STAMP=v0.1.7.2026.08.01.00000000"; do
+    : > "$CALLS"
+    eval "$bad cutrun --distribute-only umbree \"\$STABLE_STAMP\""
+    check "…a read-back of the wrong row stops it too ($bad)" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
+    check_contains "…and names what it read ($bad)" "$out" "reads it back as"
+    check "…no marker commit ($bad)" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
+    undo_cut
+done
+
+echo "# register-only re-registers and does nothing else"
+: > "$CALLS"
+printf '{"objects":[]}\n' > "$REL/dist/$STABLE_STAMP/gated-receipt.json"
+cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only → 0" "$rc" "0"
+check "…one register call" "$(grep -c '^go run ./cmd/rkit register ' "$CALLS")" "1"
+check "…one read-back" "$(grep -c '^go run ./cmd/rkit status ' "$CALLS")" "1"
+check "register-only re-registers and does nothing else" "$(grep -vc '^go run ./cmd/rkit \(register\|status\) ' "$CALLS")" "0"
+check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
+check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
+check_contains "…reports the row" "$out" "row 7"
+rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json"
+: > "$CALLS"
+cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only with no receipt → 1" "$rc" "1"
+check_contains "…names the receipt" "$out" "gated-receipt.json"
+check "…nothing called" "$(grep -c . "$CALLS")" "0"
+: > "$CALLS"
+cutrun --register-only umbree "$BETA_STAMP"
+check "register-only with a beta stamp → 1" "$rc" "1"
+check "…nothing called" "$(grep -c . "$CALLS")" "0"
+undo_cut
+
+echo "# beta verb unchanged"
+sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+check "beta verb unchanged: publish_beta is byte-identical to the 01 baseline" \
+    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "b5851de6642a4a1974e556b3c298ca2eceedadb32e2400c81c7ab0e12ea285e9"
+
+echo "# distribute_only has no publish call"
+STABLE_BODY=""
+for fn in distribute_only distribute_dry_run distribute_preflight stage_and_register register_staged confirm_row tag_and_mark report_cut register_only; do
+    body="$(awk "/^${fn}\\(\\) \\{/,/^}/" "$R")"
+    check "stable verb function $fn extracted" "$([ -n "$body" ] && echo yes)" "yes"
+    STABLE_BODY="$STABLE_BODY$body
+"
+done
+for word in "release create" mirror_r2 apply_retention "scp " "ssh " gen-bootstraps gen-version-jsonp latest.json '.stamp"' r2-prune; do
+    check "distribute_only has no publish call: no '$word'" "$(printf '%s' "$STABLE_BODY" | grep -cF -- "$word")" "0"
+done
 
 echo "# gated_channel_for: the one stable → production mapping"
 GCF="$(awk '/^gated_channel_for\(\) \{/,/^}/' "$R")"
@@ -310,6 +458,21 @@ check_contains "…prune-releases.sh --execute runs first" "$ar_first" "bash $AR
 check_contains "…on the cut's channel and component" "$ar_first" "CHANNEL=beta COMPONENTS=umbree"
 check_contains "…KEEP=1 does not reach prune-releases.sh" "$ar_first" "KEEP=unset"
 check_contains "…r2-prune --execute runs second" "$ar_second" "go run ./cmd/r2-prune --comp umbree --channel beta --execute"
+
+echo "# prose agrees"
+PROSE="$(cd "$REAL_ROOT" && /usr/bin/git ls-files -- '*.md' '.release-request.example' 'tools/*.sh' 'tools/release.command' 'docs/*.txt' | grep -v '\.test\.sh$')"
+check "prose agrees: the prose set is not empty" "$([ -n "$PROSE" ] && echo yes)" "yes"
+prose_grep() { (cd "$REAL_ROOT" && printf '%s\n' "$PROSE" | tr '\n' '\0' | xargs -0 grep -niE -- "$1") || true; }
+check "prose agrees: no retention count outside the README table" \
+    "$(prose_grep 'keeps? (is )?[0-9]+|newest [0-9]+')" ""
+check "prose agrees: no stale publish model" \
+    "$(prose_grep 'there is no console|no console/dispatcher|GitHub Releases?[^.]*(stay|remain)[^.]*primary|publishes a GitHub Release|PUBLISH an already-staged|the cut is the publish|Today every component answers')" ""
+RUNBOOK="$REAL_ROOT/tools/RUNBOOK.md"
+for heading in "backfill" "admin mark-yanked" "Emergency"; do
+    section="$(awk -v h="$heading" 'BEGIN { IGNORECASE = 1 } /^## / { on = (index(tolower($0), tolower(h)) > 0) } on' "$RUNBOOK")"
+    check "prose agrees: RUNBOOK has a '$heading' section" "$([ -n "$section" ] && echo yes)" "yes"
+    check_contains "…which says to stop serve or confirm no promote or yank is in flight" "$section" 'stop `serve`'
+done
 
 echo
 if [ "$fail" = 0 ]; then echo "ALL OK"; else echo "TESTS FAILED"; exit 1; fi

@@ -32,6 +32,7 @@ type Deps struct {
 	Log          *slog.Logger
 	AfterPromote func(ctx context.Context, component, channel string) (string, error)
 	Confirm      *Confirmer
+	Static       StaticPublisher
 }
 
 type Confirmer struct {

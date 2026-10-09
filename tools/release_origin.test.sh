@@ -124,8 +124,8 @@ check "tolerance: full cut returns 0" "${r}" "0"
 
 check "tolerance: distribute-only with no comp yields nothing" "$(staged_tolerance_for 1 "")" ""
 
-check "tolerance: distribute-only names exactly versions/<comp> and its stamp" \
-    "$(staged_tolerance_for 1 umbree)" "$(printf 'versions/umbree\nversions/umbree.stamp')"
+check "tolerance: distribute-only names exactly versions/<comp>, never its stamp (the floor is written at promote)" \
+    "$(staged_tolerance_for 1 umbree)" "versions/umbree"
 
 SYNC="$(new_origin_and_clone sync)"
 check "origin: an up-to-date clone is in-sync" "$(origin_sync_status "${SYNC}")" "in-sync"
@@ -215,8 +215,7 @@ check_contains "assert: ahead names the fix" "${out}" "merge it through a PR fir
 DIST="$(new_origin_and_clone distribute)"
 mkdir -p "${DIST}/versions"
 echo "1.0.1" > "${DIST}/versions/umbree"
-echo "1.0.1" > "${DIST}/versions/umbree.stamp"
-/usr/bin/git -C "${DIST}" add versions/umbree versions/umbree.stamp
+/usr/bin/git -C "${DIST}" add versions/umbree
 
 DIST_ALLOWED=()
 while IFS= read -r line; do
@@ -243,6 +242,16 @@ rm -f "${DIST}/versions/umbreed"
 
 out="$(assert_release_origin "release repo" "${DIST}" "${DIST}" strict "${DIST_ALLOWED[@]}" 2>&1)" && r=0 || r=1
 check "assert: distribute-only fixture is restored to the passing baseline" "${r}" "0"
+
+echo "v1.0.1.2026.10.09.deadbeef" > "${DIST}/versions/umbree.stamp"
+/usr/bin/git -C "${DIST}" add versions/umbree.stamp
+out="$(assert_release_origin "release repo" "${DIST}" "${DIST}" strict "${DIST_ALLOWED[@]}" 2>&1)" && r=0 || r=1
+check "staged .stamp refused at a stable cut" "${r}" "1"
+check_contains "staged .stamp refused at a stable cut: the refusal names the tolerated set" "${out}" "staged is tolerated for exactly"
+/usr/bin/git -C "${DIST}" reset --quiet -- versions/umbree.stamp
+rm -f "${DIST}/versions/umbree.stamp"
+out="$(assert_release_origin "release repo" "${DIST}" "${DIST}" strict "${DIST_ALLOWED[@]}" 2>&1)" && r=0 || r=1
+check "staged .stamp refused at a stable cut: keep-control, the bump alone passes" "${r}" "0"
 
 FULLCUT_ALLOWED=()
 while IFS= read -r line; do
@@ -325,8 +334,8 @@ check_contains "case (e): the refusal message names 'ahead'" "${out}" "ahead"
 check "case (g): staged_tolerance_for 0 cli yields nothing" "$(staged_tolerance_for 0 cli)" ""
 staged_tolerance_for 0 cli >/dev/null && r=0 || r=1
 check "case (g): staged_tolerance_for 0 cli returns 0" "${r}" "0"
-check "case (h): staged_tolerance_for 1 cli names exactly versions/cli and its stamp" \
-    "$(staged_tolerance_for 1 cli)" "$(printf 'versions/cli\nversions/cli.stamp')"
+check "case (h): staged_tolerance_for 1 cli names exactly versions/cli" \
+    "$(staged_tolerance_for 1 cli)" "versions/cli"
 
 new_origin_and_clone beta_ok >/dev/null
 MAIN="${WORK}/beta_ok"
@@ -432,8 +441,8 @@ check_contains "beta: report mode marks the finding ⚠" "${out}" "⚠"
 
 check "tolerance: beta names versions/<comp>.beta and its stamp" \
     "$(staged_tolerance_for 1 umbree beta)" "$(printf 'versions/umbree.beta\nversions/umbree.beta.stamp')"
-check "tolerance: an explicit stable is the stable pair" \
-    "$(staged_tolerance_for 1 umbree stable)" "$(printf 'versions/umbree\nversions/umbree.stamp')"
+check "tolerance: an explicit stable names versions/<comp> only" \
+    "$(staged_tolerance_for 1 umbree stable)" "versions/umbree"
 check "tolerance: beta with distribute_only=0 yields nothing" "$(staged_tolerance_for 0 umbree beta)" ""
 
 spine() {
