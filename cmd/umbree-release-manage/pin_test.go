@@ -39,6 +39,13 @@ func TestPinUnpinCLI(t *testing.T) {
 	if r := invoke(t, vars, "admin", "unpin", "umbree", stamp, "--data-dir", dir); r.code != 0 || pinned() {
 		t.Fatalf("unpin: exit %d, still pinned %v", r.code, pinned())
 	}
+	if got := pinAudit(t, dir); got != "pin op-alice,unpin op-alice" {
+		t.Fatalf("audit %v, want pin then unpin by op-alice", got)
+	}
+}
+
+func pinAudit(t *testing.T, dir string) string {
+	t.Helper()
 	s, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +61,5 @@ func TestPinUnpinCLI(t *testing.T) {
 			actions = append(actions, e.Action+" "+e.Actor)
 		}
 	}
-	if strings.Join(actions, ",") != "pin op-alice,unpin op-alice" {
-		t.Fatalf("audit %v, want pin then unpin by op-alice", actions)
-	}
+	return strings.Join(actions, ",")
 }

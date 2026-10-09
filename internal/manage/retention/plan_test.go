@@ -38,15 +38,7 @@ func TestPlanOrderingMatchesSortV(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
 			for i, stamp := range vec.in {
-				version := strings.SplitN(strings.TrimPrefix(stamp, "v"), ".", 4)
-				base := "umbree/production/" + stamp + "/"
-				if _, err := w.st.InsertStaged(store.ReleaseVersion{Component: "umbree", Channel: "production",
-					Version: strings.Join(version[:3], "."), Stamp: stamp,
-					ArtifactsJSON: `[{"key":"` + base + `umbree-linux-amd64.zip","size":1,"sha256":"00"}]`,
-					SumsKey:       base + "SHA256SUMS.txt", MinisigKey: base + "SHA256SUMS.txt.minisig",
-					CreatedAt: epoch.Add(time.Duration(len(vec.in)-i) * time.Hour)}); err != nil {
-					t.Fatal(err)
-				}
+				w.insertStamp(stamp, epoch.Add(time.Duration(len(vec.in)-i)*time.Hour))
 			}
 			p := w.plan(retention.Gated)
 			var kept []string
@@ -66,6 +58,19 @@ func TestPlanOrderingMatchesSortV(t *testing.T) {
 				t.Fatalf("the plan drops %v, want %v", dropped, newestFirst[retention.KeepGated:])
 			}
 		})
+	}
+}
+
+func (w *world) insertStamp(stamp string, created time.Time) {
+	w.t.Helper()
+	version := strings.SplitN(strings.TrimPrefix(stamp, "v"), ".", 4)
+	base := "umbree/production/" + stamp + "/"
+	if _, err := w.st.InsertStaged(store.ReleaseVersion{Component: "umbree", Channel: "production",
+		Version: strings.Join(version[:3], "."), Stamp: stamp,
+		ArtifactsJSON: `[{"key":"` + base + `umbree-linux-amd64.zip","size":1,"sha256":"00"}]`,
+		SumsKey:       base + "SHA256SUMS.txt", MinisigKey: base + "SHA256SUMS.txt.minisig",
+		CreatedAt: created}); err != nil {
+		w.t.Fatal(err)
 	}
 }
 
