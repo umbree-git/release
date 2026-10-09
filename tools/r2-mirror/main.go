@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"umbree-release-r2-mirror/layout"
+	"umbree-release-r2-mirror/manifest"
 	"umbree-release-r2-mirror/r2"
 )
 
@@ -22,17 +22,6 @@ const (
 	storePublic = "public"
 	storeGated  = "gated"
 )
-
-type latestManifest struct {
-	Component  string   `json:"component"`
-	Minisig    string   `json:"minisig"`
-	Path       string   `json:"path"`
-	SHA256Sums string   `json:"sha256sums"`
-	Stamp      string   `json:"stamp"`
-	Updated    string   `json:"updated"`
-	Version    string   `json:"version"`
-	Zips       []string `json:"zips"`
-}
 
 type config struct {
 	account  string
@@ -153,11 +142,10 @@ func uploadAll(ctx context.Context, out io.Writer, client *r2.Client, stageDir s
 }
 
 func mirrorPublic(ctx context.Context, cfg config, out io.Writer, client *r2.Client, artifacts, keys, zips []string) error {
-	manifestBody, err := json.MarshalIndent(buildManifest(cfg, zips), "", "  ")
+	manifestBody, err := buildManifest(cfg, zips).Encode()
 	if err != nil {
-		return fmt.Errorf("encode latest.json: %w", err)
+		return err
 	}
-	manifestBody = append(manifestBody, '\n')
 	manifestKey := keys[len(keys)-1]
 	if _, err := uploadAll(ctx, out, client, cfg.stageDir, artifacts, keys); err != nil {
 		return err
@@ -277,18 +265,8 @@ func collectArtifacts(stageDir string) (artifacts, zips []string, err error) {
 	return artifacts, zips, nil
 }
 
-func buildManifest(cfg config, zips []string) latestManifest {
-	base := cfg.keyPrefix() + cfg.stamp
-	return latestManifest{
-		Component:  cfg.comp,
-		Version:    cfg.version,
-		Stamp:      cfg.stamp,
-		Path:       base,
-		Zips:       zips,
-		SHA256Sums: base + "/" + sumsName,
-		Minisig:    base + "/" + minisigName,
-		Updated:    time.Now().UTC().Format(time.RFC3339),
-	}
+func buildManifest(cfg config, zips []string) manifest.Manifest {
+	return manifest.Build(cfg.comp, cfg.keyPrefix(), cfg.version, cfg.stamp, zips, time.Now())
 }
 
 func contentType(name string) string {
