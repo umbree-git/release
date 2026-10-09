@@ -178,8 +178,13 @@ after checking both buckets' listings against
 `umbree-release-manage retain --dry-run`. Then confirm the two previews in the
 console.
 
-`retain` is a separate process from `serve`, and the promote lock lives inside
-`serve`. Schedule the timer away from cut and promote hours.
+`retain` is a separate process from `serve`, and it still cannot overlap a
+promote or a yank. Both take the same per-component, per-channel lock: a
+`lock.<component>.<channel>` file in `<MANAGE_DATA_DIR>`, created `0600` by the
+service user and never followed through a symlink. `backfill`,
+`admin mark-yanked` and `admin pin|unpin` take it too. A command that waits
+longer than 5 s for the lock exits non-zero, says the channel is busy, and
+changes nothing on that channel.
 
 Pins keep a release's public bytes outside the window, and both verbs are
 audited:

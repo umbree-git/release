@@ -294,10 +294,15 @@ with this table.
 | Gated store | production | 3 |
 <!-- retention-counts:end -->
 
-**Public surface.** Per component, the newest promoted releases, yanked ones
-included. The current release is always kept and takes one of the slots, even
-when it is the oldest. Pinned releases (`umbree-release-manage admin pin`) are
-kept in addition, and so is whatever stamp `latest.json` names.
+**Public surface.** Per component, the rollback candidates: the current
+release, plus the newest other releases in state `public` whose public bytes are
+still present. The current release always takes one of the slots, even when it
+is the oldest. A yanked release takes no slot, because yank can never re-point
+to it, so its public bytes are pruned at the next public pass. Its row keeps
+`promoted_at`, so the promote floor does not move. Pinned releases
+(`umbree-release-manage admin pin`) are kept in addition, and so is whatever
+stamp `latest.json` names. To keep a defective release's bytes for
+investigation, pin it.
 
 **Gated store.** Per component and channel, the newest versions by `sort -V`
 order, whatever their state, `staged` included. The window is hard: there are
@@ -312,10 +317,18 @@ bytes.
   A `staged` release outside the gated window is expired at once.
 - Expiring never clears `promoted_at`, so an expired release still bounds the
   promote floor.
-- Before each delete, the key is checked again. It must be one the row
-  recorded, under the row's own stamp prefix. It is never a `latest.json`. A key
-  that fails the check is skipped and reported, and its row is not recorded as
-  pruned.
+- Before a row's deletes, every key is checked again. It must be one the row
+  recorded, under the row's own stamp prefix. It is never a `latest.json`. If any
+  key fails the check, the whole row is skipped and reported, and none of its
+  keys is deleted. Before deleting public bytes, the pass reads `latest.json`
+  again and leaves alone the release it names.
+- A row whose public deletes have started shows no download links. If a delete
+  fails partway, the keys already deleted are audited with the failure, and the
+  next pass finishes the row.
+- Every pass, and every promote, yank, backfill, `admin mark-yanked` and
+  `admin pin|unpin`, holds one lock per component and channel. It is a lock
+  file in the data directory, so the separate `retain` process and `serve`
+  never act on the same channel at once.
 
 **When it runs.** None of these fails the action it is attached to.
 
