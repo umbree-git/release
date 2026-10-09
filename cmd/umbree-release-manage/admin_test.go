@@ -24,7 +24,7 @@ func seedPublicRow(t *testing.T) (string, int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Promote(id, time.Unix(2, 0)); err != nil {
+	if err := s.Promote(id, "test-operator", time.Unix(2, 0)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -52,7 +52,13 @@ func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
 	}
 	defer s.Close()
 	rv, _ := s.Get(id)
-	log, err := s.AuditLog()
+	all, err := s.AuditLog()
+	var log []store.AuditEntry
+	for _, e := range all {
+		if e.Action == "mark-yanked" {
+			log = append(log, e)
+		}
+	}
 	if err != nil || rv.State != "yanked" || rv.IsCurrent || len(log) != 1 || log[0].Actor != "op-alice" || log[0].Detail != "latest.json pulled by hand" {
 		t.Fatalf("row %+v audit %+v %v", rv, log, err)
 	}

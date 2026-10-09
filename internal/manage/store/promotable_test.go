@@ -10,7 +10,7 @@ import (
 
 func promoteRow(t *testing.T, s *store.Store, id int64) {
 	t.Helper()
-	if err := s.Promote(id, epoch.Add(time.Hour)); err != nil {
+	if err := s.Promote(id, "test-operator", epoch.Add(time.Hour)); err != nil {
 		t.Fatalf("Promote(%d): %v", id, err)
 	}
 }
@@ -167,7 +167,7 @@ func TestPromoteFlipsCurrent(t *testing.T) {
 	if err != nil || cur.ID != b {
 		t.Fatalf("Current = %+v, %v; want row %d", cur, err, b)
 	}
-	if err := s.Promote(a, epoch); err == nil {
+	if err := s.Promote(a, "test-operator", epoch); err == nil {
 		t.Fatal("a public row was promoted again")
 	}
 }
@@ -179,7 +179,7 @@ func TestPromotableFloorIsHighWaterMark(t *testing.T) {
 		promoteRow(t, s, low)
 		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
 		promoteRow(t, s, top)
-		if err := s.Yank(top, low, epoch.Add(2*time.Hour)); err != nil {
+		if err := s.Yank(top, low, "test-operator", epoch.Add(2*time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 		insert(t, s, stagedRow("umbree", "0.2.5", 3, epoch))
@@ -233,7 +233,7 @@ func TestPromotableFloorSurvivesExpiry(t *testing.T) {
 		promoteRow(t, s, low)
 		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
 		promoteRow(t, s, top)
-		if err := s.Yank(top, low, epoch.Add(2*time.Hour)); err != nil {
+		if err := s.Yank(top, low, "test-operator", epoch.Add(2*time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Transition(top, "yanked", "expired", epoch.Add(3*time.Hour)); err != nil {

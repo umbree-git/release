@@ -11,6 +11,7 @@ import (
 
 	"github.com/umbree-git/release/internal/manage/backend/backendtest"
 	"github.com/umbree-git/release/internal/manage/publish"
+	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/register"
 )
 
@@ -182,7 +183,7 @@ func TestBackfillAdoptsCurrentAfterManualReplace(t *testing.T) {
 	if !w.row(older).IsCurrent {
 		t.Fatal("backfill did not make the manifest's public row current")
 	}
-	log, err := w.st.AuditLog()
+	log, err := w.audit()
 	if err != nil || len(log) != 2 || log[1].Action != "backfill-current" || log[1].RowID != older || log[1].Actor != "test-operator" {
 		t.Fatalf("audit %+v, %v", log, err)
 	}
@@ -215,7 +216,7 @@ func TestBackfillManifestNamingYankedOrStagedChangesNothing(t *testing.T) {
 	if _, err := w.st.Current("umbree", "production"); err == nil {
 		t.Fatal("backfill made a row current")
 	}
-	if log, _ := w.st.AuditLog(); len(log) != 1 {
+	if log, _ := w.audit(); len(log) != 1 {
 		t.Fatalf("audit %+v, want only the mark-yanked entry", log)
 	}
 }
@@ -229,7 +230,18 @@ func TestBackfillLeavesExistingCurrent(t *testing.T) {
 	if rep.Current != "" || w.row(older).IsCurrent || !w.row(cur).IsCurrent {
 		t.Fatalf("backfill moved the current row: %+v", rep)
 	}
-	if log, _ := w.st.AuditLog(); len(log) != 0 {
+	if log, _ := w.audit(); len(log) != 0 {
 		t.Fatalf("backfill audited a change it did not make: %+v", log)
 	}
+}
+
+func (w *world) audit() ([]store.AuditEntry, error) {
+	all, err := w.st.AuditLog()
+	var out []store.AuditEntry
+	for _, e := range all {
+		if e.Action != "promote" && e.Action != "yank" {
+			out = append(out, e)
+		}
+	}
+	return out, err
 }

@@ -18,21 +18,21 @@ type PublishAPI struct {
 
 type act func(*publish.Run, context.Context, io.Writer) error
 
-func (a PublishAPI) Promote(w http.ResponseWriter, r *http.Request) {
-	a.serve(w, r, (*publish.Run).Promote)
+func (a PublishAPI) Promote(w http.ResponseWriter, r *http.Request, actor string) {
+	a.serve(w, r, actor, (*publish.Run).Promote)
 }
 
-func (a PublishAPI) Yank(w http.ResponseWriter, r *http.Request) {
-	a.serve(w, r, (*publish.Run).Yank)
+func (a PublishAPI) Yank(w http.ResponseWriter, r *http.Request, actor string) {
+	a.serve(w, r, actor, (*publish.Run).Yank)
 }
 
-func (a PublishAPI) serve(w http.ResponseWriter, r *http.Request, do act) {
+func (a PublishAPI) serve(w http.ResponseWriter, r *http.Request, actor string, do act) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		writeError(w, http.StatusBadRequest, "row id is not a positive integer")
 		return
 	}
-	run, status, msg := begin(r.Context(), a.Deps, id)
+	run, status, msg := begin(r.Context(), a.Deps, id, actor)
 	if run == nil {
 		writeError(w, status, msg)
 		return
@@ -44,8 +44,8 @@ func (a PublishAPI) serve(w http.ResponseWriter, r *http.Request, do act) {
 	_ = do(run, r.Context(), w)
 }
 
-func begin(ctx context.Context, d publish.Deps, id int64) (*publish.Run, int, string) {
-	run, err := publish.Begin(ctx, d, id)
+func begin(ctx context.Context, d publish.Deps, id int64, actor string) (*publish.Run, int, string) {
+	run, err := publish.Begin(ctx, d, id, actor)
 	switch {
 	case errors.Is(err, publish.ErrBusy):
 		return nil, http.StatusConflict, "channel busy"

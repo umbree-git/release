@@ -42,7 +42,7 @@ func (r *Run) runPromote(ctx context.Context, st *stream) error {
 	if err := r.writeManifest(ctx, st, r.row.Version, r.row.Stamp, arts); err != nil {
 		return err
 	}
-	if err := r.d.Store.Promote(r.row.ID, r.now()); err != nil {
+	if err := r.d.Store.Promote(r.row.ID, r.actor, r.now()); err != nil {
 		return fmt.Errorf("flip row %d: %w; the manifest already names %s, so re-run the promote to complete the flip", r.row.ID, err, r.row.Stamp)
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})

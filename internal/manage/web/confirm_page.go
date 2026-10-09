@@ -69,9 +69,9 @@ func (s *Server) handleAction(action string, api bool) guarded {
 func (s *Server) act(w http.ResponseWriter, r *http.Request, sess *store.Session, action string, row *store.ReleaseVersion, api bool) {
 	switch {
 	case api && action == actionPromote:
-		s.api.Promote(w, r)
+		s.api.Promote(w, r, sess.Admin)
 	case api:
-		s.api.Yank(w, r)
+		s.api.Yank(w, r, sess.Admin)
 	default:
 		s.runPage(w, r, sess, action, row)
 	}

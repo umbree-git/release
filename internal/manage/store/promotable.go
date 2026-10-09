@@ -71,7 +71,7 @@ func (s *Store) IsPromotable(rv ReleaseVersion) (bool, error) {
 	return false, nil
 }
 
-func (s *Store) Promote(id int64, at time.Time) error {
+func (s *Store) Promote(id int64, actor string, at time.Time) error {
 	return s.tx(func(tx *sql.Tx) error {
 		var component, channel string
 		err := tx.QueryRow(`SELECT component, channel FROM release_versions WHERE id = ?`, id).Scan(&component, &channel)

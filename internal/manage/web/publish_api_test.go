@@ -41,8 +41,8 @@ func stagedDeps(t *testing.T) (publish.Deps, int64) {
 func testRouter(d publish.Deps) *http.ServeMux {
 	api := web.PublishAPI{Deps: d}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/releases/{id}/promote", api.Promote)
-	mux.HandleFunc("POST /api/v1/releases/{id}/yank", api.Yank)
+	mux.HandleFunc("POST /api/v1/releases/{id}/promote", func(w http.ResponseWriter, r *http.Request) { api.Promote(w, r, "test-router") })
+	mux.HandleFunc("POST /api/v1/releases/{id}/yank", func(w http.ResponseWriter, r *http.Request) { api.Yank(w, r, "test-router") })
 	return mux
 }
 

@@ -98,7 +98,7 @@ func (w *world) stage(version string, n int) (int64, []register.Artifact) {
 func (w *world) promote(id int64) (error, []publish.Event) {
 	w.t.Helper()
 	var buf bytes.Buffer
-	err := publish.Promote(context.Background(), w.d, id, &buf)
+	err := publish.Promote(context.Background(), w.d, id, "test-operator", &buf)
 	return err, events(w.t, buf.Bytes())
 }
 

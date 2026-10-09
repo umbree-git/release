@@ -100,7 +100,7 @@ func (s *Server) progressHalves(w http.ResponseWriter, r *http.Request, sess *st
 }
 
 func (s *Server) runPage(w http.ResponseWriter, r *http.Request, sess *store.Session, action string, row *store.ReleaseVersion) {
-	run, status, msg := begin(r.Context(), s.cfg.Publish, row.ID)
+	run, status, msg := begin(r.Context(), s.cfg.Publish, row.ID, sess.Admin)
 	if run == nil {
 		http.Error(w, msg, status)
 		return

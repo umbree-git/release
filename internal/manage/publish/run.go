@@ -18,6 +18,7 @@ var (
 	ErrNeedsBackfill = errors.New("publish: run backfill first")
 	ErrNoSuccessor   = errors.New("publish: no public row with bytes to re-point to")
 	ErrNotCurrent    = errors.New("publish: not the current public row")
+	ErrNoActor       = errors.New("publish: no actor; every promote and yank names who did it")
 )
 
 type Deps struct {
@@ -44,7 +45,7 @@ type Run struct {
 	release func()
 }
 
-func Begin(ctx context.Context, d Deps, rowID int64) (*Run, error) {
+func Begin(ctx context.Context, d Deps, rowID int64, actor string) (*Run, error) {
 	rv, err := d.Store.Get(rowID)
 	if err != nil {
 		return nil, err
@@ -58,14 +59,14 @@ func Begin(ctx context.Context, d Deps, rowID int64) (*Run, error) {
 		release()
 		return nil, err
 	}
-	return &Run{d: d, row: *rv, release: release}, nil
+	return &Run{d: d, row: *rv, release: release, actor: actor}, nil
 }
 
 func (r *Run) Close() { r.release() }
 
-func Promote(ctx context.Context, d Deps, rowID int64, w io.Writer) error {
+func Promote(ctx context.Context, d Deps, rowID int64, actor string, w io.Writer) error {
 	st := newStream(w)
-	r, err := Begin(ctx, d, rowID)
+	r, err := Begin(ctx, d, rowID, actor)
 	if err != nil {
 		st.finish(err, rowID, "")
 		return err

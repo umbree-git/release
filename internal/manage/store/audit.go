@@ -52,7 +52,7 @@ func (s *Store) AuditLog() ([]AuditEntry, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Yank(id, successorID int64, at time.Time) error {
+func (s *Store) Yank(id, successorID int64, actor string, at time.Time) error {
 	return s.tx(func(tx *sql.Tx) error {
 		var component, channel, sComponent, sChannel, sState string
 		if err := tx.QueryRow(`SELECT component, channel FROM release_versions WHERE id = ?`, id).Scan(&component, &channel); err != nil {

@@ -15,7 +15,7 @@ import (
 func (w *world) yank(id int64) (error, []publish.Event) {
 	w.t.Helper()
 	var buf bytes.Buffer
-	err := publish.Yank(context.Background(), w.d, id, &buf)
+	err := publish.Yank(context.Background(), w.d, id, "test-operator", &buf)
 	return err, events(w.t, buf.Bytes())
 }
 

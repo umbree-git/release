@@ -21,7 +21,7 @@ func promoteAsync(w *world, id int64) chan *outcome {
 	done := make(chan *outcome, 1)
 	go func() {
 		o := &outcome{}
-		o.err = publish.Promote(context.Background(), w.d, id, &o.buf)
+		o.err = publish.Promote(context.Background(), w.d, id, "test-operator", &o.buf)
 		done <- o
 	}()
 	return done

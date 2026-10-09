@@ -11,9 +11,9 @@ import (
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
-func Yank(ctx context.Context, d Deps, rowID int64, w io.Writer) error {
+func Yank(ctx context.Context, d Deps, rowID int64, actor string, w io.Writer) error {
 	st := newStream(w)
-	r, err := Begin(ctx, d, rowID)
+	r, err := Begin(ctx, d, rowID, actor)
 	if err != nil {
 		st.finish(err, rowID, "")
 		return err
@@ -50,7 +50,7 @@ func (r *Run) runYank(ctx context.Context, st *stream) (*store.ReleaseVersion, e
 	if err := r.writeManifest(ctx, st, successor.Version, successor.Stamp, arts); err != nil {
 		return nil, err
 	}
-	if err := r.d.Store.Yank(r.row.ID, successor.ID, r.now()); err != nil {
+	if err := r.d.Store.Yank(r.row.ID, successor.ID, r.actor, r.now()); err != nil {
 		return nil, fmt.Errorf("flip row %d: %w; the manifest already names %s, so re-run the yank", r.row.ID, err, successor.Stamp)
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})

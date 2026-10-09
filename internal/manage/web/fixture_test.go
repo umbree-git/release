@@ -121,7 +121,7 @@ func (c *console) stage(label, version string, n int) int64 {
 
 func (c *console) promoteDirect(id int64) {
 	c.t.Helper()
-	if err := publish.Promote(c.t.Context(), c.deps, id, io.Discard); err != nil {
+	if err := publish.Promote(c.t.Context(), c.deps, id, "seed", io.Discard); err != nil {
 		c.t.Fatalf("promote row %d: %v", id, err)
 	}
 }
