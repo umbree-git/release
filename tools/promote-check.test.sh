@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# promote-check.test.sh — tools/promote-check.sh over a fixture HTTP server.
-#
-# The script answers one question — "does the public channel manifest name this
-# version?" — and the whole point of it is that the answer is never taken from a
-# human. So the suite pins the three answers apart, because the failure this
-# tool exists to prevent is a session that treats "cannot tell" as "not yet" and
-# waits for something that already happened.
-#
-# Nothing here reaches the network: the downloads base points at one local
-# python http.server serving a fixture tree.
-#
-#     bash tools/promote-check.test.sh
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,8 +19,7 @@ trap cleanup EXIT
 SRV="${W}/srv"
 mkdir -p "${SRV}/umbreed/beta" "${SRV}/umbree"
 
-# umbreed beta: a promoted 0.3.9. umbree stable: a promoted 0.3.13.
-manifest() { # manifest <dir> <comp> <path> <version> <stamp>
+manifest() {
     cat > "$1/latest.json" <<JSON
 {
   "component": "$2",
@@ -61,7 +48,6 @@ done
 export UMBREE_R2_DOWNLOADS_BASE="http://127.0.0.1:${PORT}"
 export UMBREE_CHECK_ALLOW_HTTP=1
 
-# run <args...> -> sets OUT and RC, never aborts the suite on a non-zero exit
 run() { set +e; OUT="$("${CHECK}" "$@" 2>&1)"; RC=$?; set -e; }
 
 say "the expected version is live -> 0, and the line is quotable"
