@@ -26,7 +26,7 @@ func run() error {
 	creds := flag.String("creds", os.Getenv("UMBREE_R2_CREDS"), "path to the r2 creds TOML: access_key_id + secret_access_key (default: $UMBREE_R2_CREDS)")
 	comp := flag.String("comp", "all", "component: umbree | umbreed | all")
 	channel := flag.String("channel", "stable", "release channel: stable | beta")
-	keep := flag.Int("keep", 0, "stamps to retain per component (default: 3 on stable, 1 on beta)")
+	keep := flag.Int("keep", 0, fmt.Sprintf("stamps to retain per component (default: %d on stable, %d on beta)", prune.DefaultKeepStable, prune.DefaultKeepBeta))
 	protectPath := flag.String("protect", "", "permanent pin list (default: tools/retain-permanent or ../retain-permanent)")
 	execute := flag.Bool("execute", false, "actually delete (default: dry-run)")
 	flag.Parse()
