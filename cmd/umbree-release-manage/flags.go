@@ -17,6 +17,7 @@ type options struct {
 	publicBaseURL string
 	check         bool
 	reason        string
+	component     string
 	args          []string
 }
 

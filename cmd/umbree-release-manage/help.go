@@ -24,6 +24,7 @@ func init() {
 	verbs = []*verb{
 		{name: "serve", summary: "apply pending migrations, then serve the release intake", register: registerServe, run: runServe},
 		{name: "migrate", summary: "with --check, report the migrations ledger against this binary; writes nothing", register: registerMigrate, run: runMigrate},
+		{name: "backfill", summary: "once per component: catalog the releases already on the public surface, verified, writing the catalog only", register: registerBackfill, run: runBackfill},
 		{name: "admin mark-yanked", shape: "<id>", summary: "mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand", register: registerMarkYanked, run: runMarkYanked},
 	}
 }
