@@ -25,14 +25,16 @@ func (s *Store) Current(component, channel string) (*ReleaseVersion, error) {
 }
 
 func (s *Store) HighWaterMark(component, channel string) (*ReleaseVersion, error) {
-	rows, err := s.List(component, channel, catalog.StatePublic, catalog.StateYanked)
+	rows, err := s.List(component, channel)
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, fmt.Errorf("%w: no %s row on %s has been public", ErrNotFound, component, channel)
+	for i := range rows {
+		if !rows[i].PromotedAt.IsZero() {
+			return &rows[i], nil
+		}
 	}
-	return &rows[0], nil
+	return nil, fmt.Errorf("%w: no %s row on %s has been public", ErrNotFound, component, channel)
 }
 
 func (s *Store) Promotable(component, channel string) ([]ReleaseVersion, error) {
