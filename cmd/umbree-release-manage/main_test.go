@@ -191,3 +191,31 @@ func TestMigrateCheckWritesNothing(t *testing.T) {
 		t.Fatalf("migrate --check migrated:\n%s\n---\n%s", before, after)
 	}
 }
+
+func TestMigrateCheckReadsLiveCatalog(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	wal, err := os.Stat(filepath.Join(dir, store.DBFile+"-wal"))
+	if err != nil || wal.Size() == 0 {
+		t.Fatalf("the open store left no WAL (%v); the test proves nothing", err)
+	}
+	db, err := os.ReadFile(filepath.Join(dir, store.DBFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := invoke(t, nil, "migrate", "--check", "--data-dir", dir)
+	if r.code != 0 || !strings.Contains(r.stdout, "1 applied, 0 pending") {
+		t.Fatalf("check while serve holds the catalog: exit %d stdout %q stderr %q", r.code, r.stdout, r.stderr)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, store.DBFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(db, after) {
+		t.Fatal("migrate --check wrote to catalog.db")
+	}
+}

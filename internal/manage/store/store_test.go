@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -251,5 +252,22 @@ func TestOneCurrentPerChannel(t *testing.T) {
 	}
 	if _, err := db.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, c); err != nil {
 		t.Fatalf("a current row on another component was refused: %v", err)
+	}
+}
+
+func TestCheckLedgerReadsThroughWAL(t *testing.T) {
+	dir := t.TempDir()
+	s := openStore(t, dir)
+	insert(t, s, stagedRow("umbree", "0.1.8", 1, epoch))
+	wal, err := os.Stat(filepath.Join(dir, store.DBFile+"-wal"))
+	if err != nil || wal.Size() == 0 {
+		t.Fatalf("the open store left no WAL to read through (%v); the test proves nothing", err)
+	}
+	report, err := store.CheckLedger(dir)
+	if err != nil {
+		t.Fatalf("CheckLedger on a served catalog: %v", err)
+	}
+	if len(report.Applied) != len(store.Migrations()) || len(report.Pending) != 0 {
+		t.Fatalf("CheckLedger on a served catalog: applied %v pending %v, want every migration applied", report.Applied, report.Pending)
 	}
 }

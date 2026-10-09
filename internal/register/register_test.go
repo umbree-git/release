@@ -112,6 +112,7 @@ func TestSigningBytesCanonical(t *testing.T) {
 
 type fakeService struct {
 	registerStatus int
+	registerBody   string
 	statusStatus   int
 	statusBody     register.RowStatus
 	calls          atomic.Int32
@@ -140,6 +141,10 @@ func (f *fakeService) handler(t *testing.T) http.Handler {
 			t.Errorf("the client's signature does not verify")
 		}
 		w.WriteHeader(f.registerStatus)
+		if f.registerBody != "" {
+			fmt.Fprint(w, f.registerBody)
+			return
+		}
 		fmt.Fprintf(w, `{"id":7,"state":"staged","stamp":%q,"version":"0.1.8"}`, env.Payload.Stamp)
 	})
 	mux.HandleFunc("POST /api/v1/releases/status", func(w http.ResponseWriter, r *http.Request) {
@@ -289,5 +294,26 @@ func TestSecretKeyNeverPrinted(t *testing.T) {
 		if strings.Contains(o, k.line[:20]) {
 			t.Fatalf("output %q carries part of the key line", o)
 		}
+	}
+}
+
+func TestClient2xxUndecodableBodyReadsRowBack(t *testing.T) {
+	k := writeSigningKey(t)
+	f := stagedFake(k)
+	f.registerBody = "<html>created</html>"
+	c, _ := newFake(t, f)
+	row, err := c.Register(context.Background(), samplePayload(), loadKey(t, k))
+	if err != nil {
+		t.Fatalf("a 201 with a body that does not decode failed before the read-back: %v", err)
+	}
+	if row.State != "staged" || row.Stamp != testStamp || f.calls.Load() != 4 {
+		t.Fatalf("row %+v after %d calls, want staged %s after 4", row, f.calls.Load(), testStamp)
+	}
+	twin := stagedFake(k)
+	twin.registerBody = "<html>created</html>"
+	twin.statusStatus = http.StatusNotFound
+	c, _ = newFake(t, twin)
+	if _, err := c.Register(context.Background(), samplePayload(), loadKey(t, k)); !errors.Is(err, register.ErrNoRow) {
+		t.Fatalf("undecodable 201 then status 404: %v, want ErrNoRow", err)
 	}
 }
