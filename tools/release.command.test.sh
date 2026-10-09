@@ -295,7 +295,7 @@ gated_run CHANNEL=stable UMBREE_R2_GATED_BUCKET=gated-fixture
 check "stable, bucket set: passes" "${rc}" "0"
 check_contains "…and release.sh inherits it" "${out}" "child sees gated-fixture"
 gated_run CHANNEL=beta
-check "beta, bucket unset: passes (beta is held, not gated)" "${rc}" "0"
+check "beta, bucket unset: passes (the dormant beta verb is not gated)" "${rc}" "0"
 SEALED_AT="$(grep -n 'server-config.env.age")"' "${CMD}" | head -n1 | cut -d: -f1)"
 CALL_AT="$(grep -n '^require_gated_config$' "${CMD}" | head -n1 | cut -d: -f1)"
 BUILD_AT="$(grep -n 'say "→ build' "${CMD}" | head -n1 | cut -d: -f1)"

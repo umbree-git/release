@@ -77,7 +77,7 @@ say "channel: ${CHANNEL}${BETA_BRANCH:+ (beta branch: ${BETA_BRANCH})}"
 
 DRY=0
 case " ${FLAGS} " in *" --dry-run "*) DRY=1 ;; esac
-[ "$DRY" -eq 0 ] || say "note: --dry-run — build and publish are both rehearsed, nothing is tagged, uploaded or pushed"
+[ "$DRY" -eq 0 ] || say "note: --dry-run — build and cut are both rehearsed, nothing is tagged, uploaded, registered or pushed"
 
 BRAND_ROOT="$(cd "$REPO_ROOT/../../.." && pwd)" || die "cannot resolve the brand root above this repo"
 REG_UMBREE="$BRAND_ROOT/cli/code/main"
@@ -121,8 +121,8 @@ AGE_ID="${RELEASE_IDENTITY:?set RELEASE_IDENTITY to the identity file that decry
 
 eval "$(age -d -i "${AGE_ID}" "${DP_DIR}/server-config.env.age")" \
     || die "cannot decrypt ${DP_DIR}/server-config.env.age"
-[ -n "${RELEASE_HOST:-}" ] && [ -n "${STATIC_DIR:-}" ] \
-    || die "sealed server config set no RELEASE_HOST/STATIC_DIR"
+[ "${CHANNEL}" != beta ] || { [ -n "${RELEASE_HOST:-}" ] && [ -n "${STATIC_DIR:-}" ]; } \
+    || die "sealed server config set no RELEASE_HOST/STATIC_DIR, which the beta verb needs"
 say "server config: decrypted from ${DP_DIR}"
 
 require_gated_config() {
@@ -133,13 +133,32 @@ require_gated_config() {
 }
 require_gated_config
 
+require_manage_config() {
+    [ "${CHANNEL}" = beta ] && return 0
+    case "${UMBREE_MANAGE_URL:-}" in
+        https://?*) ;;
+        *) die "sealed server config set no https UMBREE_MANAGE_URL — a stable cut registers its staged row with the manage service; nothing built" ;;
+    esac
+    export UMBREE_MANAGE_URL
+}
+require_manage_config
+
 KEYFILE="$(umask 077; mktemp -t umbree-rel-key)" || die "cannot create the key tmpfile"
 if ! (umask 077; age -d -i "${AGE_ID}" "${DP_DIR}/umbree-release.key.age" > "${KEYFILE}"); then
     die "cannot decrypt ${DP_DIR}/umbree-release.key.age"
 fi
 [ -s "${KEYFILE}" ] || die "decrypted signing key is empty"
+export UMBREE_RELEASE_KEY="${KEYFILE}"
 
 tree_state() { $GIT status --porcelain --untracked-files=all; }
+
+cut_report() {
+    if [ "${CHANNEL}" = beta ]; then
+        say "→ ${1} ${2}: the dormant beta verb published it at the cut"
+        return 0
+    fi
+    say "→ ${1} ${2} is staged and registered, not public — promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/production/${1}"
+}
 
 unpushed_count() {
     $GIT fetch --quiet origin main || return 1
@@ -231,23 +250,23 @@ for comp in ${COMPONENTS}; do
     say "→ stamp: ${stamp}"
 
     if [ "$DRY" -eq 1 ]; then
-        say "→ publish (rehearsal)"
+        say "→ cut (rehearsal)"
         # shellcheck disable=SC2086
         bash tools/release.sh ${verb} "${comp}" "${stamp}" --dry-run 2>&1 | tee -a "$LOG"
-        [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: publish rehearsal failed"
-        say "→ ${comp}: --dry-run, nothing published and nothing to push"
+        [ "${PIPESTATUS[0]}" -eq 0 ] || die "${comp}: cut rehearsal failed"
+        say "→ ${comp}: --dry-run, nothing cut and nothing to push"
         continue
     fi
 
     if [ "${CHANNEL}" = beta ]; then
-        say "→ publish (tag, R2 beta layout, beta twins, marker commit — no GitHub Release)"
+        say "→ beta publish (tag, R2 beta layout, beta twins, marker commit)"
     else
-        say "→ publish (tag, GitHub Release, static surface, marker commit)"
+        say "→ cut (stage to the gated store, register the row, tag, marker commit — nothing public)"
     fi
     # shellcheck disable=SC2086
     bash tools/release.sh ${verb} "${comp}" "${stamp}" 2>&1 | tee -a "$LOG"
     rc="${PIPESTATUS[0]}"
-    [ "${rc}" -eq 0 ] || { say "✗ ${comp} publish failed (exit ${rc}) — later components NOT cut"; say "   already-published components above are PUBLISHED: drop them from COMPONENTS before re-running"; exit "${rc}"; }
+    [ "${rc}" -eq 0 ] || { say "✗ ${comp} cut failed (exit ${rc}) — later components NOT cut"; say "   components cut above are staged, registered and marked: drop them from COMPONENTS before re-running"; exit "${rc}"; }
     CUT_DONE="${CUT_DONE:+${CUT_DONE} }${comp}"
 
     state="$(tree_state)" || die "cannot read git status — refusing to push (is git reachable on PATH set by ${ENV_FILE}?)"
@@ -257,6 +276,7 @@ for comp in ${COMPONENTS}; do
     case "${subject}" in
         "[RELEASED: ${comp}]"*|"[RELEASED: ${comp} beta]"*)
             push_marker "${comp}"
+            cut_report "${comp}" "${stamp}"
             ;;
         *)
             ahead="$(unpushed_count)" \
@@ -264,7 +284,7 @@ for comp in ${COMPONENTS}; do
             if [ "${ahead}" = "0" ]; then
                 say "→ ${comp}: no marker and nothing unpushed — re-cut at an identical stamp; the marker for it is already in history"
             else
-                die "${comp}: HEAD is not a [RELEASED: ${comp}] marker (got: ${subject}) yet ${ahead} commit(s) are unpushed — the cut published something it did not record; inspect before continuing"
+                die "${comp}: HEAD is not a [RELEASED: ${comp}] marker (got: ${subject}) yet ${ahead} commit(s) are unpushed — the cut committed something it did not record; inspect before continuing"
             fi
             ;;
     esac
