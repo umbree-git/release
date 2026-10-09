@@ -3,8 +3,8 @@
 # One tag per line, as published: <comp>/<stamp>
 # A bare stamp also matches. Blank lines and `#` comments are ignored.
 #
-# These are kept IN ADDITION to the newest 3 stable / 1 beta. An empty
-# file (the default) pins nothing.
+# These are kept IN ADDITION to the retention window that README.md
+# "Retention" states. An empty file (the default) pins nothing.
 #
 # Examples:
 #   umbree/v0.1.0.2026.01.01.deadbeef

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultKeepStable = 3
+	DefaultKeepStable = 5
 	DefaultKeepBeta   = 1
 )
 

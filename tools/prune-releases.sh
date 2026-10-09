@@ -5,7 +5,7 @@ export PATH="/usr/bin:/bin:/opt/homebrew/bin:${PATH}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 
-KEEP_STABLE_DEFAULT=3
+KEEP_STABLE_DEFAULT=5
 KEEP_BETA_DEFAULT=1
 
 usage() {
