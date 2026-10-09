@@ -191,7 +191,7 @@ apply_retention() {
     env -u KEEP CHANNEL="${channel}" COMPONENTS="${comp}" \
         bash "${REPO_ROOT}/tools/prune-releases.sh" --execute || true
     if r2_configured; then
-        ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run ./cmd/r2-prune \
+        ( cd "${REPO_ROOT}/tools/r2-mirror" && env -u KEEP "${GO_BIN:-go}" run ./cmd/r2-prune \
             --comp "${comp}" --channel "${channel}" --execute ) || true
     fi
 }
