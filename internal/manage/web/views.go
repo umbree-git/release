@@ -52,7 +52,7 @@ func (s *Server) view(rv store.ReleaseVersion) rowView {
 }
 
 func (s *Server) links(rv store.ReleaseVersion) []link {
-	if rv.State != catalog.StatePublic {
+	if rv.State != catalog.StatePublic || !rv.PublicPrunedAt.IsZero() {
 		return nil
 	}
 	var arts []register.Artifact
