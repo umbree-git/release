@@ -17,6 +17,8 @@ type options struct {
 	publicBaseURL string
 	secretKey     string
 	trustedProxy  string
+	staticDest    string
+	staticSSHKey  string
 	passwordStdin bool
 	check         bool
 	dryRun        bool
@@ -41,6 +43,8 @@ var envTwins = []envTwin{
 	{"gated-bucket", "UMBREE_R2_GATED_BUCKET", func(o *options) *string { return &o.gatedBucket }},
 	{"public-bucket", "UMBREE_R2_BUCKET", func(o *options) *string { return &o.publicBucket }},
 	{"public-base-url", "UMBREE_PUBLIC_BASE_URL", func(o *options) *string { return &o.publicBaseURL }},
+	{"static-dest", "UMBREE_MANAGE_STATIC_DEST", func(o *options) *string { return &o.staticDest }},
+	{"static-ssh-key", "UMBREE_MANAGE_STATIC_SSH_KEY", func(o *options) *string { return &o.staticSSHKey }},
 }
 
 var flagUsage = map[string]string{
@@ -53,6 +57,8 @@ var flagUsage = map[string]string{
 	"gated-bucket":    "the private gated `bucket`; must differ from --public-bucket",
 	"public-bucket":   "the public download `bucket`",
 	"public-base-url": "the public download `url` the manifests are served from",
+	"static-dest":     "where promote and yank republish the static surface: an absolute `dir` on this host, or <host>:<absolute dir> over scp",
+	"static-ssh-key":  "the ssh `file` scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own",
 }
 
 func twinUsage(name string) string {

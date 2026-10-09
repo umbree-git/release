@@ -44,7 +44,7 @@ func serveVars(t *testing.T) map[string]string {
 	return map[string]string{
 		"UMBREE_MANAGE_SECRET_KEY": secretKeyFile(t), "UMBREE_R2_ACCOUNT": "acct", "UMBREE_R2_CREDS": creds,
 		"UMBREE_R2_GATED_BUCKET": "gated-private", "UMBREE_R2_BUCKET": "downloads",
-		"UMBREE_PUBLIC_BASE_URL": "https://downloads.example.test",
+		"UMBREE_PUBLIC_BASE_URL": "https://downloads.example.test", "UMBREE_MANAGE_STATIC_DEST": t.TempDir(),
 	}
 }
 

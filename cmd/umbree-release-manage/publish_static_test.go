@@ -82,3 +82,16 @@ func TestServeRefusesRemoteStaticDestWithoutKey(t *testing.T) {
 		t.Fatalf("serve with a relative dest: exit %d stderr %q", r.code, r.stderr)
 	}
 }
+
+func TestServeWarnsWithoutStaticDest(t *testing.T) {
+	vars := serveVars(t)
+	delete(vars, "UMBREE_MANAGE_STATIC_DEST")
+	r := invoke(t, vars, "serve", "--data-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--trusted-proxy", "127.0.0.1")
+	if r.code != 0 || strings.Count(r.stderr, "level=WARN") != 1 || !strings.Contains(r.stderr, "--static-dest") {
+		t.Fatalf("serve with no static dest: exit %d stderr %q", r.code, r.stderr)
+	}
+	r = invoke(t, serveVars(t), "serve", "--data-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--trusted-proxy", "127.0.0.1")
+	if r.code != 0 || strings.Contains(r.stderr, "level=WARN") {
+		t.Fatalf("control, a local static dest: exit %d stderr %q", r.code, r.stderr)
+	}
+}

@@ -15,6 +15,7 @@ Commands:
   migrate                  with --check, report the migrations ledger against this binary; writes nothing
   backfill                 once per component: catalog the releases already on the public surface, verified, writing the catalog only
   retain                   run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing
+  publish-static <component> render the static surface from the public manifest and copy it to --static-dest; for a promote or yank whose static step failed
   admin mark-yanked <id>   mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand
   admin pin <component> <stamp> keep a promoted release's public bytes outside the retention window, audited
   admin unpin <component> <stamp> let retention prune a pinned release again, audited
@@ -43,6 +44,8 @@ Flags:
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
   --secret-key <file>          the operator-provisioned file that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required) (env UMBREE_MANAGE_SECRET_KEY)
+  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host, or <host>:<absolute dir> over scp (env UMBREE_MANAGE_STATIC_DEST)
+  --static-ssh-key <file>      the ssh file scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
   --trusted-proxy <ip>         the TLS front's ip as this service sees it; only a peer with this exact address may name the client in X-Forwarded-For (rightmost entry). Unset: no forwarded header is read (env UMBREE_MANAGE_TRUSTED_PROXY)
 
 ==> umbree-release-manage migrate --help
@@ -84,6 +87,22 @@ Flags:
   --public-bucket <bucket>     the public download bucket (env UMBREE_R2_BUCKET)
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
+
+==> umbree-release-manage publish-static --help
+
+Usage:
+  umbree-release-manage publish-static <component> [flags]
+
+render the static surface from the public manifest and copy it to --static-dest; for a promote or yank whose static step failed
+
+Flags:
+  --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
+  --public-base-url <url>      the public download url the manifests are served from (env UMBREE_PUBLIC_BASE_URL)
+  --public-bucket <bucket>     the public download bucket (env UMBREE_R2_BUCKET)
+  --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
+  --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
+  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host, or <host>:<absolute dir> over scp (env UMBREE_MANAGE_STATIC_DEST)
+  --static-ssh-key <file>      the ssh file scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
 
 ==> umbree-release-manage admin --help
 

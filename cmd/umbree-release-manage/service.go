@@ -1,17 +1,20 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"time"
 
+	release "github.com/umbree-git/release"
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/backend"
 	"github.com/umbree-git/release/internal/manage/intake"
 	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/retention"
+	"github.com/umbree-git/release/internal/manage/static"
 	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/manage/web"
 )
@@ -73,6 +76,10 @@ func publishDeps(o *options, log *slog.Logger) (publish.Deps, *retention.Retaine
 	if err != nil {
 		return publish.Deps{}, nil, err
 	}
+	dest, err := staticDestOf(o)
+	if err != nil && !errors.Is(err, static.ErrNoDest) {
+		return publish.Deps{}, nil, err
+	}
 	return publish.Deps{
 			Gated:   gated,
 			Public:  public,
@@ -80,6 +87,7 @@ func publishDeps(o *options, log *slog.Logger) (publish.Deps, *retention.Retaine
 			Locks:   locks,
 			Log:     log,
 			Confirm: &publish.Confirmer{BaseURL: o.publicBaseURL, Fetcher: backend.NewFetcher(guard)},
+			Static:  &static.Publisher{Assets: release.Assets, Source: public, DownloadsBase: o.publicBaseURL, Dest: dest},
 		},
 		&retention.Retainer{Gated: gated, Public: public, Locks: locks, Log: log}, nil
 }

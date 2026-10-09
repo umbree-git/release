@@ -25,6 +25,9 @@ func runServe(e *env, v *verb, args []string) error {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if strings.TrimSpace(o.staticDest) == "" {
+		log.Warn("no --static-dest: promote and yank cannot republish the static surface and will say so in their stream")
+	}
 	if o.trustedProxy == "" && isLoopback(o.listen) {
 		log.Warn("no --trusted-proxy: behind a loopback front every client shares one sign-in budget; name the front's address with --trusted-proxy", "listen", o.listen)
 	}
@@ -64,6 +67,11 @@ func checkServeOptions(v *verb, o *options) error {
 	if o.trustedProxy != "" {
 		if addr, err := netip.ParseAddr(o.trustedProxy); err != nil || addr.Zone() != "" {
 			return usagef(v, "--trusted-proxy %q is not one IP literal; give the front's address with no port, CIDR, zone or host name", o.trustedProxy)
+		}
+	}
+	if strings.TrimSpace(o.staticDest) != "" {
+		if _, err := staticDestOf(o); err != nil {
+			return usagef(v, "--static-dest: %v", err)
 		}
 	}
 	u, err := url.Parse(o.publicBaseURL)
