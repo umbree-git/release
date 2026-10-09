@@ -154,3 +154,58 @@ func (s *Service) seedFailure(k store.FailureKey) error {
 	_, err := s.Store.ReserveFailure(context.Background(), k, store.Budget{PerSource: 1 << 20, PerName: 1 << 20}, s.Now())
 	return err
 }
+
+func TestSuccessLeavesEarlierFailures(t *testing.T) {
+	s, _ := boundService(t)
+	s.TrustedProxy = netip.MustParseAddr("192.0.2.1")
+	k := store.FailureKey{Step: "pw", Source: "203.0.113.5", Name: "ops"}
+	attempt := func(password string) error {
+		_, err := s.StartLogin(httptest.NewRecorder(), fromIP(k.Source), "ops", password)
+		return err
+	}
+	for i := 0; i < 4; i++ {
+		if err := attempt("wrong password!!"); !errors.Is(err, ErrRefused) {
+			t.Fatalf("failure %d: %v", i+1, err)
+		}
+	}
+	if err := attempt(boundPassword); err != nil {
+		t.Fatalf("the success: %v", err)
+	}
+	if n, _ := s.counted(t, k); n != 4 {
+		t.Fatalf("after the success the source holds %d rows, want the 4 failures and none of its own", n)
+	}
+	if err := attempt("wrong password!!"); !errors.Is(err, ErrRefused) {
+		t.Fatalf("the fifth failure: %v", err)
+	}
+	if err := attempt(boundPassword); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("after 4 failures, a success and 1 failure: %v, want 429", err)
+	}
+}
+
+func TestSuccessKeepsConcurrentFailures(t *testing.T) {
+	s, _ := boundService(t)
+	s.TrustedProxy = netip.MustParseAddr("192.0.2.1")
+	a := store.FailureKey{Step: "pw", Source: "203.0.113.5", Name: "ops"}
+	b := store.FailureKey{Step: "pw", Source: "203.0.113.6", Name: "ops"}
+	for i := 0; i < 3; i++ {
+		if err := s.seedFailure(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tries := []struct{ src, password string }{
+		{a.Source, boundPassword}, {a.Source, "wrong password!!"}, {b.Source, "wrong password!!"},
+	}
+	got := concurrently(len(tries), func(i int) error {
+		_, err := s.StartLogin(httptest.NewRecorder(), fromIP(tries[i].src), "ops", tries[i].password)
+		return err
+	})
+	if got["ok"] != 1 || got["refused"] != 2 {
+		t.Fatalf("outcomes %v, want one success and two refusals", got)
+	}
+	if n, _ := s.counted(t, a); n != 4 {
+		t.Fatalf("source A holds %d rows, want its 3 plus the concurrent failure", n)
+	}
+	if n, total := s.counted(t, b); n != 1 || total != 5 {
+		t.Fatalf("the other client's failure: %d (name total %d), want 1 (5)", n, total)
+	}
+}
