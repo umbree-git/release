@@ -20,7 +20,6 @@ var prunedColumn = map[string]string{
 }
 
 func (s *Store) RecordPruned(id int64, copyName string, keys []string, actor string, at time.Time) (bool, error) {
-	return false, nil
 	column, ok := prunedColumn[copyName]
 	if !ok {
 		return false, fmt.Errorf("%w: copy %q", ErrBadValue, copyName)
@@ -70,7 +69,6 @@ func expireIfSpent(tx *sql.Tx, id int64, actor string, at time.Time) (bool, erro
 }
 
 func (s *Store) SetPermanent(component, channel, stamp string, pinned bool, actor string, at time.Time) (*ReleaseVersion, error) {
-	return nil, ErrBadState
 	if err := requireActor("pin", actor); err != nil {
 		return nil, err
 	}
