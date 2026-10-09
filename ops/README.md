@@ -173,7 +173,11 @@ shapes, both sealed with the deployment, never committed:
   `--static-ssh-key`, a key made for this alone on `<MANAGE_HOST>`, readable by
   `<SERVICE_USER>` and outside `/home` (the unit sets `ProtectHome=yes`). On
   `<RELEASE_HOST>` restrict it to writing under `<STATIC_DIR>`, for example a
-  dedicated user with `ForceCommand internal-sftp` and a `ChrootDirectory`; it is never the operator's own key. The host key
+  dedicated user with `ForceCommand internal-sftp` and a `ChrootDirectory`; it is
+  never the operator's own key. Under a chroot, the directory in
+  `--static-dest` is the static dir as the jailed sftp session sees it (its path
+  inside the `ChrootDirectory`), not `<STATIC_DIR>` as nginx sees it; naming the
+  outside path makes every republish fail at `put`. The host key
   is learned on first contact into `<MANAGE_DATA_DIR>/static_known_hosts`
   (`accept-new`) and checked strictly after that. `serve` refuses a remote dest
   without the key.
