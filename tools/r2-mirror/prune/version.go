@@ -6,9 +6,9 @@ type byVersionSort []string
 
 func (s byVersionSort) Len() int           { return len(s) }
 func (s byVersionSort) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s byVersionSort) Less(i, j int) bool { return versionLess(s[i], s[j]) }
+func (s byVersionSort) Less(i, j int) bool { return VersionLess(s[i], s[j]) }
 
-func versionLess(a, b string) bool { return filevercmp(a, b) < 0 }
+func VersionLess(a, b string) bool { return filevercmp(a, b) < 0 }
 
 func filevercmp(a, b string) int {
 	if c := verrevcmp(a[:filePrefixLen(a)], b[:filePrefixLen(b)]); c != 0 {
