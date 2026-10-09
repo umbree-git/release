@@ -62,7 +62,7 @@ func runBackfill(e *env, v *verb, args []string) error {
 	}
 	defer st.Close()
 	d := publish.Deps{Store: st, Public: public, Key: key, Locks: publish.NewLocks(publish.DefaultLockWait)}
-	rep, err := publish.Backfill(e.ctx, d, o.component)
+	rep, err := publish.Backfill(e.ctx, d, o.component, actorOf(e))
 	printBackfill(e, o.component, rep)
 	return err
 }
@@ -79,4 +79,11 @@ func printBackfill(e *env, component string, rep publish.BackfillReport) {
 	for _, f := range rep.Failed {
 		fmt.Fprintf(e.stdout, "  failed: %s\n", f)
 	}
+}
+
+func actorOf(e *env) string {
+	if actor := strings.TrimSpace(e.getenv("USER")); actor != "" {
+		return actor
+	}
+	return "unknown"
 }

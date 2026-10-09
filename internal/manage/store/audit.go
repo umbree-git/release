@@ -79,3 +79,7 @@ func rowErr(id int64, err error) error {
 	}
 	return fmt.Errorf("store: row %d: %w", id, err)
 }
+
+func (s *Store) AdoptCurrent(id int64, actor, reason string, at time.Time) (bool, error) {
+	return false, errors.New("store: not built")
+}

@@ -30,7 +30,7 @@ type BackfillReport struct {
 	Current  string
 }
 
-func Backfill(ctx context.Context, d Deps, component string) (BackfillReport, error) {
+func Backfill(ctx context.Context, d Deps, component, actor string) (BackfillReport, error) {
 	var rep BackfillReport
 	if !catalog.ValidComponent(component) {
 		return rep, fmt.Errorf("unknown component %q", component)

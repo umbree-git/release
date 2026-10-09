@@ -32,7 +32,7 @@ func (w *world) seedManifest(version, stamp string) {
 
 func (w *world) backfill() publish.BackfillReport {
 	w.t.Helper()
-	rep, err := publish.Backfill(context.Background(), w.d, "umbree")
+	rep, err := publish.Backfill(context.Background(), w.d, "umbree", "test-operator")
 	if err != nil {
 		w.t.Fatalf("backfill: %v (%+v)", err, rep)
 	}
@@ -133,7 +133,7 @@ func TestBackfillVerifiesSums(t *testing.T) {
 	w.seedManifest("0.1.7", top)
 	body, _ := w.public.Body("umbree/" + bad + "/SHA256SUMS.txt")
 	w.public.Seed("umbree/"+bad+"/SHA256SUMS.txt.minisig", backendtest.SignWith(otherKey(), body))
-	rep, err := publish.Backfill(context.Background(), w.d, "umbree")
+	rep, err := publish.Backfill(context.Background(), w.d, "umbree", "test-operator")
 	if err == nil || len(rep.Failed) != 1 || !strings.Contains(rep.Failed[0], bad) {
 		t.Fatalf("a stamp with a bad signature: %v %+v", err, rep)
 	}
@@ -161,5 +161,46 @@ func TestPromoteRefusesWithoutCurrentWhenManifestExists(t *testing.T) {
 	wantRefused(t, err, ev, "not newer than")
 	if err, ev := w.promote(newer); err != nil {
 		t.Fatalf("after backfill: %v %+v", err, ev)
+	}
+}
+
+func TestBackfillAdoptsCurrentAfterManualReplace(t *testing.T) {
+	w := newWorld(t)
+	older := w.live("0.1.0", 1)
+	yanked := w.live("0.2.0", 2)
+	if err := w.st.MarkYanked(yanked, "test-operator", "manifest replaced by hand", epoch); err != nil {
+		t.Fatal(err)
+	}
+	w.seedManifest("0.1.0", w.row(older).Stamp)
+	newer, _ := w.stage("0.3.0", 3)
+	err, ev := w.promote(newer)
+	wantRefused(t, err, ev, "backfill")
+	rep := w.backfill()
+	if rep.Current != w.row(older).Stamp || len(rep.Inserted) != 0 {
+		t.Fatalf("backfill after a manual replace: %+v", rep)
+	}
+	if !w.row(older).IsCurrent {
+		t.Fatal("backfill did not make the manifest's public row current")
+	}
+	log, err := w.st.AuditLog()
+	if err != nil || len(log) != 2 || log[1].Action != "backfill-current" || log[1].RowID != older || log[1].Actor != "test-operator" {
+		t.Fatalf("audit %+v, %v", log, err)
+	}
+	if err, ev := w.promote(newer); err != nil {
+		t.Fatalf("promote after backfill: %v %+v", err, ev)
+	}
+}
+
+func TestBackfillLeavesExistingCurrent(t *testing.T) {
+	w := newWorld(t)
+	older := w.live("0.1.0", 1)
+	cur := w.live("0.2.0", 2)
+	w.seedManifest("0.1.0", w.row(older).Stamp)
+	rep := w.backfill()
+	if rep.Current != "" || w.row(older).IsCurrent || !w.row(cur).IsCurrent {
+		t.Fatalf("backfill moved the current row: %+v", rep)
+	}
+	if log, _ := w.st.AuditLog(); len(log) != 0 {
+		t.Fatalf("backfill audited a change it did not make: %+v", log)
 	}
 }

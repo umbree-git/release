@@ -27,10 +27,7 @@ func runMarkYanked(e *env, v *verb, args []string) error {
 	if strings.TrimSpace(o.reason) == "" {
 		return usagef(v, "--reason is required; it is what the audit log records")
 	}
-	actor := strings.TrimSpace(e.getenv("USER"))
-	if actor == "" {
-		actor = "unknown"
-	}
+	actor := actorOf(e)
 	st, err := store.Open(o.dataDir)
 	if err != nil {
 		return err
