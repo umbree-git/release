@@ -305,25 +305,21 @@ publish_preflight() {
     assert_origins "${comp}" "${channel}" "${mode}"
 }
 
-distribute_only() {
+distribute_dry_run() {
     local comp="$1" stamp="$2"
-    local stage="${REPO_ROOT}/dist/${stamp}"
-    publish_preflight "${comp}" "${stamp}" stable
-    local src; src="$(src_for "${comp}")"
+    echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
+    echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
+    echo "would: mirror ${comp} to the R2 download mirror (when configured)"
+    echo "would: write versions/${comp}.stamp = ${stamp} (the bootstrap's version floor)"
+    echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh; sweep beta twins of closed cycles)"
+    echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
+    echo "would: scp install.sh/version.js/umbree-release.pub/site/index.html to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
+    echo "would: marker commit [RELEASED: ${comp}] ${stamp}"
+    echo "✓ dry-run distribute-only: no real writes"
+}
 
-    if [ "${DRY_RUN}" = 1 ]; then
-        echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
-        echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
-        echo "would: mirror ${comp} to the R2 download mirror (when configured)"
-        echo "would: write versions/${comp}.stamp = ${stamp} (the bootstrap's version floor)"
-        echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh; sweep beta twins of closed cycles)"
-        echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
-        echo "would: scp install.sh/version.js/umbree-release.pub/site/index.html to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
-        echo "would: marker commit [RELEASED: ${comp}] ${stamp}"
-        echo "✓ dry-run distribute-only: no real writes"
-        return 0
-    fi
-
+distribute_preflight() {
+    local stage="$1"
     verify_release_key "${stage}"
 
     command -v "${GH_CLI}" >/dev/null 2>&1 \
@@ -331,7 +327,10 @@ distribute_only() {
     "${GH_CLI}" repo view "${RELEASE_REPO}" --json name >/dev/null 2>&1 \
         || { echo "✗ ${GH_CLI} cannot access ${RELEASE_REPO} — check its authentication" >&2; exit 1; }
     require_release_host
+}
 
+release_changes() {
+    local comp="$1" src="$2"
     local prev_tag prev_sha changes
     prev_tag="$(/usr/bin/git tag -l "${comp}/v*" --sort=version:refname \
         | grep -E "^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$" | tail -n1 || true)"
@@ -342,11 +341,12 @@ distribute_only() {
     else
         changes="Initial release."
     fi
+    printf '%s\n' "${changes}"
+}
 
+write_release_notes() {
+    local comp="$1" stamp="$2" notes="$3" changes="$4"
     local tag="${comp}/${stamp}"
-    create_tag "${comp}" "${stamp}"
-
-    local notes; notes="${stage}/release-notes.md"
     cat > "${notes}" <<NOTES
 ${comp} ${stamp} — $(date -u +%Y-%m-%d)
 
@@ -369,14 +369,27 @@ Verify by hand:
   elif [ "\$want" = "\$got" ];  then echo "OK \$f"
   else                             echo "MISMATCH for \$f — do not install"; fi
 NOTES
+}
 
+stage_and_publish() {
+    local comp="$1" stamp="$2" stage="$3"
+    local src changes; src="$(src_for "${comp}")"
+    changes="$(release_changes "${comp}" "${src}")"
+    local tag="${comp}/${stamp}"
+    create_tag "${comp}" "${stamp}"
+    local notes; notes="${stage}/release-notes.md"
+    write_release_notes "${comp}" "${stamp}" "${notes}" "${changes}"
     ( cd "${stage}" && "${GH_CLI}" -R "${RELEASE_REPO}" release create "${tag}" \
         --title "${comp} ${stamp}" --notes-file "${notes}" \
         "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig \
         "${REPO_ROOT}/umbree-release.pub" )
 
     mirror_r2 "${comp}" "${stamp}" "${stage}" stable
+}
 
+mark_release() {
+    local comp="$1" stamp="$2"
+    local tag="${comp}/${stamp}"
     printf '%s\n' "${stamp}" > "${REPO_ROOT}/versions/${comp}.stamp"
     git add "versions/${comp}.stamp"
     bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
@@ -401,6 +414,19 @@ NOTES
 
     echo "✓ distributed ${tag}"
     echo "  Release: https://github.com/${RELEASE_REPO}/releases/tag/${tag}"
+}
+
+distribute_only() {
+    local comp="$1" stamp="$2"
+    local stage="${REPO_ROOT}/dist/${stamp}"
+    publish_preflight "${comp}" "${stamp}" stable
+    if [ "${DRY_RUN}" = 1 ]; then
+        distribute_dry_run "${comp}" "${stamp}"
+        return 0
+    fi
+    distribute_preflight "${stage}"
+    stage_and_publish "${comp}" "${stamp}" "${stage}"
+    mark_release "${comp}" "${stamp}"
 }
 
 publish_beta() {
