@@ -48,6 +48,7 @@ func (r *Run) runPromote(ctx context.Context, st *stream) error {
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})
 	r.log().Info("promoted", "row", r.row.ID, "component", r.row.Component, "stamp", r.row.Stamp)
 	r.afterPromote(ctx, st)
+	r.confirm(ctx, st)
 	return nil
 }
 
