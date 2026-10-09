@@ -109,13 +109,27 @@ regex has no `.beta.`).
 
 ## Retention: GitHub first, then R2
 
-`CHANNEL=<stable|beta> bash tools/prune-releases.sh --execute` (GitHub
-Releases on stable, tags on beta) **before**
-`cd tools/r2-mirror && go run ./cmd/r2-prune --channel <stable|beta> --execute`.
+Stable tags are never deleted: `prune-releases.sh` refuses `CHANNEL=stable` and
+an unset `CHANNEL`. On beta, `CHANNEL=beta bash tools/prune-releases.sh --execute`
+(tags) runs **before**
+`cd tools/r2-mirror && go run ./cmd/r2-prune --channel beta --execute`.
 Draining R2 first leaves GitHub tags whose bytes are gone. Keep is 10 on stable,
 1 on beta; a tag or key matching neither channel's shape is ignored by both
 passes, never counted, never deleted. Wiring these into a nightly job is an
 operator step outside this repo.
+
+## New bootstraps reach users at the first promote
+
+The bootstraps on the static host are what users run. Until they are replaced,
+the ones served there resolve GitHub Releases first and keep installing the
+last GitHub Release. The regenerated bootstraps read `<comp>/latest.json` and
+nothing else, so they must not go out before a promote has written that
+manifest: every install would fail on the missing manifest. They reach the
+static host through the manage service's static republish at the end of the
+first promote, and not before; do not copy them there by hand earlier.
+
+Existing GitHub Releases stay where they are, so a bootstrap a user cached keeps
+working. Deleting them is the operator's call, after the new bootstraps are live.
 
 ## The stable `umbree` installer until feature 02 lands
 

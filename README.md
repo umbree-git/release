@@ -103,10 +103,17 @@ curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.
 curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh
 ```
 
-Each installer detects your OS/arch, resolves the latest published release for
-that component, downloads the zip + `SHA256SUMS.txt` + `SHA256SUMS.txt.minisig`,
-**verifies the minisign signature against the baked public key**, checks the
-SHA-256 of the zip, then unzips and runs the inner installer. If `minisign` is
+Each installer detects your OS/arch and reads the component's channel manifest,
+`<downloads-base>/<comp>/latest.json`. That manifest is its **only** source: no
+GitHub API, no GitHub Release, no third-party mirror. An unreachable or malformed
+manifest stops the install with its URL in the message, and so does one naming a
+stamp of the wrong shape or one older than the floor baked into the installer.
+It then downloads the zip + `SHA256SUMS.txt` + `SHA256SUMS.txt.minisig` from
+`<downloads-base>/<comp>/<stamp>/`, **verifies the minisign signature against
+the baked public key**, checks the SHA-256 of the zip, then unzips and runs the
+inner installer. Every fetch is https only, redirects included;
+`UMBREE_DOWNLOADS_BASE` overrides the baked base, must be `https://`, and set
+empty it fails rather than falling back to anything. If `minisign` is
 missing, the installer provides it first — through your package manager where
 the installer has root (or, for a user-level install, passwordless sudo),
 otherwise the official upstream 0.12 build whose SHA-256 is pinned inside the
@@ -152,7 +159,10 @@ verifier.
 ## Verify by hand
 
 The signing public key lives in this repo (`umbree-release.pub`) and is
-mirrored at `https://release.umbree.org/umbree-release.pub`:
+mirrored at `https://release.umbree.org/umbree-release.pub`. The files are the
+ones the installer fetches: read the stamp from
+`<downloads-base>/<comp>/latest.json`, then download the zip, `SHA256SUMS.txt`
+and `SHA256SUMS.txt.minisig` from `<downloads-base>/<comp>/<stamp>/`.
 
 ```sh
 minisign -V -P "$(cat umbree-release.pub | tail -n1)" \
@@ -187,7 +197,15 @@ UMBREE_VERSION=umbreed/v0.1.0.2026.08.30.aaaaaaaa \
   curl -fsSL https://release.umbree.org/umbreed/install.sh | sh
 ```
 
-Unset → the installer resolves the newest release for that component.
+Unset → the installer reads `<comp>/latest.json` for the newest release.
+
+A pin downloads from `<downloads-base>/<comp>/<stamp>/`, the same place, and is
+checked before anything is fetched: anything but `<comp>/v<X.Y.Z>[.beta].<date>.<sha8>`
+for that installer's own component is refused. A pin is the operator's choice
+and is not held to the version floor. Only versions inside the public retention
+window (see "Retention") are still on the downloads surface, so a pin outside it
+is a 404, not a download from somewhere else; a version that must stay
+installable is pinned permanently with `umbree-release-manage admin pin`.
 
 ## Supported platforms
 
