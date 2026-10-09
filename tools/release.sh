@@ -128,6 +128,8 @@ if [ "${VERB}" = beta ]; then
     STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host}"
 fi
 CUT_ROW=""
+ROW_LINE=""
+ROW_VERSION=""
 
 src_for() {
     case "$1" in
@@ -387,33 +389,51 @@ registration_failed() {
     exit 1
 }
 
+UNKNOWN_ROW="the bytes are in the gated store; a row may or may not exist, and --register-only reads it back before it registers again"
+
 register_staged() {
-    local comp="$1" stamp="$2" stage="$3" semver
+    local comp="$1" stamp="$2" stage="$3" tolerate="${4:-}" semver out rc=0
     semver="$(cat "${REPO_ROOT}/versions/${comp}")"
     echo "→ registering ${comp} ${stamp} as staged with the manage service" >&2
-    run_rkit register --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
+    out="$(run_rkit register --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
         --receipt "${stage}/gated-receipt.json" --component "${comp}" \
-        --channel "$(gated_channel_for stable)" --version "${semver}" --stamp "${stamp}" >&2 \
-        || registration_failed "${comp}" "${stamp}" "the manage service refused it" \
-            "the bytes are in the gated store, no row exists"
+        --channel "$(gated_channel_for stable)" --version "${semver}" --stamp "${stamp}" 2>&1)" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}" >&2
+    [ "${rc}" -eq 0 ] && return 0
+    if [ -n "${tolerate}" ] && printf '%s' "${out}" | grep -q 'HTTP 409'; then
+        echo "→ the service already catalogues ${comp} ${stamp}; reading the row back" >&2
+        return 0
+    fi
+    registration_failed "${comp}" "${stamp}" "the manage service refused it" "${UNKNOWN_ROW}"
+}
+
+read_row() {
+    local comp="$1" stamp="$2" word id state version got extra
+    ROW_LINE="$(run_rkit status --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
+        --component "${comp}" --channel "$(gated_channel_for stable)" --stamp "${stamp}")" || return 1
+    if [ "$(printf '%s\n' "${ROW_LINE}" | wc -l | tr -d ' ')" != 1 ]; then
+        return 2
+    fi
+    read -r word id state version got extra <<EOF
+${ROW_LINE}
+EOF
+    if [ "${word}" != row ] || ! printf '%s' "${id}" | grep -Eq '^[0-9]+$' \
+        || [ "${state}" != staged ] || [ "${got}" != "${stamp}" ] || [ -n "${extra}" ]; then
+        return 2
+    fi
+    CUT_ROW="${id}"
+    ROW_VERSION="${version}"
 }
 
 confirm_row() {
-    local comp="$1" stamp="$2" line word id state version got
-    line="$(run_rkit status --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
-        --component "${comp}" --channel "$(gated_channel_for stable)" --stamp "${stamp}")" \
-        || registration_failed "${comp}" "${stamp}" "the row could not be read back" \
-            "the bytes are in the gated store, no row exists"
-    read -r word id state version got <<EOF
-${line}
-EOF
-    if [ "${word}" != row ] || ! printf '%s' "${id}" | grep -Eq '^[0-9]+$' \
-        || [ "${state}" != staged ] || [ "${got}" != "${stamp}" ]; then
-        registration_failed "${comp}" "${stamp}" "the service reads it back as '${line}'" \
-            "the bytes are in the gated store; the row read back is not this cut's staged row"
-    fi
-    CUT_ROW="${id}"
-    echo "✓ row ${CUT_ROW} reads back staged: ${comp} ${version} ${stamp}" >&2
+    local comp="$1" stamp="$2" rc=0
+    read_row "${comp}" "${stamp}" || rc=$?
+    case "${rc}" in
+        0) echo "✓ row ${CUT_ROW} reads back staged: ${comp} ${ROW_VERSION} ${stamp}" >&2 ;;
+        1) registration_failed "${comp}" "${stamp}" "the row could not be read back" "${UNKNOWN_ROW}" ;;
+        *) registration_failed "${comp}" "${stamp}" "the service reads it back as '${ROW_LINE}'" \
+            "the bytes are in the gated store; the row read back is not this cut's staged row" ;;
+    esac
 }
 
 stage_and_register() {
@@ -491,9 +511,17 @@ register_only() {
         return 0
     fi
     require_manage
-    register_staged "${comp}" "${stamp}" "${stage}"
-    confirm_row "${comp}" "${stamp}"
-    echo "✓ registered ${comp} ${stamp} as row ${CUT_ROW} — nothing tagged or marked; tools/RUNBOOK.md has the steps that finish the cut"
+    local rc=0
+    read_row "${comp}" "${stamp}" || rc=$?
+    case "${rc}" in
+        0) echo "✓ ${comp} ${stamp} is already registered as row ${CUT_ROW}, staged — nothing registered, tagged or marked; tools/RUNBOOK.md has the steps that finish the cut" ;;
+        1)
+            register_staged "${comp}" "${stamp}" "${stage}" tolerate-409
+            confirm_row "${comp}" "${stamp}"
+            echo "✓ registered ${comp} ${stamp} as row ${CUT_ROW} — nothing tagged or marked; tools/RUNBOOK.md has the steps that finish the cut" ;;
+        *) registration_failed "${comp}" "${stamp}" "the service reads it back as '${ROW_LINE}'" \
+            "the bytes are in the gated store; the row read back is not this cut's staged row, so nothing was registered" ;;
+    esac
     echo "  Promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/$(gated_channel_for stable)/${comp} (row ${CUT_ROW})"
 }
 
