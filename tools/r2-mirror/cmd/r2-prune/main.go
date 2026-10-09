@@ -13,6 +13,20 @@ import (
 
 var components = []string{"umbree", "umbreed"}
 
+const protectUsage = "permanent pin list (default: tools/retain-permanent or ../retain-permanent)"
+
+func loadProtect(path string) (map[string]struct{}, error) {
+	if path == "" {
+		for _, p := range []string{"tools/retain-permanent", "../retain-permanent"} {
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				path = p
+				break
+			}
+		}
+	}
+	return prune.LoadProtectFile(path)
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ r2-prune: %v\n", err)
@@ -27,7 +41,7 @@ func run() error {
 	comp := flag.String("comp", "all", "component: umbree | umbreed | all")
 	channel := flag.String("channel", "stable", "release channel: stable | beta")
 	keep := flag.Int("keep", 0, fmt.Sprintf("stamps to retain per component (default: %d on stable, %d on beta)", prune.DefaultKeepStable, prune.DefaultKeepBeta))
-	protectPath := flag.String("protect", "", "permanent pin list (default: tools/retain-permanent or ../retain-permanent)")
+	protectPath := flag.String("protect", "", protectUsage)
 	execute := flag.Bool("execute", false, "actually delete (default: dry-run)")
 	flag.Parse()
 
@@ -59,15 +73,7 @@ func run() error {
 		return err
 	}
 
-	if *protectPath == "" {
-		for _, p := range []string{"tools/retain-permanent", "../retain-permanent"} {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				*protectPath = p
-				break
-			}
-		}
-	}
-	protect, err := prune.LoadProtectFile(*protectPath)
+	protect, err := loadProtect(*protectPath)
 	if err != nil {
 		return err
 	}
