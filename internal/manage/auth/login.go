@@ -18,7 +18,7 @@ func (s *Service) StartLogin(w http.ResponseWriter, r *http.Request, name, passw
 		return "", ErrRefused
 	}
 	now := s.Now()
-	key := failureKey("pw", ClientIP(r), name)
+	key := store.FailureKey{Step: "pw", Source: s.source(r), Name: name}
 	if !s.allow(key, now) {
 		return "", ErrRateLimited
 	}
@@ -54,7 +54,7 @@ func (s *Service) CompleteTOTP(w http.ResponseWriter, r *http.Request, code stri
 	if err != nil {
 		return err
 	}
-	key := failureKey("totp", ClientIP(r), sess.Admin)
+	key := store.FailureKey{Step: "totp", Source: s.source(r), Name: sess.Admin}
 	if !s.allow(key, now) {
 		return ErrRateLimited
 	}
@@ -101,10 +101,6 @@ func (s *Service) decoyHash() string {
 	})
 	return s.decoy
 }
-
-func failureKey(step, ip, name string) string { return step + "\x00" + ip + FailureKeySuffix(name) }
-
-func FailureKeySuffix(name string) string { return "\x00" + name }
 
 func (s *Service) acquireHash(ctx context.Context) (func(), error) {
 	timer := time.NewTimer(s.hashWait)

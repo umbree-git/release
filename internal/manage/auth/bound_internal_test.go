@@ -45,7 +45,7 @@ func boundService(t *testing.T) (*Service, *time.Time) {
 
 func (s *Service) failuresFor(t *testing.T, name string) int {
 	t.Helper()
-	n, err := s.Store.LoginFailures(failureKey("pw", "192.0.2.1", name), s.Now().Add(-time.Hour))
+	n, err := s.Store.LoginFailures(store.FailureKey{Step: "pw", Source: "192.0.2.1", Name: name}, s.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

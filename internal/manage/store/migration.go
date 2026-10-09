@@ -97,6 +97,16 @@ var migrations = []migration{
 			`CREATE INDEX login_failures_key ON login_failures (key, at)`,
 		},
 	},
+	{
+		Migration: Migration{Version: 4, Name: "login failures by step, source and name"},
+		stmts: []string{
+			`ALTER TABLE login_failures ADD COLUMN step TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE login_failures ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE login_failures ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
+			`CREATE INDEX login_failures_source ON login_failures (step, source, name, at)`,
+			`CREATE INDEX login_failures_name ON login_failures (step, name, at)`,
+		},
+	},
 }
 
 func Migrations() []Migration {

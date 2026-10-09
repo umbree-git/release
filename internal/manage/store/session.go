@@ -79,23 +79,40 @@ func (s *Store) CSRFValid(token, sessionID string, now time.Time) (bool, error) 
 	return now.Before(time.Unix(expires, 0)), nil
 }
 
-func (s *Store) RecordLoginFailure(key string, at time.Time) error {
-	if _, err := s.db.Exec(`INSERT INTO login_failures (key, at) VALUES (?, ?)`, key, at.Unix()); err != nil {
+type FailureKey struct {
+	Step   string
+	Source string
+	Name   string
+}
+
+func (k FailureKey) legacy() string { return k.Step + "\x00" + k.Source + "\x00" + k.Name }
+
+func (s *Store) RecordLoginFailure(k FailureKey, at time.Time) error {
+	if _, err := s.db.Exec(`INSERT INTO login_failures (key, step, source, name, at) VALUES (?, ?, ?, ?, ?)`,
+		k.legacy(), k.Step, k.Source, k.Name, at.Unix()); err != nil {
 		return fmt.Errorf("store: record login failure: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) LoginFailures(key string, since time.Time) (int, error) {
+func (s *Store) LoginFailures(k FailureKey, since time.Time) (int, error) {
+	return s.countFailures(`step = ? AND source = ? AND name = ?`, since, k.Step, k.Source, k.Name)
+}
+
+func (s *Store) NameFailures(step, name string, since time.Time) (int, error) {
+	return s.countFailures(`step = ? AND name = ?`, since, step, name)
+}
+
+func (s *Store) countFailures(where string, since time.Time, args ...any) (int, error) {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM login_failures WHERE key = ? AND at > ?`, key, since.Unix()).Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM login_failures WHERE `+where+` AND at > ?`, append(args, since.Unix())...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("store: count login failures: %w", err)
 	}
 	return n, nil
 }
 
-func (s *Store) ClearLoginFailures(key string) error {
-	if _, err := s.db.Exec(`DELETE FROM login_failures WHERE key = ?`, key); err != nil {
+func (s *Store) ClearLoginFailures(k FailureKey) error {
+	if _, err := s.db.Exec(`DELETE FROM login_failures WHERE step = ? AND source = ? AND name = ?`, k.Step, k.Source, k.Name); err != nil {
 		return fmt.Errorf("store: clear login failures: %w", err)
 	}
 	return nil
@@ -117,52 +134,22 @@ func (s *Store) PurgeExpiredSessions(now time.Time, failuresBefore time.Time) er
 	return nil
 }
 
-func (s *Store) UnlockAdmin(name, keySuffix, actor, reason string, at time.Time) (int, error) {
-	if strings.TrimSpace(actor) == "" || strings.TrimSpace(reason) == "" || keySuffix == "" {
-		return 0, fmt.Errorf("%w: unlock needs a key suffix, an actor and a reason", ErrBadValue)
+func (s *Store) UnlockAdmin(name, actor, reason string, at time.Time) (int, error) {
+	if strings.TrimSpace(actor) == "" || strings.TrimSpace(reason) == "" {
+		return 0, fmt.Errorf("%w: unlock needs an actor and a reason", ErrBadValue)
 	}
 	cleared := 0
 	err := s.tx(func(tx *sql.Tx) error {
-		var exists int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM admins WHERE name = ?`, name).Scan(&exists); err != nil {
+		res, err := tx.Exec(`DELETE FROM login_failures WHERE name = ?`, name)
+		if err != nil {
 			return fmt.Errorf("store: unlock %q: %w", name, err)
 		}
-		if exists == 0 {
-			return fmt.Errorf("%w: admin %q", ErrNotFound, name)
-		}
-		keys, err := failureKeys(tx)
+		n, err := res.RowsAffected()
 		if err != nil {
-			return err
+			return fmt.Errorf("store: unlock %q: %w", name, err)
 		}
-		for _, key := range keys {
-			if !strings.HasSuffix(key, keySuffix) {
-				continue
-			}
-			res, err := tx.Exec(`DELETE FROM login_failures WHERE key = ?`, key)
-			if err != nil {
-				return fmt.Errorf("store: unlock %q: %w", name, err)
-			}
-			n, _ := res.RowsAffected()
-			cleared += int(n)
-		}
+		cleared = int(n)
 		return auditTx(tx, at, actor, "unlock", 0, fmt.Sprintf("admin %s: %s (%d failed sign-ins cleared)", name, reason, cleared))
 	})
 	return cleared, err
-}
-
-func failureKeys(tx *sql.Tx) ([]string, error) {
-	rows, err := tx.Query(`SELECT DISTINCT key FROM login_failures`)
-	if err != nil {
-		return nil, fmt.Errorf("store: read login failures: %w", err)
-	}
-	defer rows.Close()
-	var keys []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, fmt.Errorf("store: read login failures: %w", err)
-		}
-		keys = append(keys, k)
-	}
-	return keys, rows.Err()
 }
