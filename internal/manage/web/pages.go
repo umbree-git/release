@@ -6,6 +6,7 @@ import (
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/catalog"
+	"github.com/umbree-git/release/internal/manage/retention"
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
@@ -26,6 +27,7 @@ type overviewPage struct {
 	History    string
 	Current    *rowView
 	Promotable *rowView
+	Retention  []navItem
 }
 
 type historyPage struct {
@@ -81,6 +83,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 	if len(promotable) > 0 {
 		v := s.view(promotable[0])
 		page.Promotable = &v
+	}
+	if s.cfg.Retention != nil {
+		for _, win := range retention.Windows {
+			page.Retention = append(page.Retention, navItem{Name: string(win), Path: retentionPath(channel, comp, win)})
+		}
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel)
 	page.Nav = componentNav(channel, comp, pagePath)

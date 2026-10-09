@@ -51,7 +51,7 @@ func buildService(o *options, log *slog.Logger) (http.Handler, *store.Store, err
 		svc.TrustedProxy = netip.MustParseAddr(o.trustedProxy)
 	}
 	srv, err := web.New(web.Config{Store: st, Auth: svc, Intake: in,
-		Publish: deps, PublicBaseURL: o.publicBaseURL, Log: log})
+		Publish: deps, Retention: retainer, PublicBaseURL: o.publicBaseURL, Log: log})
 	if err != nil {
 		_ = st.Close()
 		return nil, nil, err

@@ -12,13 +12,14 @@ import (
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/publish"
+	"github.com/umbree-git/release/internal/manage/retention"
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
 //go:embed templates static
 var assets embed.FS
 
-var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress"}
+var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention"}
 
 type Routes interface {
 	Routes(mux *http.ServeMux)
@@ -29,6 +30,7 @@ type Config struct {
 	Auth          *auth.Service
 	Intake        Routes
 	Publish       publish.Deps
+	Retention     *retention.Retainer
 	PublicBaseURL string
 	Log           *slog.Logger
 	Now           func() time.Time
@@ -92,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /manage/releases/{id}/"+action, s.writeGuard(s.handleAction(action, false)))
 		mux.HandleFunc("POST /manage/api/releases/{id}/"+action, s.writeGuard(s.handleAction(action, true)))
 	}
+	mux.HandleFunc("POST /manage/{channel}/{component}/retention/{window}", s.writeGuard(s.handleRetention))
 	mux.HandleFunc("/manage/", s.guard(handleNoPage))
 	mux.HandleFunc("/", http.NotFound)
 	return secureHeaders(mux)

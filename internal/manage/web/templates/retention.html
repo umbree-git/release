@@ -1,0 +1,33 @@
+{{define "content"}}
+<h1>Clean {{.Window}} <span class="dim">· {{.Component}} · {{.Channel}}</span></h1>
+{{if .Failure}}<p class="flash error">{{.Failure}}</p>{{end}}
+{{with .Plan}}
+<section class="panel danger">
+  <h2>Kept</h2>
+  {{if .Kept}}<ul>{{range .Kept}}<li class="stamp">{{.}}</li>{{end}}</ul>{{else}}<p class="dim">Nothing.</p>{{end}}
+  <h2>Deleted on confirm</h2>
+  {{if .Targets}}<ul>{{range .Targets}}<li><span class="stamp">{{.Stamp}}</span> <span class="state">{{.State}}</span>{{if .Expires}} <span class="state">becomes expired</span>{{end}}
+    <ul>{{range .Keys}}<li><code class="key">{{.}}</code></li>{{end}}</ul></li>{{end}}</ul>
+  {{else}}<p class="dim">Nothing to delete.</p>{{end}}
+  {{if .Skipped}}<h2>Skipped</h2>
+  <ul>{{range .Skipped}}<li><code>{{.Key}}</code> <span class="stamp">{{.Stamp}}</span>: {{.Reason}}</li>{{end}}</ul>{{end}}
+  <form method="post" action="{{$.Action}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <input type="hidden" name="confirm" value="{{$.Token}}">
+    <input type="hidden" name="fingerprint" value="{{$.Fingerprint}}">
+    <button class="btn danger" type="submit">Confirm: delete exactly these keys</button>
+    <a class="btn" href="{{$.Back}}">Cancel</a>
+  </form>
+  <p class="dim">The confirm deletes nothing if the plan changed since this preview. It is single-use and expires in ten minutes.</p>
+</section>
+{{end}}
+{{with .Report}}
+<section class="panel">
+  <h2>Result</h2>
+  <p>{{.Summary}}</p>
+  {{if .Deleted}}<ul>{{range .Deleted}}<li><code>{{.}}</code></li>{{end}}</ul>{{end}}
+  {{if .Skipped}}<h2>Skipped</h2><ul>{{range .Skipped}}<li><code>{{.Key}}</code>: {{.Reason}}</li>{{end}}</ul>{{end}}
+</section>
+{{end}}
+<p><a href="{{.Back}}">← overview</a></p>
+{{end}}

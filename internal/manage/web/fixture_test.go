@@ -20,6 +20,7 @@ import (
 	"github.com/umbree-git/release/internal/manage/backend/backendtest"
 	"github.com/umbree-git/release/internal/manage/intake"
 	"github.com/umbree-git/release/internal/manage/publish"
+	"github.com/umbree-git/release/internal/manage/retention"
 	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/manage/totp"
 	"github.com/umbree-git/release/internal/manage/web"
@@ -63,8 +64,9 @@ func newConsole(t *testing.T) *console {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ret := &retention.Retainer{Store: st, Gated: c.gated, Public: c.public, Locks: c.deps.Locks, Now: clock}
 	s, err := web.New(web.Config{Store: st, Auth: c.svc, Intake: intake.New(st, key, clock, nil),
-		Publish: c.deps, PublicBaseURL: publicBase, Now: clock})
+		Publish: c.deps, Retention: ret, PublicBaseURL: publicBase, Now: clock})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,6 +27,8 @@ func init() {
 		{name: "backfill", summary: "once per component: catalog the releases already on the public surface, verified, writing the catalog only", register: registerBackfill, run: runBackfill},
 		{name: "retain", summary: "run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing", register: registerRetain, run: runRetain},
 		{name: "admin mark-yanked", shape: "<id>", summary: "mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand", register: registerMarkYanked, run: runMarkYanked},
+		{name: "admin pin", shape: "<component> <stamp>", summary: "keep a promoted release's public bytes outside the retention window, audited", register: registerDataDir, run: runAdminPin},
+		{name: "admin unpin", shape: "<component> <stamp>", summary: "let retention prune a pinned release again, audited", register: registerDataDir, run: runAdminUnpin},
 		{name: "admin add", shape: "<name>", summary: "add a console admin; prints its TOTP enrolment once, and only here", register: registerAdminAdd, run: runAdminAdd},
 		{name: "admin list", summary: "list the console admins and their open sessions; shows no secret", register: registerDataDir, run: runAdminList},
 		{name: "admin remove", shape: "<name>", summary: "remove a console admin and end its sessions", register: registerDataDir, run: runAdminRemove},

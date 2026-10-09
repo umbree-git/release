@@ -21,4 +21,12 @@
   </form>
   {{else}}<p class="dim">Nothing staged is newer than the newest release that was ever public.</p>{{end}}
 </section>
+<section class="panel">
+  <h2>Retention</h2>
+  <p class="dim">Each control previews the keys it would delete; a second confirmation deletes exactly those.</p>
+  {{range .Retention}}<form class="act" method="post" action="{{.Path}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn" type="submit">Preview: clean {{.Name}}</button>
+  </form>{{end}}
+</section>
 {{end}}
