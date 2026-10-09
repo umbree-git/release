@@ -83,7 +83,7 @@ check_contains "beta pass unchanged: reports each deletion" "${out_exec}" "✓ d
 help_out="$(COMPONENTS=umbree UMBREE_GH=/nonexistent bash "${HERE}/prune-releases.sh" --help 2>/dev/null)"; help_rc=$?
 check_contains "--help prints the usage on stdout" "${help_out}" "Usage: tools/prune-releases.sh [--execute]"
 check_contains "--help names the KEEP default" "${help_out}" "KEEP "
-check_contains "--help says stable tags are never deleted" "${help_out}" "stable tags are never deleted"
+check_contains "--help says stable tags are never deleted" "${help_out}" "Stable tags are never deleted"
 [ "${help_rc}" = 0 ] && echo "ok: --help exits 0" || { echo "FAIL: --help exited ${help_rc}"; fail=1; }
 help_unset="$(env -u COMPONENTS UMBREE_GH=/nonexistent PATH=/usr/bin:/bin bash "${HERE}/prune-releases.sh" -h 2>&1)"; unset_rc=$?
 check_contains "-h needs neither rkit nor gh" "${help_unset}" "Usage: tools/prune-releases.sh"

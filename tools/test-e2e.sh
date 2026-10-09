@@ -304,9 +304,10 @@ manifest_cases_nojq() {
     echo "# without jq"
     mkdir -p "${M}/nojq"
     for f in /usr/bin/* /bin/*; do
-        [ "$(basename "${f}")" = jq ] || [ -e "${M}/nojq/$(basename "${f}")" ] || ln -s "${f}" "${M}/nojq/$(basename "${f}")"
+        local link="${M}/nojq/$(basename "${f}")"
+        [ "$(basename "${f}")" = jq ] || [ -e "${link}" ] || [ -L "${link}" ] || ln -s "${f}" "${link}"
     done
-    command -v minisign >/dev/null && [ -e "${M}/nojq/minisign" ] || ln -sf "$(command -v minisign)" "${M}/nojq/minisign"
+    [ -e "${M}/nojq/minisign" ] || ln -s "$(command -v minisign)" "${M}/nojq/minisign"
     set_redirects; set_manifest "{\"stamp\":\"${M_NEW}\"}"
     B_PATH="${M}/nojq" tb nojq
     mcheck "stable installs manifest stamp without jq" "${B_GOT}" "umbree ${M_NEW}"
