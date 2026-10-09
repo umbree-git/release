@@ -46,11 +46,30 @@ src_for() {
     esac
 }
 
+usage() {
+    cat <<'EOF'
+Usage: tools/test-e2e.sh <umbree|umbreed>
+
+Prove the whole umbree release chain OFFLINE with the TEST key. No GitHub, no
+release host, no real signing key. For the given component this:
+  1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
+     dist/<stamp>/, offline (--no-vulncheck).
+  2. regenerates the outer bootstrap (baking the TEST pubkey).
+  3. runs verify-no-env on the freshly built binary.
+  4. HAPPY PATH: serves dist/<stamp>/ over http and runs the outer bootstrap
+     against it; asserts the installed binary reports the expected stamp.
+  5. TAMPER PATH: flips one byte inside the served zip and asserts the outer
+     bootstrap's verification gate aborts non-zero and installs nothing.
+
+It never installs a system service: umbreed runs with UMBREED_NO_SERVICE=1.
+EOF
+}
+
 WHAT="${1:-umbree}"
 case "${WHAT}" in
     umbree|umbreed) ;;
-    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "✗ usage: test-e2e.sh <umbree|umbreed>" >&2; exit 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) { echo "✗ unknown argument: ${WHAT}"; echo; usage; } >&2; exit 2 ;;
 esac
 
 PORT="${E2E_PORT:-8741}"
