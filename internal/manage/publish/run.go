@@ -17,6 +17,7 @@ var (
 	ErrNotPromotable = errors.New("publish: not promotable")
 	ErrNeedsBackfill = errors.New("publish: run backfill first")
 	ErrNoSuccessor   = errors.New("publish: no public row with bytes to re-point to")
+	ErrNotCurrent    = errors.New("publish: not the current public row")
 )
 
 type Deps struct {
