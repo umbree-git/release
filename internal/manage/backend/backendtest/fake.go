@@ -60,6 +60,12 @@ func (s *Store) Seed(key string, body []byte) {
 	s.objects[key] = append([]byte(nil), body...)
 }
 
+func (s *Store) Remove(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.objects, key)
+}
+
 func (s *Store) FailOn(op, key string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
