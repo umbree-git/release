@@ -1,9 +1,11 @@
 package register
 
 import (
-	"context"
-	"errors"
-	"net/http"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
 )
 
 const (
@@ -11,7 +13,10 @@ const (
 	MinisigName = "SHA256SUMS.txt.minisig"
 )
 
-var errUnbuilt = errors.New("register: not built")
+const (
+	registerDomain = "umbree-release register v1\n"
+	statusDomain   = "umbree-release status v1\n"
+)
 
 type Artifact struct {
 	Key    string `json:"key"`
@@ -49,6 +54,25 @@ type RowStatus struct {
 	Version string `json:"version"`
 }
 
+func (p Payload) SigningBytes() ([]byte, error) { return canonical(registerDomain, p) }
+
+func (q StatusQuery) SigningBytes() ([]byte, error) { return canonical(statusDomain, q) }
+
+func canonical(domain string, v any) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString(domain)
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("encode canonical payload: %w", err)
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+func KeyBase(component, channel, stamp string) string {
+	return component + "/" + channel + "/" + stamp + "/"
+}
+
 type Receipt struct {
 	Component string     `json:"component"`
 	Channel   string     `json:"channel"`
@@ -57,23 +81,39 @@ type Receipt struct {
 	Objects   []Artifact `json:"objects"`
 }
 
-func (p Payload) SigningBytes() ([]byte, error)       { return nil, errUnbuilt }
-func (q StatusQuery) SigningBytes() ([]byte, error)   { return nil, errUnbuilt }
-func KeyBase(component, channel, stamp string) string { return "" }
-func ReadReceipt(path string) (Receipt, error)        { return Receipt{}, errUnbuilt }
-func PayloadFromReceipt(r Receipt) (Payload, error)   { return Payload{}, errUnbuilt }
+func ReadReceipt(path string) (Receipt, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return Receipt{}, fmt.Errorf("read receipt: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	var r Receipt
+	if err := dec.Decode(&r); err != nil {
+		return Receipt{}, fmt.Errorf("receipt %s is not a gated-store receipt: %w", path, err)
+	}
+	return r, nil
+}
 
-var ErrNoRow = errors.New("register: the service has no row for this stamp")
-
-type SigningKey struct{ KeyID string }
-
-func (k SigningKey) Sign(msg []byte) string          { return "" }
-func LoadSigningKey(path string) (SigningKey, error) { return SigningKey{}, errUnbuilt }
-
-type Client struct{}
-
-func NewClient(baseURL string, hc *http.Client) (*Client, error) { return &Client{}, nil }
-
-func (c *Client) Register(ctx context.Context, p Payload, key SigningKey) (RowStatus, error) {
-	return RowStatus{}, errUnbuilt
+func PayloadFromReceipt(r Receipt) (Payload, error) {
+	base := KeyBase(r.Component, r.Channel, r.Stamp)
+	p := Payload{
+		Component: r.Component, Channel: r.Channel, Version: r.Version, Stamp: r.Stamp,
+		Artifacts: r.Objects,
+	}
+	for _, a := range r.Objects {
+		switch strings.TrimPrefix(a.Key, base) {
+		case SumsName:
+			p.SumsKey = a.Key
+		case MinisigName:
+			p.MinisigKey = a.Key
+		}
+	}
+	if p.SumsKey == "" {
+		return Payload{}, fmt.Errorf("the receipt lists no %s%s", base, SumsName)
+	}
+	if p.MinisigKey == "" {
+		return Payload{}, fmt.Errorf("the receipt lists no %s%s", base, MinisigName)
+	}
+	return p, nil
 }
