@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -247,13 +249,24 @@ func lockOut(t *testing.T, dir, key, name string) *auth.Service {
 		t.Fatal(err)
 	}
 	svc := auth.New(st, sealer, nil, nil)
-	for i := 0; i < 5; i++ {
-		_, _ = svc.StartLogin(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/manage/login", nil), name, "wrong password!")
+	svc.TrustedProxy = netip.MustParseAddr("192.0.2.1")
+	for s := 0; s < 10; s++ {
+		for i := 0; i < 5; i++ {
+			_, _ = svc.StartLogin(httptest.NewRecorder(), fromSource(fmt.Sprintf("203.0.113.%d", s)), name, "wrong password!")
+		}
 	}
-	if _, err := svc.StartLogin(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/manage/login", nil), name, testPassword); !errors.Is(err, auth.ErrRateLimited) {
-		t.Fatalf("%s is not locked out: %v", name, err)
+	for _, src := range []string{"203.0.113.0", "203.0.113.99"} {
+		if _, err := svc.StartLogin(httptest.NewRecorder(), fromSource(src), name, testPassword); !errors.Is(err, auth.ErrRateLimited) {
+			t.Fatalf("%s from %s is not locked out: %v", name, src, err)
+		}
 	}
 	return svc
+}
+
+func fromSource(ip string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/manage/login", nil)
+	r.Header.Set("X-Forwarded-For", ip)
+	return r
 }
 
 func TestAdminUnlockClearsLockout(t *testing.T) {
@@ -262,28 +275,50 @@ func TestAdminUnlockClearsLockout(t *testing.T) {
 	addAdmin(t, dir, key, "xops")
 	svc := lockOut(t, dir, key, "ops")
 	lockOut(t, dir, key, "xops")
-	if r := invoke(t, map[string]string{"USER": "op-alice"}, "admin", "unlock", "ops", "--data-dir", dir); r.code != exitUsage || !strings.Contains(r.stderr, "--reason") {
+	vars := map[string]string{"USER": "op-alice"}
+	if r := invoke(t, vars, "admin", "unlock", "ops", "--data-dir", dir); r.code != exitUsage || !strings.Contains(r.stderr, "--reason") {
 		t.Fatalf("no reason: exit %d %q", r.code, r.stderr)
 	}
-	if r := invoke(t, nil, "admin", "unlock", "nobody", "--data-dir", dir, "--reason", "x"); r.code != 1 || !strings.Contains(r.stderr, "no admin") {
-		t.Fatalf("unknown admin: exit %d %q", r.code, r.stderr)
+	if r := invoke(t, vars, "admin", "unlock", "Ops!", "--data-dir", dir, "--reason", "x"); r.code != exitUsage {
+		t.Fatalf("an invalid name: exit %d %q", r.code, r.stderr)
 	}
-	r := invoke(t, map[string]string{"USER": "op-alice"}, "admin", "unlock", "ops", "--data-dir", dir, "--reason", "locked out by guessing")
-	if r.code != 0 {
-		t.Fatalf("unlock: exit %d %q", r.code, r.stderr)
+	r := invoke(t, vars, "admin", "unlock", "ops", "--data-dir", dir, "--reason", "locked out by guessing")
+	if r.code != 0 || !strings.Contains(r.stdout, "50 failed sign-ins cleared") {
+		t.Fatalf("unlock: exit %d %q %q", r.code, r.stdout, r.stderr)
 	}
-	req := func() *http.Request { return httptest.NewRequest(http.MethodPost, "/manage/login", nil) }
-	if _, err := svc.StartLogin(httptest.NewRecorder(), req(), "ops", testPassword); err != nil {
-		t.Fatalf("after unlock: %v", err)
+	if _, err := svc.StartLogin(httptest.NewRecorder(), fromSource("203.0.113.0"), "ops", testPassword); err != nil {
+		t.Fatalf("after unlock, from the locked source: %v", err)
 	}
-	if _, err := svc.StartLogin(httptest.NewRecorder(), req(), "xops", testPassword); !errors.Is(err, auth.ErrRateLimited) {
+	if _, err := svc.StartLogin(httptest.NewRecorder(), fromSource("203.0.113.99"), "xops", testPassword); !errors.Is(err, auth.ErrRateLimited) {
 		t.Fatalf("keep-control, another admin whose name ends the same: %v", err)
 	}
+	if r := invoke(t, vars, "admin", "unlock", "nobody", "--data-dir", dir, "--reason", "x"); r.code != 0 || !strings.Contains(r.stdout, "0 failed sign-ins cleared") {
+		t.Fatalf("nothing to clear: exit %d %q %q", r.code, r.stdout, r.stderr)
+	}
 	log, err := svc.Store.AuditLog()
-	if err != nil || len(log) != 1 || log[0].Action != "unlock" || log[0].Actor != "op-alice" || !strings.Contains(log[0].Detail, "locked out by guessing") {
+	if err != nil || len(log) != 2 || log[0].Action != "unlock" || log[0].Actor != "op-alice" || !strings.Contains(log[0].Detail, "locked out by guessing") {
 		t.Fatalf("audit %+v %v", log, err)
 	}
 	if page := invoke(t, nil, "admin", "unlock", "--help").stdout; !strings.Contains(page, "--reason") {
 		t.Fatalf("unlock page %q", page)
+	}
+}
+
+func TestServeTrustedProxyFlag(t *testing.T) {
+	for _, bad := range []string{"proxy.example", "10.0.0.0/8", "127.0.0.1:443", "fe80::1%eth0"} {
+		vars := serveVars(t)
+		vars["UMBREE_MANAGE_TRUSTED_PROXY"] = bad
+		dir := t.TempDir()
+		if r := invoke(t, vars, "serve", "--data-dir", dir, "--listen", "127.0.0.1:0"); r.code != exitUsage || !strings.Contains(r.stderr, "--trusted-proxy") {
+			t.Fatalf("--trusted-proxy %q: exit %d %q", bad, r.code, r.stderr)
+		}
+	}
+	r := invoke(t, serveVars(t), "serve", "--data-dir", t.TempDir(), "--listen", "127.0.0.1:0")
+	if r.code != 0 || strings.Count(r.stderr, "level=WARN") != 1 || !strings.Contains(r.stderr, "--trusted-proxy") {
+		t.Fatalf("loopback with no trusted proxy: exit %d stderr %q", r.code, r.stderr)
+	}
+	r = invoke(t, serveVars(t), "serve", "--data-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--trusted-proxy", "127.0.0.1")
+	if r.code != 0 || strings.Contains(r.stderr, "level=WARN") {
+		t.Fatalf("control, a trusted proxy: exit %d stderr %q", r.code, r.stderr)
 	}
 }

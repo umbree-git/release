@@ -16,6 +16,7 @@ type options struct {
 	publicBucket  string
 	publicBaseURL string
 	secretKey     string
+	trustedProxy  string
 	passwordStdin bool
 	check         bool
 	reason        string
@@ -33,6 +34,7 @@ var envTwins = []envTwin{
 	{"data-dir", "UMBREE_MANAGE_DATA_DIR", func(o *options) *string { return &o.dataDir }},
 	{"listen", "UMBREE_MANAGE_LISTEN", func(o *options) *string { return &o.listen }},
 	{"secret-key", "UMBREE_MANAGE_SECRET_KEY", func(o *options) *string { return &o.secretKey }},
+	{"trusted-proxy", "UMBREE_MANAGE_TRUSTED_PROXY", func(o *options) *string { return &o.trustedProxy }},
 	{"r2-account", "UMBREE_R2_ACCOUNT", func(o *options) *string { return &o.r2Account }},
 	{"r2-creds", "UMBREE_R2_CREDS", func(o *options) *string { return &o.r2Creds }},
 	{"gated-bucket", "UMBREE_R2_GATED_BUCKET", func(o *options) *string { return &o.gatedBucket }},
@@ -43,6 +45,7 @@ var envTwins = []envTwin{
 var flagUsage = map[string]string{
 	"data-dir":        "the `dir` holding the catalog (required; no default)",
 	"listen":          "the `address` to bind (default " + defaultListen + ", loopback)",
+	"trusted-proxy":   "the TLS front's `ip` as this service sees it; only a peer with this exact address may name the client in X-Forwarded-For (rightmost entry). Unset: no forwarded header is read",
 	"secret-key":      "the operator-provisioned `file` that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required)",
 	"r2-account":      "the R2 `account` id",
 	"r2-creds":        "the `file` holding the R2 token",

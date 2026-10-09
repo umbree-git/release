@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -40,6 +41,8 @@ type Service struct {
 	Sealer *Sealer
 	Now    func() time.Time
 	Log    *slog.Logger
+
+	TrustedProxy netip.Addr
 
 	decoyOnce sync.Once
 	decoy     string
