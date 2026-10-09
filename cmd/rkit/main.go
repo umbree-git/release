@@ -1,33 +1,57 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 
 	"github.com/umbree-git/release/internal/relconfig"
 )
 
 func usage() string {
-	return "usage: rkit <build --component <umbree> [flags] | components>"
+	return "usage: rkit <build --component <umbree> [flags] | register [flags] | components>"
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage())
-		os.Exit(2)
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, nil))
+}
+
+func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.Client) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, usage())
+		return 2
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "build":
-		if err := runBuild(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "✗", err)
-			os.Exit(1)
+		if err := runBuild(args[1:]); err != nil {
+			fmt.Fprintln(stderr, "✗", err)
+			return 1
 		}
+	case "register":
+		return reportRegister(runRegister(ctx, args[1:], stdout, hc), stderr)
 	case "components":
 		for _, c := range relconfig.Components {
-			fmt.Println(c)
+			fmt.Fprintln(stdout, c)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, usage())
-		os.Exit(2)
+		fmt.Fprintln(stderr, usage())
+		return 2
 	}
+	return 0
+}
+
+func reportRegister(err error, stderr io.Writer) int {
+	var ue *registerUsageError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ue):
+		fmt.Fprintf(stderr, "rkit register: %s\n%s\n", ue.msg, registerUsage)
+		return 2
+	}
+	fmt.Fprintln(stderr, "✗ rkit register:", err)
+	return 1
 }
