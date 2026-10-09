@@ -22,6 +22,13 @@ func loadProtect(path string) (map[string]struct{}, error) {
 	return prune.LoadProtectFile(path)
 }
 
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "✗ r2-prune: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func run() error {
 	account := flag.String("account", os.Getenv("UMBREE_R2_ACCOUNT"), "Cloudflare R2 account id (default: $UMBREE_R2_ACCOUNT)")
 	bucket := flag.String("bucket", envOr("UMBREE_R2_BUCKET", "umbree-downloads"), "R2 bucket name (default: $UMBREE_R2_BUCKET, else umbree-downloads)")
