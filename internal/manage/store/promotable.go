@@ -24,12 +24,23 @@ func (s *Store) Current(component, channel string) (*ReleaseVersion, error) {
 	return nil, fmt.Errorf("%w: no current %s row on %s", ErrNotFound, component, channel)
 }
 
+func (s *Store) HighWaterMark(component, channel string) (*ReleaseVersion, error) {
+	rows, err := s.List(component, channel, catalog.StatePublic, catalog.StateYanked)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("%w: no %s row on %s has been public", ErrNotFound, component, channel)
+	}
+	return &rows[0], nil
+}
+
 func (s *Store) Promotable(component, channel string) ([]ReleaseVersion, error) {
 	staged, err := s.List(component, channel, catalog.StateStaged)
 	if err != nil {
 		return nil, err
 	}
-	current, err := s.Current(component, channel)
+	mark, err := s.HighWaterMark(component, channel)
 	if errors.Is(err, ErrNotFound) {
 		return staged, nil
 	}
@@ -38,7 +49,7 @@ func (s *Store) Promotable(component, channel string) ([]ReleaseVersion, error) 
 	}
 	var out []ReleaseVersion
 	for _, rv := range staged {
-		if prune.VersionLess(current.Stamp, rv.Stamp) {
+		if prune.VersionLess(mark.Stamp, rv.Stamp) {
 			out = append(out, rv)
 		}
 	}
