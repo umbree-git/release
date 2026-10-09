@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"slices"
 
 	"github.com/umbree-git/release/internal/register"
 )
@@ -61,6 +63,28 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer, hc *http.Cl
 	if err != nil {
 		return err
 	}
+	if err := checkRow(row, o.stamp); err != nil {
+		return err
+	}
 	fmt.Fprintf(stdout, "row %d %s %s %s\n", row.ID, row.State, row.Version, row.Stamp)
+	return nil
+}
+
+var (
+	rowStates  = []string{"staged", "public", "yanked", "expired"}
+	rowVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+)
+
+func checkRow(row register.RowStatus, stamp string) error {
+	switch {
+	case row.ID <= 0:
+		return fmt.Errorf("the service answered row id %d, which is not a row", row.ID)
+	case row.Stamp != stamp:
+		return fmt.Errorf("the service answered stamp %q for %q", row.Stamp, stamp)
+	case !slices.Contains(rowStates, row.State):
+		return fmt.Errorf("the service answered state %q, which the catalog does not have", row.State)
+	case !rowVersion.MatchString(row.Version):
+		return fmt.Errorf("the service answered version %q, which is not X.Y.Z", row.Version)
+	}
 	return nil
 }
