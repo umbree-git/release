@@ -13,7 +13,7 @@ export GIT_CONFIG_GLOBAL="$T/gitconfig"
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" user.email t@t
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
 unset BETA_BRANCH UMBREE_R2_ACCOUNT UMBREE_R2_CREDS UMBREE_R2_GATED_BUCKET STUB_GATED_FAIL \
-    UMBREE_MANAGE_URL UMBREE_RELEASE_KEY STUB_REGISTER STUB_STATUS STUB_STATUS_STAMP
+    UMBREE_MANAGE_URL UMBREE_RELEASE_KEY STUB_REGISTER STUB_STATUS STUB_STATUS_STAMP STUB_STATUS_SEQ STUB_STATUS_EXTRA
 
 STUB="$T/stub"; mkdir -p "$STUB"
 export CALLS="$T/calls.log"; : > "$CALLS"
@@ -44,9 +44,16 @@ if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = status ]; then
         if [ "$1" = --stamp ]; then stamp="$2"; fi
         shift
     done
-    case "${STUB_STATUS:-staged}" in
+    state="${STUB_STATUS:-staged}"
+    if [ -n "${STUB_STATUS_SEQ:-}" ] && [ -s "$STUB_STATUS_SEQ" ]; then
+        state="$(head -n1 "$STUB_STATUS_SEQ")"
+        tail -n +2 "$STUB_STATUS_SEQ" > "$STUB_STATUS_SEQ.next"; mv "$STUB_STATUS_SEQ.next" "$STUB_STATUS_SEQ"
+    fi
+    case "$state" in
         404) echo "✗ rkit status: the service has no row for this stamp: HTTP 404" >&2; exit 1 ;;
-        *) echo "row 7 ${STUB_STATUS:-staged} 0.1.8 ${STUB_STATUS_STAMP:-$stamp}"; exit 0 ;;
+        *) echo "row 7 $state 0.1.8 ${STUB_STATUS_STAMP:-$stamp}"
+           [ -z "${STUB_STATUS_EXTRA:-}" ] || echo "$STUB_STATUS_EXTRA"
+           exit 0 ;;
     esac
 fi
 if [ "$1" = run ] && [ "$2" = . ]; then echo "stub go: public mirror refused by the fixture" >&2; exit 1; fi
@@ -318,7 +325,8 @@ head_before="$(/usr/bin/git -C "$REL" rev-parse HEAD)"
 STUB_REGISTER=401 cutrun --distribute-only umbree "$STABLE_STAMP"
 check "registration 401 stops the cut" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
 check_contains "…prints the status" "$out" "HTTP 401"
-check_contains "…says the bytes are gated and no row exists" "$out" "bytes are in the gated store, no row exists"
+check_contains "…says the bytes are gated" "$out" "the bytes are in the gated store"
+check_lacks "…and does not claim no row exists" "$out" "no row exists"
 check_contains "…prints the re-register line" "$out" "re-register with: bash tools/release.sh --register-only umbree $STABLE_STAMP"
 check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
 check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
@@ -331,11 +339,12 @@ echo "# registration 200 without a row stops the cut"
 STUB_STATUS=404 cutrun --distribute-only umbree "$STABLE_STAMP"
 check "registration 200 without a row stops the cut" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
 check_contains "…says the row could not be read back" "$out" "could not be read back"
+check_lacks "…and does not claim no row exists" "$out" "no row exists"
 check_contains "…prints the re-register line" "$out" "re-register with: bash tools/release.sh --register-only umbree $STABLE_STAMP"
 check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
 check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
 undo_cut
-for bad in "STUB_STATUS=public" "STUB_STATUS_STAMP=v0.1.7.2026.08.01.00000000"; do
+for bad in "STUB_STATUS=public" "STUB_STATUS_STAMP=v0.1.7.2026.08.01.00000000" "STUB_STATUS_EXTRA='row 9 public 0.1.9 x'"; do
     : > "$CALLS"
     eval "$bad cutrun --distribute-only umbree \"\$STABLE_STAMP\""
     check "…a read-back of the wrong row stops it too ($bad)" "$([ "$rc" -ne 0 ] && echo stopped)" "stopped"
@@ -345,16 +354,51 @@ for bad in "STUB_STATUS=public" "STUB_STATUS_STAMP=v0.1.7.2026.08.01.00000000"; 
 done
 
 echo "# register-only re-registers and does nothing else"
+SEQ="$T/status.seq"
 : > "$CALLS"
 printf '{"objects":[]}\n' > "$REL/dist/$STABLE_STAMP/gated-receipt.json"
-cutrun --register-only umbree "$STABLE_STAMP"
+printf '404\nstaged\n' > "$SEQ"
+STUB_STATUS_SEQ="$SEQ" cutrun --register-only umbree "$STABLE_STAMP"
 check "register-only → 0" "$rc" "0"
 check "…one register call" "$(grep -c '^go run ./cmd/rkit register ' "$CALLS")" "1"
-check "…one read-back" "$(grep -c '^go run ./cmd/rkit status ' "$CALLS")" "1"
+check "…a read before it and a read-back after it" "$(grep -c '^go run ./cmd/rkit status ' "$CALLS")" "2"
 check "register-only re-registers and does nothing else" "$(grep -vc '^go run ./cmd/rkit \(register\|status\) ' "$CALLS")" "0"
 check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
 check "…no tag" "$(/usr/bin/git -C "$REL" tag -l)" ""
 check_contains "…reports the row" "$out" "row 7"
+
+echo "# register-only finds the row already staged"
+: > "$CALLS"
+cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only with the row already staged → 0" "$rc" "0"
+check "…registers nothing" "$(grep -c '^go run ./cmd/rkit register ' "$CALLS")" "0"
+check "…one read" "$(grep -c '^go run ./cmd/rkit status ' "$CALLS")" "1"
+check_contains "…says it was already registered" "$out" "already registered as row 7"
+
+echo "# register-only treats 409 already catalogued as registered, then reads back"
+: > "$CALLS"
+printf '404\nstaged\n' > "$SEQ"
+STUB_REGISTER=409 STUB_STATUS_SEQ="$SEQ" cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only, 409 and a staged read-back → 0" "$rc" "0"
+check "…read, register, read back" "$(grep -c '^go run ./cmd/rkit status ' "$CALLS"):$(grep -c '^go run ./cmd/rkit register ' "$CALLS")" "2:1"
+check_contains "…reports the row" "$out" "row 7"
+: > "$CALLS"
+printf '404\n404\n' > "$SEQ"
+STUB_REGISTER=409 STUB_STATUS_SEQ="$SEQ" cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only, 409 but no row reads back → 1" "$rc" "1"
+for bad in "STUB_STATUS=public" "STUB_STATUS_STAMP=v0.1.7.2026.08.01.00000000"; do
+    : > "$CALLS"
+    eval "STUB_REGISTER=409 $bad cutrun --register-only umbree \"\$STABLE_STAMP\""
+    check "register-only with a row of another state or stamp refuses ($bad)" "$rc" "1"
+    check "…and registers nothing ($bad)" "$(grep -c '^go run ./cmd/rkit register ' "$CALLS")" "0"
+    check_contains "…naming what it read ($bad)" "$out" "reads it back as"
+done
+: > "$CALLS"
+printf '404\n' > "$SEQ"
+STUB_REGISTER=401 STUB_STATUS_SEQ="$SEQ" cutrun --register-only umbree "$STABLE_STAMP"
+check "register-only, a 401 still refuses" "$rc" "1"
+check_contains "…with the status" "$out" "HTTP 401"
+check "…no marker commit" "$(/usr/bin/git -C "$REL" rev-list --count "$head_before..HEAD")" "0"
 rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json"
 : > "$CALLS"
 cutrun --register-only umbree "$STABLE_STAMP"

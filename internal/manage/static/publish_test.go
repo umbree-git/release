@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -73,6 +74,11 @@ func TestRemoteDestRequiresSSHKey(t *testing.T) {
 		{"static-host:/srv/../etc", "/keys/static", "/data/known_hosts"},
 		{"relative/dir", "", ""},
 		{"/srv/../etc", "", ""},
+		{"a@-oProxyCommand:/srv/static", "/keys/static", "/data/known_hosts"},
+		{"-user@static-host:/srv/static", "/keys/static", "/data/known_hosts"},
+		{"a@b@static-host:/srv/static", "/keys/static", "/data/known_hosts"},
+		{"static-host:/", "/keys/static", "/data/known_hosts"},
+		{"/", "", ""},
 	} {
 		if d, err := static.ParseDest(tc[0], tc[1], tc[2]); err == nil {
 			t.Errorf("ParseDest%q = %+v, want a refusal", tc, d)
@@ -84,6 +90,9 @@ func TestRemoteDestRequiresSSHKey(t *testing.T) {
 	remote, err := static.ParseDest("static-host:/srv/static", "/keys/static", "/data/known_hosts")
 	if err != nil || !remote.Remote() {
 		t.Fatalf("keep-control, remote with a key: %+v %v", remote, err)
+	}
+	if d, err := static.ParseDest("deploy@static-host:/srv/static", "/keys/static", "/data/known_hosts"); err != nil || d.Host != "deploy@static-host" {
+		t.Fatalf("keep-control, a user@host dest: %+v %v", d, err)
 	}
 	local, err := static.ParseDest("/srv/static", "", "")
 	if err != nil || local.Remote() {
@@ -144,24 +153,44 @@ func TestStaticDestLocalDir(t *testing.T) {
 	}
 }
 
-func TestStaticDestScpStubbed(t *testing.T) {
+type batchCommand struct{ verb, from, to string }
+
+func parseBatch(t *testing.T, path string) []batchCommand {
+	t.Helper()
+	var out []batchCommand
+	for _, line := range strings.Split(strings.TrimSpace(readFile(t, path)), "\n") {
+		fields := strings.Fields(line)
+		for i := range fields {
+			fields[i] = strings.Trim(fields[i], `"`)
+		}
+		c := batchCommand{verb: fields[0]}
+		if len(fields) > 1 {
+			c.from = fields[1]
+		}
+		if len(fields) > 2 {
+			c.to = fields[2]
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	var name string
 	var args []string
-	var staged map[string]string
+	var batch []batchCommand
+	uploaded := map[string]string{}
 	run := func(_ context.Context, n string, a ...string) ([]byte, error) {
-		name, args, staged = n, a, map[string]string{}
-		for _, src := range a[len(a)-4 : len(a)-1] {
-			_ = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-				if err == nil && !d.IsDir() {
-					rel, _ := filepath.Rel(filepath.Dir(src), p)
-					staged[rel] = readFile(t, p)
-				}
-				return nil
-			})
+		name, args = n, a
+		batch = parseBatch(t, a[slices.Index(a, "-b")+1])
+		for _, c := range batch {
+			if c.verb == "put" {
+				uploaded[c.to] = readFile(t, c.from)
+			}
 		}
 		return nil, nil
 	}
-	dest, err := static.ParseDest("static-host:/srv/static", "/keys/static", "/data/known_hosts")
+	dest, err := static.ParseDest("deploy@static-host:/srv/static", "/keys/static", "/data/known_hosts")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,26 +198,41 @@ func TestStaticDestScpStubbed(t *testing.T) {
 	if _, err := p.Publish(context.Background(), "umbree"); err != nil {
 		t.Fatal(err)
 	}
-	if name != "scp" {
-		t.Fatalf("ran %q, want scp", name)
-	}
 	joined := strings.Join(args, " ")
+	if name != "sftp" || args[len(args)-1] != "deploy@static-host" {
+		t.Fatalf("ran %s %q, want sftp to deploy@static-host", name, joined)
+	}
 	for _, want := range []string{"-i /keys/static", "-o BatchMode=yes", "-o IdentitiesOnly=yes",
-		"-o StrictHostKeyChecking=accept-new", "-o UserKnownHostsFile=/data/known_hosts", "-r", "-q"} {
+		"-o StrictHostKeyChecking=accept-new", "-o UserKnownHostsFile=/data/known_hosts"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("scp argv %q lacks %q", joined, want)
+			t.Errorf("sftp argv %q lacks %q", joined, want)
 		}
 	}
-	if last := args[len(args)-1]; last != "static-host:/srv/static/" {
-		t.Fatalf("scp target %q", last)
+	final := map[string]string{}
+	lastPut, firstRename := -1, len(batch)
+	for i, c := range batch {
+		switch c.verb {
+		case "put":
+			lastPut = i
+			if base := filepath.Base(c.to); !strings.HasPrefix(base, ".") {
+				t.Errorf("put %s lands on a served name, not a dot-temp", c.to)
+			}
+		case "rename":
+			firstRename = min(firstRename, i)
+			final[c.to] = uploaded[c.from]
+		}
 	}
-	keys := make([]string, 0, len(staged))
-	for k := range staged {
-		keys = append(keys, k)
+	if lastPut < 0 || lastPut > firstRename {
+		t.Fatalf("a rename precedes an upload, so a failed upload could follow a replaced file: %+v", batch)
 	}
-	slices.Sort(keys)
-	if want := []string{"index.html", "umbree-release.pub", "umbree/install.sh", "umbree/version.js"}; !slices.Equal(keys, want) {
-		t.Fatalf("staged %v, want %v", keys, want)
+	want := []string{"/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh", "/srv/static/umbree/version.js"}
+	keys := slices.Sorted(maps.Keys(final))
+	if !slices.Equal(keys, want) {
+		t.Fatalf("renamed into place %v, want %v", keys, want)
+	}
+	install, _ := static.NewRenderer(release.Assets).Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase)
+	if final["/srv/static/umbree/install.sh"] != string(install) {
+		t.Fatal("the bytes renamed to install.sh are not the render")
 	}
 }
 
@@ -210,7 +254,7 @@ func TestStaticRefusesBadManifest(t *testing.T) {
 	}
 }
 
-func TestStaticScpFailureNamesItsOutput(t *testing.T) {
+func TestStaticRemoteFailureNamesItsOutput(t *testing.T) {
 	dest, err := static.ParseDest("static-host:/srv/static", "/keys/static", "/data/known_hosts")
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +264,6 @@ func TestStaticScpFailureNamesItsOutput(t *testing.T) {
 			return []byte("Permission denied (publickey)"), errors.New("exit status 1")
 		}}
 	if _, err := failing.Publish(context.Background(), "umbree"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
-		t.Fatalf("a failed scp: %v, want its output in the error", err)
+		t.Fatalf("a failed upload: %v, want its output in the error", err)
 	}
 }

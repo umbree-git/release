@@ -59,3 +59,44 @@ func TestRkitStatusReadsTheRowBack(t *testing.T) {
 		t.Fatalf("unknown verb: exit %d stderr %q; usage must list status", code, errOut.String())
 	}
 }
+
+func statusAnswering(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/releases/nonce", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"nonce":"n","expires_in":300}`))
+	})
+	mux.HandleFunc("POST /api/v1/releases/status", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	srv := httptest.NewTLSServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRkitStatusRefusesUntrustworthyFields(t *testing.T) {
+	key := writeRegisterKey(t)
+	for name, body := range map[string]string{
+		"newline in stamp":   `{"id":3,"state":"staged","stamp":"` + registerStamp + `\nrow 9 public x y","version":"0.1.8"}`,
+		"another stamp":      `{"id":3,"state":"staged","stamp":"v0.1.9.2026.09.20.7162a3f3","version":"0.1.8"}`,
+		"unknown state":      `{"id":3,"state":"live","stamp":"` + registerStamp + `","version":"0.1.8"}`,
+		"zero id":            `{"id":0,"state":"staged","stamp":"` + registerStamp + `","version":"0.1.8"}`,
+		"negative id":        `{"id":-4,"state":"staged","stamp":"` + registerStamp + `","version":"0.1.8"}`,
+		"space in version":   `{"id":3,"state":"staged","stamp":"` + registerStamp + `","version":"0.1.8 x"}`,
+		"control in version": `{"id":3,"state":"staged","stamp":"` + registerStamp + `","version":"0.1.8\u001b"}`,
+		"empty version":      `{"id":3,"state":"staged","stamp":"` + registerStamp + `","version":""}`,
+	} {
+		srv := statusAnswering(t, body)
+		var out, errOut bytes.Buffer
+		args := []string{"status", "--manage-url", srv.URL, "--sign-key", key, "--component", "umbree", "--channel", "production", "--stamp", registerStamp}
+		if code := run(context.Background(), args, &out, &errOut, srv.Client()); code != 1 || out.Len() != 0 {
+			t.Errorf("%s: exit %d stdout %q stderr %q, want exit 1 and nothing printed", name, code, out.String(), errOut.String())
+		}
+	}
+	srv := statusAnswering(t, `{"id":3,"state":"expired","stamp":"`+registerStamp+`","version":"0.1.8"}`)
+	var out, errOut bytes.Buffer
+	args := []string{"status", "--manage-url", srv.URL, "--sign-key", key, "--component", "umbree", "--channel", "production", "--stamp", registerStamp}
+	if code := run(context.Background(), args, &out, &errOut, srv.Client()); code != 0 || out.String() != "row 3 expired 0.1.8 "+registerStamp+"\n" {
+		t.Fatalf("keep-control, a well-formed row in another state: exit %d %q %q", code, out.String(), errOut.String())
+	}
+}

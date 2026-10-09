@@ -110,6 +110,20 @@ check "a dirty tree refuses" "$rc" "1"
 check "…promote-check was never asked" "$(grep -c . "$CALLS")" "0"
 /usr/bin/git -C "$REPO" checkout -q -- README.md
 
+echo "# refuses off main"
+/usr/bin/git -C "$REPO" checkout -q -b elsewhere
+STUB_RC=0 STUB_LINE="umbree stable 0.1.9 $STAMP 2026-10-09T00:00:00Z" run umbree "$STAMP"
+check "a branch other than main refuses" "$rc" "1"
+check_contains "…naming the branch" "$out" "elsewhere"
+check "…promote-check was never asked" "$(grep -c . "$CALLS")" "0"
+nothing_written "off main"
+/usr/bin/git -C "$REPO" checkout -q main
+/usr/bin/git -C "$REPO" checkout -q --detach
+STUB_RC=0 STUB_LINE="umbree stable 0.1.9 $STAMP 2026-10-09T00:00:00Z" run umbree "$STAMP"
+check "a detached HEAD refuses" "$rc" "1"
+nothing_written "detached"
+/usr/bin/git -C "$REPO" checkout -q main
+
 echo "# live writes stamp regenerates and marks"
 STUB_RC=0 STUB_LINE="umbree stable 0.1.9 $STAMP 2026-10-09T00:00:00Z" run umbree "$STAMP"
 check "live writes stamp regenerates and marks" "$rc" "0"
