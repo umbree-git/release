@@ -73,8 +73,8 @@ func TestRetentionPreviewNoDelete(t *testing.T) {
 	}
 	p := b.preview(gatedControl)
 	oldest := "umbree/production/" + stampOf("0.0.1", 1) + "/"
-	if len(p.keys) != 3 {
-		t.Fatalf("the preview names %v, want the oldest row's 3 keys", p.keys)
+	if len(p.keys) != 4 {
+		t.Fatalf("the preview names %v, want the oldest row's 4 keys", p.keys)
 	}
 	for _, k := range p.keys {
 		if !strings.HasPrefix(k, oldest) {
@@ -123,7 +123,7 @@ func TestRetentionPlanChanged409(t *testing.T) {
 		t.Fatalf("a changed plan deleted %v", got)
 	}
 	again := b.preview(gatedControl)
-	if len(again.keys) != 6 || again.fingerprint == p.fingerprint {
+	if len(again.keys) != 8 || again.fingerprint == p.fingerprint {
 		t.Fatalf("control: a fresh preview names %v (%s)", again.keys, again.fingerprint)
 	}
 }
