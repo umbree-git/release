@@ -57,8 +57,8 @@ var flagUsage = map[string]string{
 	"gated-bucket":    "the private gated `bucket`; must differ from --public-bucket",
 	"public-bucket":   "the public download `bucket`",
 	"public-base-url": "the public download `url` the manifests are served from",
-	"static-dest":     "where promote and yank republish the static surface: an absolute `dir` on this host, or <host>:<absolute dir> over scp",
-	"static-ssh-key":  "the ssh `file` scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own",
+	"static-dest":     "where promote and yank republish the static surface: an absolute `dir` on this host other than /, or [<user>@]<host>:<absolute dir> over sftp (uploaded under temp names, then renamed into place)",
+	"static-ssh-key":  "the ssh `file` sftp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own",
 }
 
 func twinUsage(name string) string {

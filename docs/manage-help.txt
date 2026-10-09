@@ -44,8 +44,8 @@ Flags:
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
   --secret-key <file>          the operator-provisioned file that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required) (env UMBREE_MANAGE_SECRET_KEY)
-  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host, or <host>:<absolute dir> over scp (env UMBREE_MANAGE_STATIC_DEST)
-  --static-ssh-key <file>      the ssh file scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
+  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host other than /, or [<user>@]<host>:<absolute dir> over sftp (uploaded under temp names, then renamed into place) (env UMBREE_MANAGE_STATIC_DEST)
+  --static-ssh-key <file>      the ssh file sftp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
   --trusted-proxy <ip>         the TLS front's ip as this service sees it; only a peer with this exact address may name the client in X-Forwarded-For (rightmost entry). Unset: no forwarded header is read (env UMBREE_MANAGE_TRUSTED_PROXY)
 
 ==> umbree-release-manage migrate --help
@@ -101,8 +101,8 @@ Flags:
   --public-bucket <bucket>     the public download bucket (env UMBREE_R2_BUCKET)
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
-  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host, or <host>:<absolute dir> over scp (env UMBREE_MANAGE_STATIC_DEST)
-  --static-ssh-key <file>      the ssh file scp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
+  --static-dest <dir>          where promote and yank republish the static surface: an absolute dir on this host other than /, or [<user>@]<host>:<absolute dir> over sftp (uploaded under temp names, then renamed into place) (env UMBREE_MANAGE_STATIC_DEST)
+  --static-ssh-key <file>      the ssh file sftp uses for a remote --static-dest: a key restricted on that host to writing under the static dir; never the operator's own (env UMBREE_MANAGE_STATIC_SSH_KEY)
 
 ==> umbree-release-manage admin --help
 

@@ -96,7 +96,7 @@ again on a by-hand republish:
 
 Nothing else runs on the host as part of publishing: no build and no
 dispatcher. The manage service need not run on this host; when it does not,
-it copies the files with scp and a dedicated key (section 7). The renderer is
+it uploads the files over sftp with a dedicated key (section 7). The renderer is
 held byte-identical to `tools/gen-bootstraps.sh` and `tools/gen-version-jsonp.sh`
 by a test.
 
@@ -165,11 +165,15 @@ shapes, both sealed with the deployment, never committed:
   the unit's `ReadWritePaths=` beside `<MANAGE_DATA_DIR>`; `ProtectSystem=strict`
   makes everything else read-only. The directory is the operator's to create;
   the service never creates it.
-- **`<RELEASE_HOST>:<STATIC_DIR>`**, copied over scp. It needs
+- **`[<user>@]<RELEASE_HOST>:<STATIC_DIR>`**, over sftp. One batch puts every
+  file under a dot-temp name beside its target and only then renames each over
+  the served name, so a killed or partial upload never leaves a truncated
+  `install.sh` being served (the release host's sftp server must offer
+  OpenSSH's `posix-rename`, as OpenSSH does). It needs
   `--static-ssh-key`, a key made for this alone on `<MANAGE_HOST>`, readable by
   `<SERVICE_USER>` and outside `/home` (the unit sets `ProtectHome=yes`). On
-  `<RELEASE_HOST>` restrict it to writing under `<STATIC_DIR>`, with a forced
-  command or a dedicated user; it is never the operator's own key. The host key
+  `<RELEASE_HOST>` restrict it to writing under `<STATIC_DIR>`, for example a
+  dedicated user with `ForceCommand internal-sftp` and a `ChrootDirectory`; it is never the operator's own key. The host key
   is learned on first contact into `<MANAGE_DATA_DIR>/static_known_hosts`
   (`accept-new`) and checked strictly after that. `serve` refuses a remote dest
   without the key.

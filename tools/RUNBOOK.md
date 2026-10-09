@@ -123,7 +123,10 @@ Promote and yank end by republishing `<comp>/install.sh`, `<comp>/version.js`,
 the public key and the site page to the service's `--static-dest`. A failure
 is a `static` error event in the promote's stream and a warning in the
 service's log; the promote or yank itself stands, and installers keep
-resolving the live manifest. Until the republish succeeds the served installer
+resolving the live manifest. A remote republish uploads under dot-temp names
+and renames only after every upload, so a failed one leaves the previous files
+served whole, at worst with stray dot-files beside them. Until the republish
+succeeds the served installer
 still bakes the old floor — after a yank that means it refuses the successor
 as below its floor. Republish from the overview's **Republish static** control,
 or on `<MANAGE_HOST>` as `<SERVICE_USER>`, with the service's environment file
@@ -204,8 +207,10 @@ Pins are catalog rows (`umbree-release-manage admin pin <comp> <stamp>`); the
 old `tools/retain-permanent` file is gone. The listing-based `r2-prune`
 (`tools/r2-mirror/cmd/r2-prune`) and `prune-releases.sh` are manual tools for
 the dormant beta channel only; nothing runs them for stable. `r2-prune
---protect <file>` still takes a pin list, which is the operator's to write for
-that run.
+--protect <file>` takes a pin list, which is the operator's to write for that
+run. **Without `--protect`, `r2-prune --execute` deletes pinned releases too**:
+it never reads the catalog's admin pins, and it no longer guesses a default
+file.
 
 ## New bootstraps reach users at the first promote
 
