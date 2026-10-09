@@ -245,3 +245,20 @@ func TestHistoryHidesLinksOfPrunedPublicRow(t *testing.T) {
 		t.Fatal("keep-control: the current row lost its links")
 	}
 }
+
+func TestHistoryHidesLinksOfPartlyPrunedRow(t *testing.T) {
+	c := newConsole(t)
+	c.promoteDirect(c.stage("old", "0.0.1", 1))
+	c.promoteDirect(c.stage("cur", "0.0.2", 1))
+	b := c.signedIn("ops")
+	oldLink := publicBase + "/umbree/" + stampOf("0.0.1", 1) + "/"
+	if r := b.get("/manage/production/umbree/history"); !strings.Contains(r.body, oldLink) {
+		t.Fatal("keep-control: the public row's links are missing before the prune starts")
+	}
+	if err := c.st.MarkPublicPruning(c.rows["old"], c.now); err != nil {
+		t.Fatal(err)
+	}
+	if r := b.get("/manage/production/umbree/history"); strings.Contains(r.body, oldLink) {
+		t.Fatal("the history links a row whose public bytes are partly deleted")
+	}
+}

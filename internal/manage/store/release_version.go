@@ -14,23 +14,24 @@ import (
 )
 
 type ReleaseVersion struct {
-	ID             int64
-	Component      string
-	Channel        string
-	Version        string
-	Stamp          string
-	ArtifactsJSON  string
-	SumsKey        string
-	MinisigKey     string
-	State          string
-	IsCurrent      bool
-	Permanent      bool
-	CreatedAt      time.Time
-	PromotedAt     time.Time
-	YankedAt       time.Time
-	ExpiredAt      time.Time
-	GatedPrunedAt  time.Time
-	PublicPrunedAt time.Time
+	ID              int64
+	Component       string
+	Channel         string
+	Version         string
+	Stamp           string
+	ArtifactsJSON   string
+	SumsKey         string
+	MinisigKey      string
+	State           string
+	IsCurrent       bool
+	Permanent       bool
+	CreatedAt       time.Time
+	PromotedAt      time.Time
+	YankedAt        time.Time
+	ExpiredAt       time.Time
+	GatedPrunedAt   time.Time
+	PublicPrunedAt  time.Time
+	PublicPruningAt time.Time
 }
 
 type edge struct{ from, to string }

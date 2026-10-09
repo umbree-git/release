@@ -96,3 +96,7 @@ func (s *Store) SetPermanent(component, channel, stamp string, pinned bool, acto
 	rv.Permanent = pinned
 	return rv, nil
 }
+
+func (s *Store) MarkPublicPruning(id int64, at time.Time) error {
+	return nil
+}

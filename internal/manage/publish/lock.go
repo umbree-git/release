@@ -24,6 +24,13 @@ func NewLocks(wait time.Duration) *Locks {
 	return &Locks{After: time.After, wait: wait, slots: map[string]chan struct{}{}}
 }
 
+func NewSharedLocks(wait time.Duration, dataDir string) (*Locks, error) {
+	if dataDir == "" {
+		return nil, errors.New("publish: shared locks need the data dir")
+	}
+	return NewLocks(wait), nil
+}
+
 func (l *Locks) slot(component, channel string) chan struct{} {
 	l.mu.Lock()
 	defer l.mu.Unlock()

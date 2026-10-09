@@ -1,7 +1,13 @@
 package retention_test
 
 import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/umbree-git/release/internal/manage/backend/backendtest"
 
 	"github.com/umbree-git/release/internal/manage/retention"
 )
@@ -150,7 +156,7 @@ func TestPublicCurrentNeverExpiredEvenOldest(t *testing.T) {
 	if cur.State != "public" || !cur.IsCurrent || !cur.PublicPrunedAt.IsZero() {
 		t.Fatalf("the oldest, current row is %+v, want public, current, public bytes kept", cur)
 	}
-	w.wantPublic(t, []string{"0.1.1", "0.1.3", "0.1.4", "0.1.5", "0.1.6"}, []string{"0.1.2"})
+	w.wantPublic(t, []string{"0.1.1"}, []string{"0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6"})
 }
 
 func TestPublicPinKeptOutsideWindow(t *testing.T) {
@@ -219,18 +225,70 @@ func TestExpiringNeverClearsPromotedAt(t *testing.T) {
 	}
 }
 
-func TestPublicKeepsHighWaterMarkBytes(t *testing.T) {
+func TestYankedMarkPrunedKeepsPromotedAt(t *testing.T) {
 	w := newWorld(t)
 	w.live("0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7")
 	if err := publishYank(w, w.ids["0.1.7"]); err != nil {
 		t.Fatal(err)
 	}
+	promoted := w.row("0.1.7").PromotedAt
 	w.retain(retention.Gated, retention.Public)
 	mark := w.row("0.1.7")
-	if mark.State != "yanked" || !mark.PublicPrunedAt.IsZero() {
-		t.Fatalf("the high-water mark is %+v, want yanked with its public bytes", mark)
+	if mark.State != "yanked" || mark.PublicPrunedAt.IsZero() || !mark.PromotedAt.Equal(promoted) {
+		t.Fatalf("the yanked high-water mark is %+v, want yanked, public bytes pruned, promoted_at unchanged", mark)
 	}
-	w.wantPublic(t, []string{"0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7"}, []string{"0.1.1", "0.1.2"})
+	w.wantPublic(t, []string{"0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6"}, []string{"0.1.1", "0.1.7"})
+	hw, err := w.st.HighWaterMark("umbree", "production")
+	if err != nil || hw.Stamp != stampOf("0.1.7") {
+		t.Fatalf("HighWaterMark = %v, %v after its bytes were pruned; want 0.1.7", hw, err)
+	}
+}
+
+func TestYankedRowsTakeNoPublicSlot(t *testing.T) {
+	w := newWorld(t)
+	all := []string{"0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7", "0.1.8", "0.1.9", "0.1.10"}
+	w.live(all...)
+	yanked := []string{"0.1.10", "0.1.9", "0.1.8", "0.1.7", "0.1.6"}
+	for _, v := range yanked {
+		if err := publishYank(w, w.ids[v]); err != nil {
+			t.Fatalf("yank %s: %v", v, err)
+		}
+	}
+	p := w.plan(retention.Public)
+	for _, v := range yanked {
+		for _, k := range w.publicKeys(v) {
+			if !slices.Contains(p.Keys(), k) {
+				t.Fatalf("yanked %s: %s is not in the prune plan", v, k)
+			}
+		}
+	}
+	w.retain(retention.Public)
+	w.wantPublic(t, []string{"0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5"}, yanked)
+	if !w.row("0.1.5").IsCurrent {
+		t.Fatal("setup: 0.1.5 is not current")
+	}
+	if err := publishYank(w, w.ids["0.1.5"]); err != nil {
+		t.Fatalf("a further yank found no successor: %v", err)
+	}
+	if !w.row("0.1.4").IsCurrent {
+		t.Fatal("the further yank did not re-point to 0.1.4")
+	}
+}
+
+func TestYankedPinnedOrNamedKeepBytes(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5")
+	for _, v := range []string{"0.1.5", "0.1.4", "0.1.3"} {
+		if err := publishYank(w, w.ids[v]); err != nil {
+			t.Fatalf("yank %s: %v", v, err)
+		}
+	}
+	if _, err := w.st.SetPermanent("umbree", "production", stampOf("0.1.5"), true, "test-operator", epoch); err != nil {
+		t.Fatal(err)
+	}
+	w.public.Seed("umbree/latest.json", []byte(`{"stamp":"`+stampOf("0.1.4")+`"}`))
+	w.retain(retention.Public)
+	w.wantPublic(t, []string{"0.1.5", "0.1.4", "0.1.2", "0.1.1"}, []string{"0.1.3"})
 }
 
 func TestPublicKeepsManifestStamp(t *testing.T) {
@@ -250,5 +308,64 @@ func TestPublicKeepsManifestStamp(t *testing.T) {
 	w.public.Seed("umbree/latest.json", []byte(`not json`))
 	if _, err := w.r.Plan(t.Context(), "umbree", "production", retention.Public); err == nil {
 		t.Fatal("an unreadable latest.json still produced a public plan")
+	}
+}
+
+func TestFailedDeleteMidRowAuditedAndUnlinked(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6")
+	keys := w.publicKeys("0.1.1")
+	slices.Sort(keys)
+	w.public.FailOn("DELETE", keys[1], errors.New("bucket unavailable"))
+	if _, err := w.r.Retain(context.Background(), "umbree", "production", "test-operator", retention.Public); err == nil {
+		t.Fatal("a failed DELETE was not reported")
+	}
+	rv := w.row("0.1.1")
+	if rv.PublicPruningAt.IsZero() || !rv.PublicPrunedAt.IsZero() || rv.State != "public" {
+		t.Fatalf("a part-pruned row is %+v, want marked pruning, not pruned, still public", rv)
+	}
+	if _, ok := w.public.Body(keys[0]); ok {
+		t.Fatalf("setup: %s was not deleted before the failure", keys[0])
+	}
+	log, err := w.st.AuditLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := log[len(log)-1]
+	if last.Action != "prune-public-partial" || last.Actor != "test-operator" || last.RowID != rv.ID ||
+		!strings.Contains(last.Detail, keys[0]) || !strings.Contains(last.Detail, "bucket unavailable") {
+		t.Fatalf("audit %+v does not name the deleted key, the actor and the failure", last)
+	}
+	w.public.FailOn("DELETE", keys[1], nil)
+	w.retain(retention.Public)
+	if rv := w.row("0.1.1"); rv.PublicPrunedAt.IsZero() {
+		t.Fatalf("the retry did not finish the row: %+v", rv)
+	}
+	w.wantPublic(t, nil, []string{"0.1.1"})
+}
+
+func TestManifestSwitchedMidPassKeepsNamedRow(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7")
+	switched := false
+	w.public.OnCall = func(c backendtest.Call) {
+		if c.Op == "DELETE" && !switched {
+			switched = true
+			w.public.Seed("umbree/latest.json", []byte(`{"stamp":"`+stampOf("0.1.1")+`"}`))
+		}
+	}
+	reps, err := w.r.Retain(context.Background(), "umbree", "production", "test-operator", retention.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !switched {
+		t.Fatal("setup: no DELETE ran")
+	}
+	w.wantPublic(t, []string{"0.1.1"}, []string{"0.1.2"})
+	if rv := w.row("0.1.1"); !rv.PublicPrunedAt.IsZero() || !rv.PublicPruningAt.IsZero() {
+		t.Fatalf("the row the manifest names was touched: %+v", rv)
+	}
+	if !slices.ContainsFunc(reps[0].Skipped, func(s retention.Skip) bool { return s.Stamp == stampOf("0.1.1") }) {
+		t.Fatalf("the kept row is not reported: %+v", reps[0].Skipped)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/umbree-git/release/internal/manage/backend/backendtest"
+	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/retention"
 	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/register"
@@ -127,5 +128,49 @@ func TestRetainVerbDryRunDeletesNothing(t *testing.T) {
 		if !strings.Contains(r.stdout, want) {
 			t.Fatalf("dry-run stdout %q does not carry %q", r.stdout, want)
 		}
+	}
+}
+
+func TestRetainHonoursTheServiceLock(t *testing.T) {
+	dir, gated, _ := retainFixture(t)
+	held, err := publish.NewSharedLocks(publish.DefaultLockWait, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := held.Acquire(context.Background(), "umbree", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := invokeLive(t, retainVars, "retain", "--data-dir", dir)
+	release()
+	if r.code == 0 || !strings.Contains(r.stderr, "busy") {
+		t.Fatalf("retain while another process holds umbree/production: exit %d stderr %q", r.code, r.stderr)
+	}
+	got := states(t, dir)
+	if got["umbree 0.1.1"] != "staged" || got["umbreed 0.1.1"] != "expired" {
+		t.Fatalf("retain under a held umbree lock: %v; want umbree untouched and umbreed retained", got)
+	}
+	if gated.Count("DELETE") != 3 {
+		t.Fatalf("%d gated DELETEs, want only umbreed's 3", gated.Count("DELETE"))
+	}
+}
+
+func TestMarkYankedHonoursTheServiceLock(t *testing.T) {
+	dir, id := seedPublicRow(t)
+	held, err := publish.NewSharedLocks(publish.DefaultLockWait, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := held.Acquire(context.Background(), "umbree", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := invokeLive(t, map[string]string{"USER": "op"}, "admin", "mark-yanked", fmt.Sprint(id), "--data-dir", dir, "--reason", "x")
+	release()
+	if r.code == 0 || !strings.Contains(r.stderr, "busy") {
+		t.Fatalf("mark-yanked under a held lock: exit %d stderr %q", r.code, r.stderr)
+	}
+	if r := invokeLive(t, map[string]string{"USER": "op"}, "admin", "mark-yanked", fmt.Sprint(id), "--data-dir", dir, "--reason", "x"); r.code != 0 {
+		t.Fatalf("keep-control after release: exit %d stderr %q", r.code, r.stderr)
 	}
 }

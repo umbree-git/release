@@ -134,9 +134,13 @@ func TestKeyOutsidePrefixSkipped(t *testing.T) {
 			t.Fatalf("%s outside the row's prefix was deleted", k)
 		}
 	}
-	own := "umbree/production/" + stampOf("0.1.1") + "/umbree-darwin-arm64.zip"
-	if _, ok := w.gated.Body(own); ok {
-		t.Fatalf("keep-control: the row's own key %s was not deleted", own)
+	if !w.holds(w.gated, w.gatedKeys("0.1.1")[:4]) {
+		t.Fatal("a row with a key outside its prefix lost its own keys; an incomplete row is never targeted")
+	}
+	for _, tg := range p.Targets {
+		if tg.Stamp == stampOf("0.1.1") {
+			t.Fatalf("the incomplete row is a target: %+v", tg)
+		}
 	}
 	if rv := w.row("0.1.1"); !rv.GatedPrunedAt.IsZero() || rv.State != "staged" {
 		t.Fatalf("a row with skipped keys is %+v, want staged and not recorded pruned", rv)

@@ -57,9 +57,9 @@ func TestKeyNotInRowSkipped(t *testing.T) {
 	del := &recordingDeleter{}
 	r := &Retainer{Store: st, Gated: del}
 	var rep Report
-	r.applyTarget(context.Background(), del, Gated, Target{RowID: id, Stamp: testStamp, Keys: []string{own, stranger}, Complete: true}, "test-operator", &rep)
-	if len(del.keys) != 1 || del.keys[0] != own {
-		t.Fatalf("deleted %v, want only the row's own key", del.keys)
+	r.applyTarget(context.Background(), del, Gated, Target{RowID: id, Stamp: testStamp, Keys: []string{own, stranger}}, "test-operator", &rep)
+	if len(del.keys) != 0 {
+		t.Fatalf("deleted %v; a row with any key that fails the check loses none", del.keys)
 	}
 	if len(rep.Skipped) != 1 || rep.Skipped[0].Key != stranger {
 		t.Fatalf("skipped %+v, want the stranger key reported", rep.Skipped)
