@@ -40,6 +40,7 @@ Flags:
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
   --secret-key <file>          the operator-provisioned file that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required) (env UMBREE_MANAGE_SECRET_KEY)
+  --trusted-proxy <ip>         the TLS front's ip as this service sees it; only a peer with this exact address may name the client in X-Forwarded-For (rightmost entry). Unset: no forwarded header is read (env UMBREE_MANAGE_TRUSTED_PROXY)
 
 ==> umbree-release-manage migrate --help
 

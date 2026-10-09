@@ -139,9 +139,15 @@ every admin with `admin reset-totp`.
 The service reads its settings from flags or from these variables, all sealed
 and never committed: `UMBREE_MANAGE_DATA_DIR`, `UMBREE_MANAGE_SECRET_KEY`,
 `UMBREE_R2_ACCOUNT`, `UMBREE_R2_CREDS`, `UMBREE_R2_GATED_BUCKET`,
-`UMBREE_R2_BUCKET`, `UMBREE_PUBLIC_BASE_URL`. `--public-base-url` must be an
+`UMBREE_R2_BUCKET`, `UMBREE_PUBLIC_BASE_URL`, `UMBREE_MANAGE_TRUSTED_PROXY`. `--public-base-url` must be an
 `https` URL with a host name. Every outbound request goes through the guard:
 https only, no userinfo, no IP literal or private address, and no redirect.
+
+Set `--trusted-proxy` to the TLS front's address as the service sees it (one IP
+literal). Only then is the client taken from the rightmost `X-Forwarded-For`
+entry. Unset, no forwarded header is read, every client behind the front shares
+one sign-in budget, and `serve` logs one warning at start saying so. Failed
+sign-ins are limited to 5 per client and name and 50 per name, per 15 minutes.
 
 ### Admins
 
@@ -151,11 +157,13 @@ umbree-release-manage admin add <name> --data-dir <MANAGE_DATA_DIR> --secret-key
 umbree-release-manage admin list --data-dir <MANAGE_DATA_DIR>
 umbree-release-manage admin reset-totp <name> --data-dir <MANAGE_DATA_DIR> --secret-key <SECRET_KEY_FILE>
 umbree-release-manage admin remove <name> --data-dir <MANAGE_DATA_DIR>
+umbree-release-manage admin unlock <name> --data-dir <MANAGE_DATA_DIR> --reason <why>
 ```
 
 `admin add` prompts for the password on the terminal, or reads it from stdin
 with `--password-stdin`. It prints the TOTP enrolment once, so scan it then.
-`reset-totp` and `remove` end the admin's sessions.
+`reset-totp` and `remove` end the admin's sessions. `unlock` clears a name's
+failed sign-ins from every source, and the audit log records who did it and why.
 
 ### Smoke test
 
