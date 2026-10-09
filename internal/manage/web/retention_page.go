@@ -34,8 +34,6 @@ func retentionAction(w retention.Window, channel, component, fingerprint string)
 }
 
 func (s *Server) handleRetention(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	http.NotFound(w, r)
-	return
 	channel, comp, ok := pageTarget(r)
 	win, err := retention.ParseWindow(r.PathValue("window"))
 	if !ok || err != nil || s.cfg.Retention == nil {
