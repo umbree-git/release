@@ -12,18 +12,18 @@ import (
 	"umbree-release-r2-mirror/manifest"
 
 	"github.com/umbree-git/release/internal/manage/backend"
+	"github.com/umbree-git/release/internal/manage/catalog"
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
 const maxManifestBytes = 64 << 10
 
 type Target struct {
-	RowID    int64
-	Stamp    string
-	State    string
-	Keys     []string
-	Expires  bool
-	Complete bool
+	RowID   int64
+	Stamp   string
+	State   string
+	Keys    []string
+	Expires bool
 }
 
 type Plan struct {
@@ -49,7 +49,7 @@ func (p Plan) Empty() bool { return len(p.Targets) == 0 }
 func (p Plan) Fingerprint() string {
 	lines := []string{fmt.Sprintf("window %s %s/%s", p.Window, p.Component, p.Channel)}
 	for _, t := range p.Targets {
-		lines = append(lines, fmt.Sprintf("row %d %s %s expires=%t complete=%t", t.RowID, t.Stamp, t.State, t.Expires, t.Complete))
+		lines = append(lines, fmt.Sprintf("row %d %s %s expires=%t", t.RowID, t.Stamp, t.State, t.Expires))
 		for _, k := range t.Keys {
 			lines = append(lines, fmt.Sprintf("delete %d %s", t.RowID, k))
 		}
@@ -105,11 +105,15 @@ func publicWindow(rows []store.ReleaseVersion) map[int64]string {
 		if len(kept) >= KeepPublicProduction {
 			break
 		}
-		if _, ok := kept[rv.ID]; !ok && !rv.PromotedAt.IsZero() {
+		if _, ok := kept[rv.ID]; !ok && rollbackCandidate(rv) {
 			kept[rv.ID] = "newest " + fmt.Sprint(KeepPublicProduction)
 		}
 	}
 	return kept
+}
+
+func rollbackCandidate(rv store.ReleaseVersion) bool {
+	return rv.State == catalog.StatePublic && rv.PublicPrunedAt.IsZero() && rv.PublicPruningAt.IsZero()
 }
 
 func (p *Plan) planPublic(rows []store.ReleaseVersion, named string) {
@@ -136,26 +140,22 @@ func (p *Plan) planPublic(rows []store.ReleaseVersion, named string) {
 }
 
 func (p *Plan) addTarget(rv store.ReleaseVersion) {
-	t := Target{RowID: rv.ID, Stamp: rv.Stamp, State: rv.State, Expires: expiresAfter(rv, p.Window), Complete: true}
 	keys, err := storedKeys(rv, p.Window)
 	if err != nil {
 		p.Skipped = append(p.Skipped, Skip{RowID: rv.ID, Stamp: rv.Stamp, Reason: err.Error()})
 		return
 	}
+	var bad []Skip
 	for _, key := range keys {
 		if err := checkKey(rv, p.Window, key); err != nil {
-			p.Skipped = append(p.Skipped, Skip{RowID: rv.ID, Stamp: rv.Stamp, Key: key, Reason: err.Error()})
-			t.Complete = false
-			continue
+			bad = append(bad, Skip{RowID: rv.ID, Stamp: rv.Stamp, Key: key, Reason: err.Error() + "; the whole row is left alone"})
 		}
-		t.Keys = append(t.Keys, key)
 	}
-	if !t.Complete {
-		t.Expires = false
+	if len(bad) > 0 {
+		p.Skipped = append(p.Skipped, bad...)
+		return
 	}
-	if len(t.Keys) > 0 || t.Complete {
-		p.Targets = append(p.Targets, t)
-	}
+	p.Targets = append(p.Targets, Target{RowID: rv.ID, Stamp: rv.Stamp, State: rv.State, Keys: keys, Expires: expiresAfter(rv, p.Window)})
 }
 
 func expiresAfter(rv store.ReleaseVersion, w Window) bool {

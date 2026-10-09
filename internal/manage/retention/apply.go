@@ -41,30 +41,55 @@ func (r *Retainer) applyTarget(ctx context.Context, del Deleter, w Window, t Tar
 		rep.Failed = append(rep.Failed, fmt.Sprintf("row %d: %v", t.RowID, err))
 		return
 	}
-	if reason := notPrunable(*rv, w); reason != "" {
-		for _, key := range t.Keys {
-			rep.Skipped = append(rep.Skipped, Skip{RowID: rv.ID, Stamp: rv.Stamp, Key: key, Reason: reason})
-		}
+	if key, reason := r.refusal(ctx, *rv, w, t.Keys); reason != "" {
+		rep.Skipped = append(rep.Skipped, Skip{RowID: rv.ID, Stamp: rv.Stamp, Key: key, Reason: reason})
 		return
 	}
-	clean := t.Complete
+	if w == Public {
+		if err := r.Store.MarkPublicPruning(rv.ID, r.now()); err != nil {
+			rep.Failed = append(rep.Failed, fmt.Sprintf("row %d: %v", rv.ID, err))
+			return
+		}
+	}
 	var deleted []string
 	for _, key := range t.Keys {
-		if err := checkKey(*rv, w, key); err != nil {
-			rep.Skipped = append(rep.Skipped, Skip{RowID: rv.ID, Stamp: rv.Stamp, Key: key, Reason: err.Error()})
-			clean = false
-			continue
-		}
 		if err := del.Delete(ctx, key); err != nil {
+			rep.Deleted = append(rep.Deleted, deleted...)
 			rep.Failed = append(rep.Failed, key+": "+err.Error())
-			clean = false
-			continue
+			r.recordPartial(*rv, w, deleted, key+": "+err.Error(), actor, rep)
+			return
 		}
 		deleted = append(deleted, key)
 	}
 	rep.Deleted = append(rep.Deleted, deleted...)
-	if clean {
-		r.record(*rv, w, deleted, actor, rep)
+	r.record(*rv, w, deleted, actor, rep)
+}
+
+func (r *Retainer) refusal(ctx context.Context, rv store.ReleaseVersion, w Window, keys []string) (string, string) {
+	if reason := notPrunable(rv, w); reason != "" {
+		return "", reason
+	}
+	for _, key := range keys {
+		if err := checkKey(rv, w, key); err != nil {
+			return key, err.Error() + "; the whole row is left alone"
+		}
+	}
+	if w != Public {
+		return "", ""
+	}
+	named, err := r.manifestStamp(ctx, rv.Component)
+	if err != nil {
+		return "", "the manifest could not be read again before the delete: " + err.Error()
+	}
+	if named == rv.Stamp {
+		return "", "latest.json names this stamp"
+	}
+	return "", ""
+}
+
+func (r *Retainer) recordPartial(rv store.ReleaseVersion, w Window, deleted []string, failure, actor string, rep *Report) {
+	if err := r.Store.RecordPartialPrune(rv.ID, string(w), deleted, failure, actor, r.now()); err != nil {
+		rep.Failed = append(rep.Failed, fmt.Sprintf("row %d: audit: %v", rv.ID, err))
 	}
 }
 
