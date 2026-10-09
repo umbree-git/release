@@ -165,6 +165,31 @@ with `--password-stdin`. It prints the TOTP enrolment once, so scan it then.
 `reset-totp` and `remove` end the admin's sessions. `unlock` clears a name's
 failed sign-ins from every source, and the audit log records who did it and why.
 
+### Retention
+
+The service runs retention itself: the gated pass after each registration and
+both passes after each promote. The counts and rules are in the top-level
+`README.md` → "Retention". The nightly net is a separate unit pair,
+`ops/systemd/umbree-release-manage-retain.{service,timer}`. It reads the same
+environment file and runs `umbree-release-manage retain`.
+
+**Enabling the timer can delete real bytes.** Do it only after `backfill` and
+after checking both buckets' listings against
+`umbree-release-manage retain --dry-run`. Then confirm the two previews in the
+console.
+
+`retain` is a separate process from `serve`, and the promote lock lives inside
+`serve`. Schedule the timer away from cut and promote hours.
+
+Pins keep a release's public bytes outside the window, and both verbs are
+audited:
+
+```sh
+# OPERATOR, on <MANAGE_HOST>, as <SERVICE_USER>:
+umbree-release-manage admin pin <component> <stamp> --data-dir <MANAGE_DATA_DIR>
+umbree-release-manage admin unpin <component> <stamp> --data-dir <MANAGE_DATA_DIR>
+```
+
 ### Smoke test
 
 ```sh
