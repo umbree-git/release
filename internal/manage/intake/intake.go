@@ -45,7 +45,6 @@ func (h *Handler) RetainAfterStage(fn AfterStage, budget time.Duration) {
 }
 
 func (h *Handler) retainAfterStage(ctx context.Context, component, channel string) string {
-	return ""
 	if h.afterStage == nil {
 		return ""
 	}
