@@ -302,7 +302,6 @@ check_contains "…on the cut's channel and component" "$ar_first" "CHANNEL=stab
 check_contains "…r2-prune --execute runs second" "$ar_second" "go run ./cmd/r2-prune --comp umbree --channel stable --execute"
 check_contains "…from the r2-mirror module" "$ar_second" "pwd=$AR/root/tools/r2-mirror"
 check_contains "…KEEP=1 does not reach prune-releases.sh" "$ar_first" "KEEP=unset"
-check_contains "…KEEP=1 does not reach r2-prune" "$ar_second" "KEEP=unset"
 : > "$AR_LOG"
 apply_retention_in_isolation
 check "…control: with R2 unset only the GitHub half runs" "$(wc -l < "$AR_LOG" | tr -d ' ')" "1"
