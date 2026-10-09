@@ -156,8 +156,8 @@ manifest_fixture() {
     manifest_release "${M_TAMPSUMS}" "${M}/a.key"
     flip_byte "${M}/srv/umbree/${M_TAMPSUMS}/${zip}"
     ( cd "${M}/srv/umbree/${M_TAMPSUMS}" && sha256_line "${zip}" > SHA256SUMS.txt )
-    printf '{"stamp":"%s"}\n' "${M_NEW}" > "${M}/srv/alt/latest.json"
-    printf '{"stamp":"%s"}\n' "${M_OLD}" > "${M}/srv/alt/old.json"
+    manifest_json "${M_NEW}" > "${M}/srv/alt/latest.json"
+    manifest_json "${M_OLD}" > "${M}/srv/alt/old.json"
     printf '#!/bin/sh\n[ "$1" = run ] && [ "$3" = components ] && { echo umbree; exit 0; }\nexit 1\n' > "${M}/gostub/go"
     printf '#!/bin/sh\necho "curl $*" >> "%s/curl.log"\nexit 7\n' "${M}" > "${M}/curlstub/curl"
     chmod +x "${M}/gostub/go" "${M}/curlstub/curl"
@@ -166,6 +166,11 @@ manifest_fixture() {
         || die "gen-bootstraps.sh --test-build failed"
     M_TB="${M}/build/umbree/install.sh"
     M_PATH="$(dirname "$(command -v minisign)"):/usr/bin:/bin"
+}
+
+manifest_json() {
+    printf '{\n  "component": "umbree",\n  "minisig": "umbree/%s/SHA256SUMS.txt.minisig",\n  "path": "umbree/%s",\n  "sha256sums": "umbree/%s/SHA256SUMS.txt",\n  "stamp": "%s",\n  "updated": "2026-02-02T00:00:00Z",\n  "version": "%s",\n  "zips": [\n    "umbree-%s-%s.zip"\n  ]\n}\n' \
+        "$1" "$1" "$1" "$1" "$(printf '%s' "$1" | cut -d. -f1-3)" "${OS}" "${ARCH}"
 }
 
 set_manifest() { printf '%s\n' "$1" > "${M}/srv/umbree/latest.json"; }
@@ -201,7 +206,7 @@ expect_refused() {
 manifest_cases_resolve() {
     local zip="umbree-${OS}-${ARCH}.zip" body
     echo "# resolution reads latest.json and nothing else"
-    set_redirects; set_manifest "{\"stamp\":\"${M_NEW}\"}"
+    set_redirects; set_manifest "$(manifest_json "${M_NEW}")"
     tb happy
     mcheck "stable installs manifest stamp: exit 0" "${B_RC}" "0"
     mcheck "stable installs manifest stamp: the installed build" "${B_GOT}" "umbree ${M_NEW}"
@@ -222,7 +227,7 @@ manifest_cases_resolve() {
         expect_refused "malformed manifest fails: ${body}" "${M_BASE}/umbree/latest.json"
         mcheck "malformed manifest fails: ${body} fetched nothing else" "${B_REQS}" "/umbree/latest.json"
     done
-    set_manifest "{\"stamp\":\"${M_OLD}\"}"
+    set_manifest "$(manifest_json "${M_OLD}")"
     tb below
     expect_refused "manifest below floor refused" "version floor not met"
     mcheck "manifest below floor refused: fetched nothing else" "${B_REQS}" "/umbree/latest.json"
@@ -231,7 +236,7 @@ manifest_cases_resolve() {
 manifest_cases_pin() {
     local pin
     echo "# pins"
-    set_redirects; set_manifest "{\"stamp\":\"${M_NEW}\"}"
+    set_redirects; set_manifest "$(manifest_json "${M_NEW}")"
     tb pin UMBREE_VERSION="umbree/${M_OLD}"
     mcheck "pin downloads from base: exit 0" "${B_RC}" "0"
     mcheck "pin downloads from base: the pinned build, under the floor" "${B_GOT}" "umbree ${M_OLD}"
@@ -254,7 +259,7 @@ manifest_cases_verify() {
     expect_refused "tampered sums refused" "signature verification failed"
     tb wrongkey UMBREE_VERSION="umbree/${M_WRONGKEY}"
     expect_refused "wrong key refused" "signature verification failed"
-    set_manifest "{\"stamp\":\"${M_WRONGKEY}\"}"
+    set_manifest "$(manifest_json "${M_WRONGKEY}")"
     tb tampmanifest
     expect_refused "tampered manifest naming unsigned bytes refused" "signature verification failed"
 }
@@ -262,7 +267,7 @@ manifest_cases_verify() {
 manifest_cases_redirect() {
     local zip="umbree-${OS}-${ARCH}.zip"
     echo "# redirects"
-    set_manifest "{\"stamp\":\"${M_NEW}\"}"
+    set_manifest "$(manifest_json "${M_NEW}")"
     set_redirects "/umbree/latest.json ${M_BASE}/alt/latest.json"
     tb redir-good
     mcheck "redirected manifest is followed: control installs" "${B_GOT}" "umbree ${M_NEW}"
@@ -308,10 +313,10 @@ manifest_cases_nojq() {
         [ "$(basename "${f}")" = jq ] || [ -e "${link}" ] || [ -L "${link}" ] || ln -s "${f}" "${link}"
     done
     [ -e "${M}/nojq/minisign" ] || ln -s "$(command -v minisign)" "${M}/nojq/minisign"
-    set_redirects; set_manifest "{\"stamp\":\"${M_NEW}\"}"
+    set_redirects; set_manifest "$(manifest_json "${M_NEW}")"
     B_PATH="${M}/nojq" tb nojq
     mcheck "stable installs manifest stamp without jq" "${B_GOT}" "umbree ${M_NEW}"
-    set_manifest '{"stamp":"'"${M_NEW}"'\n../../'"${M_OLD}"'"}'
+    set_manifest "$(manifest_json "${M_NEW}\\n../../${M_OLD}")"
     B_PATH="${M}/nojq" tb nojq-bad
     expect_refused "malformed manifest fails without jq" "${M_BASE}/umbree/latest.json"
 }
