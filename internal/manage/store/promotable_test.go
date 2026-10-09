@@ -211,3 +211,78 @@ func TestPromotableFloorIsHighWaterMark(t *testing.T) {
 		assertPromotable(t, s, "0.6.0")
 	})
 }
+
+func TestPromotableFloorSurvivesExpiry(t *testing.T) {
+	t.Run("mark expired from public", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		low := insert(t, s, stagedRow("umbree", "0.2.0", 1, epoch))
+		promoteRow(t, s, low)
+		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
+		promoteRow(t, s, top)
+		if err := s.Transition(top, "public", "expired", epoch.Add(3*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		insert(t, s, stagedRow("umbree", "0.2.5", 3, epoch))
+		assertPromotable(t, s)
+		insert(t, s, stagedRow("umbree", "0.3.1", 4, epoch))
+		assertPromotable(t, s, "0.3.1")
+	})
+	t.Run("mark expired from yanked", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		low := insert(t, s, stagedRow("umbree", "0.2.0", 1, epoch))
+		promoteRow(t, s, low)
+		top := insert(t, s, stagedRow("umbree", "0.3.0", 2, epoch))
+		promoteRow(t, s, top)
+		if err := s.Yank(top, low, epoch.Add(2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transition(top, "yanked", "expired", epoch.Add(3*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		insert(t, s, stagedRow("umbree", "0.2.5", 3, epoch))
+		assertPromotable(t, s)
+	})
+	t.Run("a never-public expired row does not raise the floor", func(t *testing.T) {
+		s := openStore(t, t.TempDir())
+		cur := insert(t, s, stagedRow("umbree", "0.2.0", 1, epoch))
+		promoteRow(t, s, cur)
+		never := insert(t, s, stagedRow("umbree", "0.9.0", 2, epoch))
+		if err := s.Transition(never, "staged", "expired", epoch); err != nil {
+			t.Fatal(err)
+		}
+		insert(t, s, stagedRow("umbree", "0.4.0", 3, epoch))
+		assertPromotable(t, s, "0.4.0")
+	})
+}
+
+func TestEveryPublicRowHasPromotedAt(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	flipped := insert(t, s, stagedRow("umbree", "0.1.0", 1, epoch))
+	promoteRow(t, s, flipped)
+	backfilled, err := s.InsertBackfilled(stagedRow("umbree", "0.0.9", 2, epoch), false, epoch.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := insert(t, s, stagedRow("umbree", "0.2.0", 3, epoch))
+	for _, id := range []int64{flipped, backfilled} {
+		rv, err := s.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rv.State != "public" || rv.PromotedAt.IsZero() {
+			t.Fatalf("row %d reached public with promoted_at %v", id, rv.PromotedAt)
+		}
+	}
+	if rv, _ := s.Get(staged); !rv.PromotedAt.IsZero() {
+		t.Fatal("a staged row carries promoted_at")
+	}
+	rows, err := s.List("umbree", "production", "public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rv := range rows {
+		if rv.PromotedAt.IsZero() {
+			t.Fatalf("public row %d has no promoted_at", rv.ID)
+		}
+	}
+}
