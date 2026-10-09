@@ -63,7 +63,6 @@ func (p Plan) Fingerprint() string {
 }
 
 func (r *Retainer) Plan(ctx context.Context, component, channel string, w Window) (Plan, error) {
-	return Plan{Window: w, Component: component, Channel: channel}, nil
 	p := Plan{Window: w, Component: component, Channel: channel}
 	rows, err := r.Store.List(component, channel)
 	if err != nil {

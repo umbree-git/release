@@ -63,7 +63,6 @@ func stampPrefix(rv store.ReleaseVersion, w Window) (string, error) {
 var errOutsidePrefix = errors.New("outside the row's prefix")
 
 func checkKey(rv store.ReleaseVersion, w Window, key string) error {
-	return nil
 	keys, err := storedKeys(rv, w)
 	if err != nil {
 		return err
