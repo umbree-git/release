@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -13,11 +14,19 @@ import (
 const decoyPassword = "unknown-admin-timing-equaliser"
 
 func (s *Service) StartLogin(w http.ResponseWriter, r *http.Request, name, password string) (string, error) {
+	if ValidAdminName(name) != nil {
+		return "", ErrRefused
+	}
 	now := s.Now()
 	key := failureKey("pw", ClientIP(r), name)
 	if !s.allow(key, now) {
 		return "", ErrRateLimited
 	}
+	release, err := s.acquireHash(r.Context())
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	admin, err := s.Store.Admin(name)
 	if errors.Is(err, store.ErrNotFound) {
 		_, _ = VerifyPassword(s.decoyHash(), password)
@@ -96,3 +105,16 @@ func (s *Service) decoyHash() string {
 func failureKey(step, ip, name string) string { return step + "\x00" + ip + FailureKeySuffix(name) }
 
 func FailureKeySuffix(name string) string { return "\x00" + name }
+
+func (s *Service) acquireHash(ctx context.Context) (func(), error) {
+	timer := time.NewTimer(s.hashWait)
+	defer timer.Stop()
+	select {
+	case s.hashSlots <- struct{}{}:
+		return func() { <-s.hashSlots }, nil
+	case <-timer.C:
+		return nil, ErrBusy
+	case <-ctx.Done():
+		return nil, ErrBusy
+	}
+}

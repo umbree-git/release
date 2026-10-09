@@ -22,6 +22,8 @@ const (
 	CookiePath    = "/manage"
 	SessionTTL    = 12 * time.Hour
 	PendingTTL    = 10 * time.Minute
+	HashSlots     = 4
+	HashWait      = 2 * time.Second
 	Issuer        = "Umbree Release"
 )
 
@@ -52,7 +54,7 @@ func New(st *store.Store, sealer *Sealer, now func() time.Time, log *slog.Logger
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{Store: st, Sealer: sealer, Now: now, Log: log}
+	return &Service{Store: st, Sealer: sealer, Now: now, Log: log, hashSlots: make(chan struct{}, HashSlots), hashWait: HashWait}
 }
 
 func (s *Service) Session(r *http.Request) (*store.Session, error) {

@@ -8,6 +8,8 @@ import (
 	"github.com/umbree-git/release/internal/manage/auth"
 )
 
+const maxLoginForm = 16 << 10
+
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cfg.Auth.Session(r); err == nil {
 		http.Redirect(w, r, "/manage", http.StatusSeeOther)
@@ -17,8 +19,10 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginForm)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "could not read the form", http.StatusBadRequest)
+		s.cfg.Log.Info("sign-in refused: unreadable form", "ip", auth.ClientIP(r), "err", err)
+		s.refuse(w, r)
 		return
 	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
@@ -29,6 +33,9 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r)
 	case errors.Is(err, auth.ErrRateLimited):
 		s.render(w, r, "login", http.StatusTooManyRequests, pageData{Title: "Sign in", Error: "Too many attempts; wait a few minutes."})
+	case errors.Is(err, auth.ErrBusy):
+		w.Header().Set("Retry-After", "2")
+		s.render(w, r, "login", http.StatusServiceUnavailable, pageData{Title: "Sign in", Error: "Sign-in is busy; try again in a moment."})
 	case err != nil:
 		s.cfg.Log.Error("sign-in", "err", err)
 		http.Error(w, "sign-in failed", http.StatusInternalServerError)
