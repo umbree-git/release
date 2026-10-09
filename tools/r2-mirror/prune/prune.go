@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"regexp"
 	"sort"
 	"strings"
+
+	"umbree-release-r2-mirror/layout"
 )
 
 const (
@@ -29,16 +30,11 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 }
 
-var (
-	stableRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
-	betaRe   = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
-)
-
 func chOf(segment string) string {
 	switch {
-	case stableRe.MatchString(segment):
+	case layout.StableStampRe.MatchString(segment):
 		return "stable"
-	case betaRe.MatchString(segment):
+	case layout.BetaStampRe.MatchString(segment):
 		return "beta"
 	}
 	return ""
