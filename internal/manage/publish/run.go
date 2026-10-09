@@ -30,7 +30,7 @@ type Deps struct {
 	Locks        *Locks
 	Now          func() time.Time
 	Log          *slog.Logger
-	AfterPromote func(ctx context.Context, component, channel string) error
+	AfterPromote func(ctx context.Context, component, channel string) (string, error)
 	Confirm      *Confirmer
 }
 

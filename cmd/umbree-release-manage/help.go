@@ -25,6 +25,7 @@ func init() {
 		{name: "serve", summary: "apply pending migrations, then serve the release intake and the operator console", register: registerServe, run: runServe},
 		{name: "migrate", summary: "with --check, report the migrations ledger against this binary; writes nothing", register: registerMigrate, run: runMigrate},
 		{name: "backfill", summary: "once per component: catalog the releases already on the public surface, verified, writing the catalog only", register: registerBackfill, run: runBackfill},
+		{name: "retain", summary: "run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing", register: registerRetain, run: runRetain},
 		{name: "admin mark-yanked", shape: "<id>", summary: "mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand", register: registerMarkYanked, run: runMarkYanked},
 		{name: "admin add", shape: "<name>", summary: "add a console admin; prints its TOTP enrolment once, and only here", register: registerAdminAdd, run: runAdminAdd},
 		{name: "admin list", summary: "list the console admins and their open sessions; shows no secret", register: registerDataDir, run: runAdminList},

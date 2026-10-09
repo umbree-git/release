@@ -1,6 +1,7 @@
 package intake
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -16,19 +17,60 @@ import (
 )
 
 const (
-	NonceTTL       = 5 * time.Minute
-	NonceLimit     = 30
-	NonceWindow    = time.Minute
-	MaxBodyBytes   = 1 << 20
-	RefusedMessage = "registration refused"
+	NonceTTL        = 5 * time.Minute
+	NonceLimit      = 30
+	NonceWindow     = time.Minute
+	MaxBodyBytes    = 1 << 20
+	RefusedMessage  = "registration refused"
+	RetentionBudget = 15 * time.Second
 )
 
+type AfterStage func(ctx context.Context, component, channel string) (string, error)
+
 type Handler struct {
-	store   *store.Store
-	key     ed25519.PublicKey
-	now     func() time.Time
-	log     *slog.Logger
-	limiter *windowLimiter
+	store      *store.Store
+	key        ed25519.PublicKey
+	now        func() time.Time
+	log        *slog.Logger
+	limiter    *windowLimiter
+	afterStage AfterStage
+	budget     time.Duration
+}
+
+func (h *Handler) RetainAfterStage(fn AfterStage, budget time.Duration) {
+	if budget <= 0 {
+		budget = RetentionBudget
+	}
+	h.afterStage, h.budget = fn, budget
+}
+
+func (h *Handler) retainAfterStage(ctx context.Context, component, channel string) string {
+	return ""
+	if h.afterStage == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), h.budget)
+	defer cancel()
+	type outcome struct {
+		summary string
+		err     error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		summary, err := h.afterStage(ctx, component, channel)
+		done <- outcome{summary, err}
+	}()
+	select {
+	case o := <-done:
+		if o.err != nil {
+			h.log.Warn("intake: retention after registration failed", "component", component, "channel", channel, "err", o.err)
+			return "failed: " + o.err.Error()
+		}
+		return o.summary
+	case <-ctx.Done():
+		h.log.Warn("intake: retention after registration did not finish", "component", component, "channel", channel, "budget", h.budget)
+		return "did not finish within " + h.budget.String() + "; the nightly pass retries it"
+	}
 }
 
 func New(st *store.Store, key ed25519.PublicKey, now func() time.Time, log *slog.Logger) *Handler {
@@ -98,7 +140,9 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("intake: staged", "id", id, "component", p.Component, "channel", p.Channel, "stamp", p.Stamp)
-	writeJSON(w, http.StatusCreated, register.RowStatus{ID: id, State: catalog.StateStaged, Stamp: p.Stamp, Version: p.Version})
+	status := register.RowStatus{ID: id, State: catalog.StateStaged, Stamp: p.Stamp, Version: p.Version}
+	status.Retention = h.retainAfterStage(r.Context(), p.Component, p.Channel)
+	writeJSON(w, http.StatusCreated, status)
 }
 
 func (h *Handler) writeInsertError(w http.ResponseWriter, p register.Payload, err error) {

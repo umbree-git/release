@@ -19,6 +19,7 @@ type options struct {
 	trustedProxy  string
 	passwordStdin bool
 	check         bool
+	dryRun        bool
 	reason        string
 	component     string
 	args          []string

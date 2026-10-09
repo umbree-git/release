@@ -48,10 +48,11 @@ type Envelope[T any] struct {
 }
 
 type RowStatus struct {
-	ID      int64  `json:"id"`
-	State   string `json:"state"`
-	Stamp   string `json:"stamp"`
-	Version string `json:"version"`
+	ID        int64  `json:"id"`
+	State     string `json:"state"`
+	Stamp     string `json:"stamp"`
+	Version   string `json:"version"`
+	Retention string `json:"retention,omitempty"`
 }
 
 func (p Payload) SigningBytes() ([]byte, error) { return canonical(registerDomain, p) }

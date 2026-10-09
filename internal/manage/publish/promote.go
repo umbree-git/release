@@ -148,8 +148,11 @@ func (r *Run) afterPromote(ctx context.Context, st *stream) {
 	if r.d.AfterPromote == nil {
 		return
 	}
-	if err := r.d.AfterPromote(ctx, r.row.Component, r.row.Channel); err != nil {
+	summary, err := r.d.AfterPromote(ctx, r.row.Component, r.row.Channel)
+	if err != nil {
 		r.log().Warn("after promote", "component", r.row.Component, "err", err)
 		st.send(Event{Step: "retention", Status: "error", Message: err.Error()})
+		return
 	}
+	_ = summary
 }

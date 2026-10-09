@@ -45,13 +45,14 @@ func (b *lockedBuffer) String() string {
 }
 
 type fixture struct {
-	t    *testing.T
-	st   *store.Store
-	srv  *httptest.Server
-	priv ed25519.PrivateKey
-	now  time.Time
-	mu   sync.Mutex
-	log  *lockedBuffer
+	t       *testing.T
+	st      *store.Store
+	srv     *httptest.Server
+	handler *intake.Handler
+	priv    ed25519.PrivateKey
+	now     time.Time
+	mu      sync.Mutex
+	log     *lockedBuffer
 }
 
 func keyFromSeed(label string) ed25519.PrivateKey {
@@ -69,6 +70,7 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{t: t, st: st, priv: keyFromSeed("intake release key"), now: epoch, log: &lockedBuffer{}}
 	logger := slog.New(slog.NewTextHandler(f.log, nil))
 	h := intake.New(st, f.priv.Public().(ed25519.PublicKey), f.clock, logger)
+	f.handler = h
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	f.srv = httptest.NewServer(mux)

@@ -232,8 +232,8 @@ func TestPromoteDestHeadSizeChecked(t *testing.T) {
 func TestPromoteAfterHookErrorDoesNotFail(t *testing.T) {
 	w := newWorld(t)
 	id, _ := w.stage("0.1.0", 1)
-	w.d.AfterPromote = func(ctx context.Context, component, channel string) error {
-		return errors.New("retention hook fault")
+	w.d.AfterPromote = func(ctx context.Context, component, channel string) (string, error) {
+		return "", errors.New("retention hook fault")
 	}
 	err, ev := w.promote(id)
 	if err != nil || terminal(t, ev).Step != "done" {

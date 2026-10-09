@@ -15,7 +15,6 @@ import (
 const (
 	KeepGated            = 3
 	KeepPublicProduction = 5
-	RegistrationBudget   = 15 * time.Second
 )
 
 type Window string
