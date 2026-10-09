@@ -10,7 +10,8 @@ import (
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
-func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
+func seedPublicRow(t *testing.T) (string, int64) {
+	t.Helper()
 	dir := t.TempDir()
 	s, err := store.Open(dir)
 	if err != nil {
@@ -29,6 +30,11 @@ func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
+	return dir, id
+}
+
+func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
+	dir, id := seedPublicRow(t)
 	vars := map[string]string{"USER": "op-alice"}
 	if r := invoke(t, vars, "admin", "mark-yanked", strconv.FormatInt(id, 10), "--data-dir", dir); r.code != exitUsage || !strings.Contains(r.stderr, "--reason") {
 		t.Fatalf("no reason: exit %d stderr %q", r.code, r.stderr)
@@ -40,7 +46,7 @@ func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
 	if r.code != 0 {
 		t.Fatalf("mark-yanked: exit %d stderr %q", r.code, r.stderr)
 	}
-	s, err = store.Open(dir)
+	s, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +56,11 @@ func TestAdminMarkYankedCatalogOnlyAudited(t *testing.T) {
 	if err != nil || rv.State != "yanked" || rv.IsCurrent || len(log) != 1 || log[0].Actor != "op-alice" || log[0].Detail != "latest.json pulled by hand" {
 		t.Fatalf("row %+v audit %+v %v", rv, log, err)
 	}
+	assertMarkYankedPages(t)
+}
+
+func assertMarkYankedPages(t *testing.T) {
+	t.Helper()
 	page := invoke(t, nil, "admin", "mark-yanked", "--help").stdout
 	for _, flag := range []string{"--r2-", "bucket", "--public-base-url", "--listen"} {
 		if strings.Contains(page, flag) {
