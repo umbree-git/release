@@ -69,7 +69,10 @@ func publishDeps(o *options, log *slog.Logger) (publish.Deps, *retention.Retaine
 		return publish.Deps{}, nil, err
 	}
 	guard := &backend.Guard{}
-	locks := publish.NewLocks(publish.DefaultLockWait)
+	locks, err := publish.NewSharedLocks(publish.DefaultLockWait, o.dataDir)
+	if err != nil {
+		return publish.Deps{}, nil, err
+	}
 	return publish.Deps{
 			Gated:   gated,
 			Public:  public,

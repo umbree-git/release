@@ -61,7 +61,11 @@ func runBackfill(e *env, v *verb, args []string) error {
 		return err
 	}
 	defer st.Close()
-	d := publish.Deps{Store: st, Public: public, Key: key, Locks: publish.NewLocks(publish.DefaultLockWait)}
+	locks, err := publish.NewSharedLocks(publish.DefaultLockWait, o.dataDir)
+	if err != nil {
+		return err
+	}
+	d := publish.Deps{Store: st, Public: public, Key: key, Locks: locks}
 	rep, err := publish.Backfill(e.ctx, d, o.component, actorOf(e))
 	printBackfill(e, o.component, rep)
 	return err

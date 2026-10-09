@@ -67,7 +67,11 @@ func runRetain(e *env, v *verb, args []string) error {
 		return err
 	}
 	defer st.Close()
-	r := &retention.Retainer{Store: st, Gated: gated, Public: public, Locks: publish.NewLocks(publish.DefaultLockWait),
+	locks, err := publish.NewSharedLocks(publish.DefaultLockWait, o.dataDir)
+	if err != nil {
+		return err
+	}
+	r := &retention.Retainer{Store: st, Gated: gated, Public: public, Locks: locks,
 		Log: slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))}
 	if o.dryRun {
 		plans, err := r.PlanAll(e.ctx)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
@@ -33,9 +34,30 @@ func runMarkYanked(e *env, v *verb, args []string) error {
 		return err
 	}
 	defer st.Close()
+	release, err := lockRow(e, st, o.dataDir, id)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := st.MarkYanked(id, actor, o.reason, time.Now()); err != nil {
 		return err
 	}
 	fmt.Fprintf(e.stdout, "row %d marked yanked in the catalog by %s; no object was touched\n", id, actor)
 	return nil
+}
+
+func lockRow(e *env, st *store.Store, dataDir string, id int64) (func(), error) {
+	rv, err := st.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	return lockChannel(e, dataDir, rv.Component, rv.Channel)
+}
+
+func lockChannel(e *env, dataDir, component, channel string) (func(), error) {
+	locks, err := publish.NewSharedLocks(publish.DefaultLockWait, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return locks.Acquire(e.ctx, component, channel)
 }

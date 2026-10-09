@@ -29,6 +29,11 @@ func setPin(e *env, v *verb, args []string, pinned bool) error {
 		return err
 	}
 	defer st.Close()
+	release, err := lockChannel(e, o.dataDir, o.args[0], catalog.ChannelProduction)
+	if err != nil {
+		return err
+	}
+	defer release()
 	rv, err := st.SetPermanent(o.args[0], catalog.ChannelProduction, o.args[1], pinned, actorOf(e), time.Now())
 	if err != nil {
 		return err
