@@ -180,8 +180,15 @@ console.
 
 `retain` is a separate process from `serve`, and it still cannot overlap a
 promote or a yank. Both take the same per-component, per-channel lock: a
-`lock.<component>.<channel>` file in `<MANAGE_DATA_DIR>`, created `0600` by the
-service user and never followed through a symlink. `backfill`,
+`lock.<component>.<channel>` file in `<MANAGE_DATA_DIR>`, created `0600` and
+never followed through a symlink.
+
+**Run every admin verb as the service user.** That means `retain`, `backfill`,
+`admin mark-yanked`, `admin pin` and `admin unpin`, and `sudo -u <SERVICE_USER>`
+does it. A verb run as root or as another account refuses before it creates
+anything, naming both uids, because a lock file it created would lock `serve`
+out of that channel. A lock file owned by anyone but the data directory's owner
+is refused too: remove it, then run the verb again as the service user. `backfill`,
 `admin mark-yanked` and `admin pin|unpin` take it too. A command that waits
 longer than 5 s for the lock exits non-zero, says the channel is busy, and
 changes nothing on that channel.
