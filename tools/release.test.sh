@@ -35,6 +35,15 @@ if [ "$1" = run ] && [ "$2" = . ]; then echo "stub go: public mirror refused by 
 echo "stub go: unexpected invocation: $*" >&2; exit 1
 EOF
 chmod +x "$STUB/go"
+cat > "$STUB/git" <<'EOF'
+#!/bin/sh
+if [ "$1" = -C ] && [ "$3" = log ]; then
+    echo "git $*" >> "$CALLS"
+    [ -z "${STUB_GIT_LOG_FAIL:-}" ] || exit 128
+fi
+exec /usr/bin/git "$@"
+EOF
+chmod +x "$STUB/git"
 export PATH="$STUB:$PATH"
 export RELEASE_HOST=x STATIC_DIR=/x
 
@@ -209,6 +218,22 @@ check "…before the GitHub Release" "$([ -n "$gated_at" ] && [ -n "$release_at"
 check "…the receipt was written" "$([ -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" ] && echo yes)" "yes"
 check_contains "…and the public mirror still runs after it" "$out" "R2 mirror FAILED"
 /usr/bin/git -C "$REL" tag -d "umbree/$STABLE_STAMP" >/dev/null 2>&1
+rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" "$REL/dist/$STABLE_STAMP/release-notes.md"
+
+echo "# a failed change summary stops the cut before any network act"
+PREV_TAG="umbree/v0.1.7.2026.08.01.$(/usr/bin/git -C "$CLI" rev-parse --short=8 HEAD)"
+/usr/bin/git -C "$REL" tag "$PREV_TAG"
+: > "$CALLS"
+UMBREE_R2_GATED_BUCKET=gated-fixture UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$CREDS" STUB_GIT_LOG_FAIL=1 \
+    run --distribute-only umbree "$STABLE_STAMP"
+check "failing git log → non-zero" "$([ "$rc" -ne 0 ] && echo refused)" "refused"
+check_contains "…says the summary could not be read" "$out" "cannot read the change summary"
+check_lacks "…never publishes a made-up summary" "$out" "No code changes since"
+check "…the failing git log was reached" "$(grep -c '^git -C .* log ' "$CALLS")" "1"
+no_public_act "$(calls)" "failed change summary"
+check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" "$PREV_TAG"
+check "…no release notes were written" "$([ -f "$REL/dist/$STABLE_STAMP/release-notes.md" ] && echo yes)" ""
+/usr/bin/git -C "$REL" tag -d "$PREV_TAG" >/dev/null 2>&1
 rm -f "$REL/dist/$STABLE_STAMP/gated-receipt.json" "$REL/dist/$STABLE_STAMP/release-notes.md"
 
 echo "# gated_channel_for: the one stable → production mapping"
