@@ -135,6 +135,14 @@ out="$("$ROOT/tools/gen-bootstraps.sh" --help 2>/dev/null)"; rc=$?
 check "--help exits 0" "$rc" "0"
 check_contains "--help prints the usage" "$out" "--test-build <dir>"
 
+echo "# module comments are stripped from the render"
+"$ROOT/tools/gen-bootstraps.sh" >/dev/null || { echo "FAIL: generator exited non-zero"; fail=1; }
+for comp in umbree umbreed; do
+    left="$(awk '/^# BEGIN [a-z0-9-]+$/ { d++; next } /^# END [a-z0-9-]+$/ { d--; next } d > 0 && /^[ \t]*#/ && !/^[ \t]*# shellcheck [^ \t]+=/' "$ROOT/$comp/install.sh")"
+    check "no module comment line survives in $comp/install.sh" "$left" ""
+    check_contains "…the module's shellcheck directive survives" "$(cat "$ROOT/$comp/install.sh")" '# shellcheck disable=SC2086  # $CURL is a command plus its flags'
+    check_contains "…and the splice markers" "$(cat "$ROOT/$comp/install.sh")" "# BEGIN verify-checksum"
+done
 echo "# tree clean"
 cleanup
 dirty="$(cd "$ROOT" && git status --porcelain -- umbree umbreed versions)"

@@ -24,6 +24,7 @@ var (
 	ErrMissingModule     = errors.New("static: @INCLUDE names a module that is not embedded")
 	ErrUnexpandedInclude = errors.New("static: an @INCLUDE line survived expansion")
 	ErrBadInput          = errors.New("static: refusing to render")
+	ErrModuleHeredoc     = errors.New("static: a module has a heredoc, so its comment lines cannot be told from heredoc text")
 )
 
 var (

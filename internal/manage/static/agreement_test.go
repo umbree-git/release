@@ -213,3 +213,41 @@ func TestNoPlaceholderSurvives(t *testing.T) {
 		}
 	}
 }
+
+func TestStaticStripAgreesWithShellOnEdgeCases(t *testing.T) {
+	dir := t.TempDir()
+	copyFile(t, filepath.Join(repoRoot(t), "tools/gen-bootstraps.sh"), filepath.Join(dir, "tools/gen-bootstraps.sh"))
+	template := "#!/bin/sh\nCOMP=@COMP@ CH=@CHANNEL@ MIN=@MIN_VERSION@ BASE=@DOWNLOADS_BASE@ KEY=@PUBKEY@ @BRAND@ @brand@\n@TEST_SEAM@\n@INCLUDE:edge@\n"
+	for p, body := range map[string]string{
+		"tools/bootstrap.template.sh": template, "tools/modules/edge.sh": edgeModule, "umbree-release.pub": fixturePub,
+		"versions/umbree.stamp": fixtureStamps["umbree"] + "\n", "versions/umbreed.stamp": fixtureStamps["umbreed"] + "\n",
+		".stub/go": "#!/bin/sh\necho umbree\necho umbreed\n",
+	} {
+		writeFile(t, filepath.Join(dir, p), body)
+	}
+	if err := os.Chmod(filepath.Join(dir, ".stub/go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}, "tools/gen-bootstraps.sh")
+	r := static.NewRenderer(fixtureAssets(template, map[string]string{"edge": edgeModule}))
+	got, err := r.Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(dir, "umbree", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("edge module: the Go render differs from gen-bootstraps.sh (%s)", firstDifference(got, want))
+	}
+	if !strings.Contains(string(got), edgeWant) {
+		t.Fatalf("the edge module rendered as\n%s", got)
+	}
+	writeFile(t, filepath.Join(dir, "tools/modules/edge.sh"), "cat <<EOF\n# text\nEOF\n")
+	cmd := exec.Command("sh", "tools/gen-bootstraps.sh")
+	cmd.Dir, cmd.Env = dir, []string{"PATH=" + filepath.Join(dir, ".stub") + ":/usr/local/bin:/usr/bin:/bin", "HOME=" + dir, "UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "heredoc") {
+		t.Fatalf("gen-bootstraps.sh rendered a module with a heredoc: %v %s", err, out)
+	}
+}

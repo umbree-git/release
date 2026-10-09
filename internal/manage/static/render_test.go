@@ -35,12 +35,12 @@ func moduleNamed(modules map[string]string) func(string) ([]byte, error) {
 }
 
 func TestRenderExpandsIncludesDroppingModuleHeaders(t *testing.T) {
-	modules := map[string]string{"greet": "# module: greet\n# needs: helpers\nhello\n# since: 1\n# a plain comment stays\nworld"}
+	modules := map[string]string{"greet": "# module: greet\n# needs: helpers\nhello\n# since: 1\n# a plain comment goes\nworld"}
 	got, err := static.ExpandIncludes([]byte("pre\n@INCLUDE:greet@\n  @INCLUDE:greet@\npost"), moduleNamed(modules))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "pre\n# BEGIN greet\nhello\n# a plain comment stays\nworld\n# END greet\n  @INCLUDE:greet@\npost\n"
+	want := "pre\n# BEGIN greet\nhello\nworld\n# END greet\n  @INCLUDE:greet@\npost\n"
 	if string(got) != want {
 		t.Fatalf("expanded\n%q\nwant\n%q", got, want)
 	}
@@ -121,5 +121,72 @@ func TestVersionJSRefusesUnsafeValues(t *testing.T) {
 	js, err := static.VersionJS("umbree", "0.2.1", "v0.2.1.2026.10.09.0a1b2c3d")
 	if err != nil || string(js) != `__umbreeVersion({"component":"umbree","version":"0.2.1","stamp":"v0.2.1.2026.10.09.0a1b2c3d"});`+"\n" {
 		t.Fatalf("keep-control: %q, %v", js, err)
+	}
+}
+
+const edgeModule = `# module: edge v1
+# a whole-line comment
+	# an indented one
+#
+code_one   # a trailing comment is not stripped
+# shellcheck disable=SC2086  # a directive keeps its line
+echo "a string that spans lines
+# this line is string text, not a comment
+done"
+echo 'single quoted
+# also text
+done'
+echo "escaped \" quote" x
+# after an escaped quote, a comment again
+n=$#
+echo "${#n}" # trailing
+# BEGIN shared inner
+# END shared inner
+last`
+
+const edgeWant = `# BEGIN edge
+code_one   # a trailing comment is not stripped
+# shellcheck disable=SC2086  # a directive keeps its line
+echo "a string that spans lines
+# this line is string text, not a comment
+done"
+echo 'single quoted
+# also text
+done'
+echo "escaped \" quote" x
+n=$#
+echo "${#n}" # trailing
+# BEGIN shared inner
+# END shared inner
+last
+# END edge
+`
+
+func TestRenderStripsModuleComments(t *testing.T) {
+	got, err := static.ExpandIncludes([]byte("#!/bin/sh\n# a template comment is the template's own\n@INCLUDE:edge@\n"), moduleNamed(map[string]string{"edge": edgeModule}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "#!/bin/sh\n# a template comment is the template's own\n" + edgeWant; string(got) != want {
+		t.Fatalf("expanded\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRenderRefusesModuleHeredoc(t *testing.T) {
+	for name, body := range map[string]string{
+		"heredoc":        "cat <<EOF\n# text\nEOF\n",
+		"quoted heredoc": "cat <<'EOF'\nx\nEOF\n",
+	} {
+		if _, err := static.ExpandIncludes([]byte("@INCLUDE:m@\n"), moduleNamed(map[string]string{"m": body})); !errors.Is(err, static.ErrModuleHeredoc) {
+			t.Errorf("%s: %v, want ErrModuleHeredoc", name, err)
+		}
+	}
+	for name, body := range map[string]string{
+		"quoted <<":  "echo \"a << b\"\n",
+		"comment <<": "x # see <<EOF\n",
+	} {
+		if _, err := static.ExpandIncludes([]byte("@INCLUDE:m@\n"), moduleNamed(map[string]string{"m": body})); err != nil {
+			t.Errorf("keep-control, %s: %v", name, err)
+		}
 	}
 }
