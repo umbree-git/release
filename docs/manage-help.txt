@@ -19,6 +19,7 @@ Commands:
   admin list               list the console admins and their open sessions; shows no secret
   admin remove <name>      remove a console admin and end its sessions
   admin reset-totp <name>  replace an admin's second factor, print the new enrolment once, and end its sessions
+  admin unlock <name>      clear an admin's failed sign-in count so it can sign in again, audited
   docs                     print the command reference that docs/manage-help.txt holds
 
 umbree-release-manage <command> --help prints that command's flags.
@@ -76,6 +77,7 @@ Subcommands:
   list                     list the console admins and their open sessions; shows no secret
   remove <name>            remove a console admin and end its sessions
   reset-totp <name>        replace an admin's second factor, print the new enrolment once, and end its sessions
+  unlock <name>            clear an admin's failed sign-in count so it can sign in again, audited
 
 ==> umbree-release-manage admin mark-yanked --help
 
@@ -130,6 +132,17 @@ replace an admin's second factor, print the new enrolment once, and end its sess
 Flags:
   --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
   --secret-key <file>          the operator-provisioned file that seals TOTP secrets: an absolute, clean path to a regular 0600 file of 32 random bytes; never created here (required) (env UMBREE_MANAGE_SECRET_KEY)
+
+==> umbree-release-manage admin unlock --help
+
+Usage:
+  umbree-release-manage admin unlock <name> [flags]
+
+clear an admin's failed sign-in count so it can sign in again, audited
+
+Flags:
+  --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
+  --reason <string>            why the admin is unlocked; recorded in the audit log (required)
 
 ==> umbree-release-manage docs --help
 
