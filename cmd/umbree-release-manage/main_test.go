@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -208,7 +209,7 @@ func TestMigrateCheckReadsLiveCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := invoke(t, nil, "migrate", "--check", "--data-dir", dir)
-	if r.code != 0 || !strings.Contains(r.stdout, "1 applied, 0 pending") {
+	if r.code != 0 || !strings.Contains(r.stdout, fmt.Sprintf("%d applied, 0 pending", len(store.Migrations()))) {
 		t.Fatalf("check while serve holds the catalog: exit %d stdout %q stderr %q", r.code, r.stdout, r.stderr)
 	}
 	after, err := os.ReadFile(filepath.Join(dir, store.DBFile))

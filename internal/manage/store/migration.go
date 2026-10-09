@@ -52,6 +52,19 @@ var migrations = []migration{
 			`CREATE INDEX nonces_expiry ON nonces (expires_at)`,
 		},
 	},
+	{
+		Migration: Migration{Version: 2, Name: "audit log"},
+		stmts: []string{
+			`CREATE TABLE audit (
+				id      INTEGER PRIMARY KEY,
+				at      INTEGER NOT NULL,
+				actor   TEXT    NOT NULL,
+				action  TEXT    NOT NULL,
+				row_id  INTEGER NOT NULL,
+				detail  TEXT    NOT NULL
+			)`,
+		},
+	},
 }
 
 func Migrations() []Migration {
