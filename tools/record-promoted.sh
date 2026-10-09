@@ -25,7 +25,8 @@ The served bootstrap was already republished by the manage service at the end
 of the promote; this keeps the committed copy byte-identical to it. It pushes
 nothing: push main and merge it into dev as after any marker.
 
-Run it from a clean tree on main. A second run for the same stamp is a no-op.
+It refuses, asking nothing, unless HEAD is the main branch and the tracked
+tree is clean. A second run for the same stamp is a no-op.
 
   -h, --help  print this text
 HELP
@@ -42,6 +43,8 @@ case "${COMP}" in ""|*/*|.*) usage ;; esac
 printf '%s\n' "${STAMP}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$' \
     || { echo "✗ not a stable stamp: ${STAMP} (want v<X.Y.Z>.<YYYY>.<MM>.<DD>.<sha8>)" >&2; usage; }
 
+branch="$("${GIT}" -C "${ROOT}" symbolic-ref --quiet --short HEAD)" || branch="(detached HEAD)"
+[ "${branch}" = main ] || { echo "✗ on ${branch}, not main — the [PROMOTED] marker belongs on main; nothing asked, nothing written" >&2; exit 1; }
 dirty="$("${GIT}" -C "${ROOT}" status --porcelain --untracked-files=no)" \
     || { echo "✗ cannot read git status in ${ROOT}" >&2; exit 1; }
 [ -z "${dirty}" ] || { echo "✗ the tree has uncommitted changes — commit or stash them first; nothing asked, nothing written" >&2; exit 1; }
