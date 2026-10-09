@@ -49,6 +49,7 @@ func (r *Run) runPromote(ctx context.Context, st *stream) error {
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})
 	r.afterPromote(ctx, st)
+	r.republishStatic(ctx, st)
 	r.confirm(ctx, st)
 	return nil
 }

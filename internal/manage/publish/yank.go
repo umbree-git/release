@@ -55,6 +55,7 @@ func (r *Run) runYank(ctx context.Context, st *stream) (*store.ReleaseVersion, e
 		return nil, fmt.Errorf("flip row %d: %w; the manifest already names %s, so re-run the yank", r.row.ID, err, successor.Stamp)
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})
+	r.republishStatic(ctx, st)
 	return successor, nil
 }
 
