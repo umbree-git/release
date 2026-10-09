@@ -263,6 +263,14 @@ eval "$(age -d -i "${AGE_ID}" "${DP_DIR}/server-config.env.age")" \
     || die "sealed server config set no RELEASE_HOST/STATIC_DIR"
 say "server config: decrypted from ${DP_DIR}"
 
+require_gated_config() {
+    [ "${CHANNEL}" = beta ] && return 0
+    [ -n "${UMBREE_R2_GATED_BUCKET:-}" ] \
+        || die "sealed server config set no UMBREE_R2_GATED_BUCKET — a stable cut stages to the private gated store before any public act; nothing built"
+    export UMBREE_R2_GATED_BUCKET
+}
+require_gated_config
+
 # The signing secret only ever exists as a chmod-600 tmpfile, destroyed by
 # on_exit above on EVERY path including SIGHUP. Created with a private umask so
 # it is never briefly world-readable between open and chmod.

@@ -80,6 +80,10 @@ Env:
                           beta REFUSES
   UMBREE_R2_CREDS        path to the R2 S3 credentials TOML. Unset = same
   UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)
+  UMBREE_R2_GATED_BUCKET the private gated bucket a stable cut stages to before any
+                          public act — REQUIRED for a stable cut (no default, never
+                          the public bucket); its name lives in the sealed config only.
+                          The same UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS token serves it
 HELP
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -190,6 +194,53 @@ apply_retention() {
         ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run ./cmd/r2-prune \
             --comp "${comp}" --channel "${channel}" --execute ) || true
     fi
+}
+
+gated_channel_for() {
+    case "$1" in
+        stable) printf 'production\n' ;;
+        *) echo "✗ no gated channel for '$1' (only a stable cut stages to the gated store)" >&2; return 1 ;;
+    esac
+}
+
+require_gated() {
+    [ -n "${UMBREE_R2_GATED_BUCKET:-}" ] || {
+        echo "✗ UMBREE_R2_GATED_BUCKET is not set — a stable cut stages its bytes to the private gated store before any public act; set it from the sealed configuration (there is no default, and the public bucket is never used in its place)" >&2
+        exit 1
+    }
+    r2_configured || {
+        echo "✗ the gated store needs UMBREE_R2_ACCOUNT and UMBREE_R2_CREDS (one R2 token serves both buckets) — nothing published" >&2
+        exit 1
+    }
+}
+
+stage_gated() {
+    local comp="$1" stamp="$2" stage="$3" channel semver
+    channel="$(gated_channel_for stable)"
+    semver="$(cat "${REPO_ROOT}/versions/${comp}")"
+    echo "→ staging ${comp} ${stamp} to the gated store (${channel})" >&2
+    if ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run . --store gated \
+            --account "${UMBREE_R2_ACCOUNT}" --bucket "${UMBREE_R2_GATED_BUCKET}" \
+            --stage-dir "${stage}" --comp "${comp}" --channel "${channel}" \
+            --version "${semver}" --stamp "${stamp}" --creds "${UMBREE_R2_CREDS}" \
+            --receipt "${stage}/gated-receipt.json" >&2 ); then
+        echo "✓ staged ${comp} to the gated store (receipt: dist/${stamp}/gated-receipt.json)" >&2
+        return 0
+    fi
+    echo "✗ gated stage FAILED for ${comp} ${stamp} — nothing published (no tag, no GitHub Release, no mirror, no static surface); fix the cause and re-run" >&2
+    exit 1
+}
+
+gated_dry_run() {
+    local comp="$1" stamp="$2" stage="$3" channel f
+    channel="$(gated_channel_for stable)"
+    if [ -z "${UMBREE_R2_GATED_BUCKET:-}" ]; then
+        echo "would: REFUSE — UMBREE_R2_GATED_BUCKET is not set (a stable cut stages to the gated store first)"
+    fi
+    for f in "${stage}/SHA256SUMS.txt" "${stage}/SHA256SUMS.txt.minisig" "${stage}/${comp}"-*.zip; do
+        [ -f "${f}" ] && echo "would: stage ${comp}/${channel}/${stamp}/$(basename "${f}")"
+    done
+    echo "would: no manifest in the gated store"
 }
 
 require_r2() {
@@ -308,6 +359,7 @@ publish_preflight() {
 distribute_dry_run() {
     local comp="$1" stamp="$2"
     echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
+    gated_dry_run "${comp}" "${stamp}" "${REPO_ROOT}/dist/${stamp}"
     echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
     echo "would: mirror ${comp} to the R2 download mirror (when configured)"
     echo "would: write versions/${comp}.stamp = ${stamp} (the bootstrap's version floor)"
@@ -321,6 +373,7 @@ distribute_dry_run() {
 distribute_preflight() {
     local stage="$1"
     verify_release_key "${stage}"
+    require_gated
 
     command -v "${GH_CLI}" >/dev/null 2>&1 \
         || { echo "✗ GitHub CLI not found: ${GH_CLI} (set UMBREE_GH to override)" >&2; exit 1; }
@@ -373,6 +426,7 @@ NOTES
 
 stage_and_publish() {
     local comp="$1" stamp="$2" stage="$3"
+    stage_gated "${comp}" "${stamp}" "${stage}"
     local src changes; src="$(src_for "${comp}")"
     changes="$(release_changes "${comp}" "${src}")"
     local tag="${comp}/${stamp}"
