@@ -69,9 +69,6 @@ func runRetain(e *env, v *verb, args []string) error {
 	defer st.Close()
 	r := &retention.Retainer{Store: st, Gated: gated, Public: public, Locks: publish.NewLocks(publish.DefaultLockWait),
 		Log: slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))}
-	if true {
-		return nil
-	}
 	if o.dryRun {
 		plans, err := r.PlanAll(e.ctx)
 		printPlans(e, plans)

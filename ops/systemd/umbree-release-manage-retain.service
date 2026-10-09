@@ -1,0 +1,27 @@
+[Unit]
+Description=Umbree release retention, the nightly net over every component (both windows)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=<SERVICE_USER>
+Group=<SERVICE_USER>
+EnvironmentFile=<MANAGE_ENV_FILE>
+ExecStart=<MANAGE_BIN_DIR>/umbree-release-manage retain
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=<MANAGE_DATA_DIR>
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native

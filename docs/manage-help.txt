@@ -14,6 +14,7 @@ Commands:
   serve                    apply pending migrations, then serve the release intake and the operator console
   migrate                  with --check, report the migrations ledger against this binary; writes nothing
   backfill                 once per component: catalog the releases already on the public surface, verified, writing the catalog only
+  retain                   run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing
   admin mark-yanked <id>   mark a public row yanked in the catalog only, audited; for a manifest already pulled by hand
   admin add <name>         add a console admin; prints its TOTP enrolment once, and only here
   admin list               list the console admins and their open sessions; shows no secret
@@ -63,6 +64,21 @@ once per component: catalog the releases already on the public surface, verified
 Flags:
   --component <component>      the component whose public releases become catalog rows (required)
   --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
+  --public-bucket <bucket>     the public download bucket (env UMBREE_R2_BUCKET)
+  --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
+  --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
+
+==> umbree-release-manage retain --help
+
+Usage:
+  umbree-release-manage retain [flags]
+
+run both retention windows over every component now, the nightly net; --dry-run prints the plans and changes nothing
+
+Flags:
+  --data-dir <dir>             the dir holding the catalog (required; no default) (env UMBREE_MANAGE_DATA_DIR)
+  --dry-run                    print each window's plan, the keys it would delete and the rows it would expire, and change nothing
+  --gated-bucket <bucket>      the private gated bucket; must differ from --public-bucket (env UMBREE_R2_GATED_BUCKET)
   --public-bucket <bucket>     the public download bucket (env UMBREE_R2_BUCKET)
   --r2-account <account>       the R2 account id (env UMBREE_R2_ACCOUNT)
   --r2-creds <file>            the file holding the R2 token (env UMBREE_R2_CREDS)
