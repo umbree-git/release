@@ -273,6 +273,35 @@ check "old git: returns 1" "${rc}" "1"
 check_contains "old git: names the version needed and the one found" "${out}" "needs git 2.38 or newer (merge-tree --write-tree), and ${TMP}/git-old reports 'git version 2.37.1'"
 check "old git: origin dev untouched" "$(bare_ref dev)" "${dev_before}"
 
+echo "# a stable request needs the gated bucket from the sealed config"
+RGC="$(awk '/^require_gated_config\(\) \{/,/^}/' "${CMD}")"
+check "require_gated_config extracted" "$([ -n "${RGC}" ] && echo yes)" "yes"
+GATED_HARNESS="${TMP}/gated-harness.sh"
+{
+    echo 'set -uo pipefail'
+    echo 'LOG=/dev/null'
+    printf '%s\n' "${SAY_DIE}" "${RGC}"
+    echo 'require_gated_config'
+    echo 'bash -c '"'"'printf "child sees %s\n" "${UMBREE_R2_GATED_BUCKET:-nothing}"'"'"
+} > "${GATED_HARNESS}"
+gated_run() { out="$(env -u UMBREE_R2_GATED_BUCKET "$@" bash "${GATED_HARNESS}" 2>&1)"; rc=$?; }
+gated_run CHANNEL=stable
+check "stable, bucket unset: refused" "${rc}" "1"
+check_contains "…names UMBREE_R2_GATED_BUCKET" "${out}" "UMBREE_R2_GATED_BUCKET"
+check_contains "…before anything is built" "${out}" "nothing built"
+gated_run CHANNEL=stable UMBREE_R2_GATED_BUCKET=
+check "stable, bucket empty: refused" "${rc}" "1"
+gated_run CHANNEL=stable UMBREE_R2_GATED_BUCKET=gated-fixture
+check "stable, bucket set: passes" "${rc}" "0"
+check_contains "…and release.sh inherits it" "${out}" "child sees gated-fixture"
+gated_run CHANNEL=beta
+check "beta, bucket unset: passes (beta is held, not gated)" "${rc}" "0"
+SEALED_AT="$(grep -n 'server-config.env.age")"' "${CMD}" | head -n1 | cut -d: -f1)"
+CALL_AT="$(grep -n '^require_gated_config$' "${CMD}" | head -n1 | cut -d: -f1)"
+BUILD_AT="$(grep -n 'say "→ build' "${CMD}" | head -n1 | cut -d: -f1)"
+check "require_gated_config runs after the sealed config, before the build" \
+    "$([ -n "${CALL_AT}" ] && [ "${SEALED_AT}" -lt "${CALL_AT}" ] && [ "${CALL_AT}" -lt "${BUILD_AT}" ] && echo between)" "between"
+
 echo "# the session guard itself, unstubbed"
 sess_log="${TMP}/sess.log"
 RELEASE_ENV="${TMP}/env" RELEASE_REQUEST="${TMP}/none" RELEASE_LOG="$sess_log" \

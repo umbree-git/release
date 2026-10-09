@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -46,6 +47,8 @@ type config struct {
 	stamp    string
 	creds    string
 	dryRun   bool
+	store    string
+	receipt  string
 }
 
 func (c config) keyPrefix() string {
@@ -274,4 +277,12 @@ func readCreds(path string) (accessKeyID, secret string, err error) {
 		return "", "", fmt.Errorf("creds %q: missing access_key_id or secret_access_key", path)
 	}
 	return accessKeyID, secret, nil
+}
+
+func uploadPlan(cfg config, artifacts []string) ([]string, error) {
+	return plannedKeys(cfg, artifacts), nil
+}
+
+func execute(ctx context.Context, cfg config, out io.Writer, doer r2.Doer) error {
+	return nil
 }
