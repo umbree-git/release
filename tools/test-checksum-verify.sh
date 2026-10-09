@@ -18,7 +18,7 @@ $found"
 printf '  OK: no --ignore-missing\n'
 
 say "STATIC: operator-facing verify advice selects one file by name, not -c over the sums file"
-for advice in "$REPO_ROOT/site/index.html" "$REPO_ROOT/tools/release.sh"; do
+for advice in "$REPO_ROOT/site/index.html" "$REPO_ROOT/README.md"; do
     rel="${advice#"$REPO_ROOT"/}"
     [ -f "$advice" ] || { printf '  (no %s — skipped)\n' "$rel"; continue; }
     bad="$(grep -nE '(shasum|sha256sum)[^<&"]*-c[^<&"]*SHA256SUMS' "$advice" || true)"
