@@ -277,5 +277,35 @@ check "release repo ahead of origin → 1" "$rc" "1"
 check_contains "…names the ahead state" "$out" "release repo source is 1 commit(s) ahead of origin/main"
 check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
 
+echo "# apply_retention runs both halves with KEEP unset"
+AR="$T/apply-retention"; mkdir -p "$AR/stub" "$AR/root/tools/r2-mirror"
+export AR_LOG="$AR/calls.log"; : > "$AR_LOG"
+printf 'access_key_id = "a"\n' > "$AR/creds"
+for tool in bash go; do
+    printf '#!/bin/sh\necho "%s $* KEEP=${KEEP-unset} CHANNEL=${CHANNEL-} COMPONENTS=${COMPONENTS-} pwd=$(pwd)" >> "$AR_LOG"\nexit 0\n' "$tool" > "$AR/stub/$tool"
+    chmod +x "$AR/stub/$tool"
+done
+apply_retention_in_isolation() {
+    (
+        unset GO_BIN
+        export KEEP=1
+        REPO_ROOT="$AR/root"
+        eval "$(sed -n -e '/^r2_configured() {$/,/^}$/p' -e '/^apply_retention() {$/,/^}$/p' "$R")"
+        PATH="$AR/stub:$PATH" apply_retention umbree stable
+    ) >/dev/null 2>&1
+}
+UMBREE_R2_ACCOUNT=acct UMBREE_R2_CREDS="$AR/creds" apply_retention_in_isolation
+ar_first="$(sed -n 1p "$AR_LOG")"; ar_second="$(sed -n 2p "$AR_LOG")"
+check "apply_retention runs both halves with KEEP unset: two calls" "$(wc -l < "$AR_LOG" | tr -d ' ')" "2"
+check_contains "…prune-releases.sh --execute runs first" "$ar_first" "bash $AR/root/tools/prune-releases.sh --execute"
+check_contains "…on the cut's channel and component" "$ar_first" "CHANNEL=stable COMPONENTS=umbree"
+check_contains "…r2-prune --execute runs second" "$ar_second" "go run ./cmd/r2-prune --comp umbree --channel stable --execute"
+check_contains "…from the r2-mirror module" "$ar_second" "pwd=$AR/root/tools/r2-mirror"
+check_contains "…KEEP=1 does not reach prune-releases.sh" "$ar_first" "KEEP=unset"
+check_contains "…KEEP=1 does not reach r2-prune" "$ar_second" "KEEP=unset"
+: > "$AR_LOG"
+apply_retention_in_isolation
+check "…control: with R2 unset only the GitHub half runs" "$(wc -l < "$AR_LOG" | tr -d ' ')" "1"
+
 echo
 if [ "$fail" = 0 ]; then echo "ALL OK"; else echo "TESTS FAILED"; exit 1; fi
