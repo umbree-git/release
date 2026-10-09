@@ -59,8 +59,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-expand_includes() {
-    awk -v moddir="$MODDIR" -v sq="'" '
+MODULE_AWK='
         function scan(s, st,    i, n, c, prev) {
             n = length(s); prev = " "
             for (i = 1; i <= n; i++) {
@@ -87,6 +86,10 @@ expand_includes() {
             return line ~ /^[ \t]*#[ \t]*(shellcheck[ \t]+[^ \t]+=|noqa|type:|pragma:|exempt(\([a-z0-9][a-z0-9-]*\))?:[ \t]*[^ \t]|channel-(literal|word)-ok:[ \t]*[^ \t])/ \
                 || line ~ /^# (BEGIN|END)( shared)? [a-z0-9][a-z0-9-]*([ \t]|$)/
         }
+'
+
+expand_includes() {
+    awk -v moddir="$MODDIR" -v sq="'" "$MODULE_AWK"'
         /^@INCLUDE:[a-z0-9-]+@$/ {
             name = substr($0, 10, length($0) - 9 - 1)
             path = moddir "/" name ".sh"
