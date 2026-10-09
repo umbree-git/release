@@ -1,27 +1,3 @@
-// Command r2-prune applies retention to the public Cloudflare R2 bucket behind
-// downloads.umbree.org, ONE CHANNEL per run: it keeps the newest N per-stamp
-// directories for each component under that channel's prefix (<comp>/ on
-// stable, <comp>/beta/ on beta) and deletes every object beneath the older
-// ones. Stable keeps 3, beta keeps 1 (prune.DefaultKeep).
-//
-// R2 is the install-time fallback mirror on stable (GitHub Releases stay
-// primary) and the ONLY home of beta bytes, so it accumulated every stamp ever
-// cut. This is the pass that bounds it.
-//
-// Usage:
-//
-//	r2-prune [--comp umbree|umbreed|all] [--channel stable|beta] [--keep N] [--execute]
-//	         --account <id> --bucket <name> --creds <path to the r2 creds TOML>
-//	         [--protect tools/retain-permanent]
-//
-// Dry-run by default: it prints the planned deletions and removes nothing.
-// --execute performs them. Account, bucket and the S3 credentials are the
-// operator's — flags, or the same UMBREE_R2_ACCOUNT / UMBREE_R2_BUCKET /
-// UMBREE_R2_CREDS environment tools/release.sh reads; this file names none of
-// them and the secret is never printed.
-//
-// ORDERING: run tools/prune-releases.sh (the GitHub side) BEFORE this, on the
-// same channel. Draining R2 first leaves GitHub tags whose bytes are gone.
 package main
 
 import (
@@ -35,9 +11,6 @@ import (
 	"umbree-release-r2-mirror/r2"
 )
 
-// components is the full set r2-mirror publishes, and so the full set
-// retention applies to. Literal here (this module must not import the parent
-// repo's internal/relconfig), exactly as r2-mirror's own validate() spells it.
 var components = []string{"umbree", "umbreed"}
 
 func main() {
@@ -142,10 +115,6 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// readCreds parses access_key_id + secret_access_key from a minimal TOML file
-// (`key = "value"` or `key = value`, one per line; '#' comments allowed). The
-// secret is returned to the caller and never logged. Same shape as the one in
-// r2-mirror's main.go — the two binaries read the same file.
 func readCreds(path string) (accessKeyID, secret string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
