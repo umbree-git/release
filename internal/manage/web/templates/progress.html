@@ -1,0 +1,8 @@
+{{define "content"}}
+<h1>{{.Verb}} <code>{{.Row.Version}}</code> <span class="dim">· {{.Component}} · {{.Channel}}</span></h1>
+<p class="stamp">{{.Row.Stamp}}</p>
+<section class="panel progress">
+<ol id="log" class="log"></ol>
+</section>
+<p><a href="{{.Back}}">← {{.Component}}</a></p>
+{{end}}
