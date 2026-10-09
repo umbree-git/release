@@ -131,3 +131,7 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+func (c *Client) Copy(ctx context.Context, srcBucket, srcKey, dstKey string) error {
+	return fmt.Errorf("r2: copy: not built")
+}

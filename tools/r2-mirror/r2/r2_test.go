@@ -122,3 +122,55 @@ func TestRequestsAreSigned(t *testing.T) {
 		t.Fatalf("methods = %s, %s", d.reqs[0].Method, d.reqs[1].Method)
 	}
 }
+
+func TestCopySetsCopySourceHeader(t *testing.T) {
+	d := &fakeDoer{status: http.StatusOK, body: "<CopyObjectResult><ETag>\"e\"</ETag></CopyObjectResult>"}
+	c := New("acct", "public-test", "AKID", "SECRET", d)
+	if err := c.Copy(context.Background(), "gated-test", "umbree/production/v1/a b+c.zip", "umbree/v1/a b+c.zip"); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.reqs) != 1 || d.reqs[0].Method != http.MethodPut {
+		t.Fatalf("requests = %v, want one PUT", d.reqs)
+	}
+	r := d.reqs[0]
+	if got := r.Header.Get("X-Amz-Copy-Source"); got != "/gated-test/umbree/production/v1/a%20b%2Bc.zip" {
+		t.Fatalf("x-amz-copy-source = %q", got)
+	}
+	if got := r.URL.EscapedPath(); got != "/public-test/umbree/v1/a%20b+c.zip" && got != "/public-test/umbree/v1/a%20b%2Bc.zip" {
+		t.Fatalf("destination path = %q", got)
+	}
+	if r.ContentLength != 0 {
+		t.Fatalf("a server-side copy sent a %d-byte body", r.ContentLength)
+	}
+}
+
+func TestCopyErrorBodyIn2xxIsFailure(t *testing.T) {
+	d := &fakeDoer{status: http.StatusOK, body: "<?xml version=\"1.0\"?><Error><Code>InternalError</Code><Message>try again</Message></Error>"}
+	err := newTestClient(d).Copy(context.Background(), "gated-test", "a/b.zip", "a/c.zip")
+	if err == nil {
+		t.Fatal("a 200 carrying an <Error> document was accepted")
+	}
+	if !strings.Contains(err.Error(), "InternalError") {
+		t.Fatalf("error %q does not carry the S3 error code", err)
+	}
+}
+
+func TestCopyNon2xxIsFailure(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError} {
+		err := newTestClient(&fakeDoer{status: status, body: "nope"}).Copy(context.Background(), "gated-test", "a/b.zip", "a/c.zip")
+		if err == nil || !strings.Contains(err.Error(), strconv.Itoa(status)) {
+			t.Errorf("status %d: err = %v, want one carrying the status", status, err)
+		}
+	}
+}
+
+func TestCopyIsSigned(t *testing.T) {
+	d := &fakeDoer{status: http.StatusOK, body: "<CopyObjectResult/>"}
+	if err := newTestClient(d).Copy(context.Background(), "gated-test", "a/b.zip", "a/c.zip"); err != nil {
+		t.Fatal(err)
+	}
+	auth := d.reqs[0].Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=AKID/") || !strings.Contains(auth, "x-amz-copy-source") {
+		t.Fatalf("Authorization = %q; the copy source must be a signed header", auth)
+	}
+}
