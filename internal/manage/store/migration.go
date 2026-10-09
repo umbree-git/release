@@ -65,6 +65,38 @@ var migrations = []migration{
 			)`,
 		},
 	},
+	{
+		Migration: Migration{Version: 3, Name: "admins and sessions"},
+		stmts: []string{
+			`CREATE TABLE admins (
+				name            TEXT    PRIMARY KEY,
+				password_hash   TEXT    NOT NULL,
+				totp_secret_enc BLOB    NOT NULL,
+				totp_last_step  INTEGER NOT NULL DEFAULT 0,
+				created_at      INTEGER NOT NULL
+			)`,
+			`CREATE TABLE sessions (
+				id         TEXT    PRIMARY KEY,
+				admin      TEXT    NOT NULL REFERENCES admins(name) ON DELETE CASCADE,
+				mfa_ok     INTEGER NOT NULL DEFAULT 0,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			)`,
+			`CREATE INDEX sessions_admin ON sessions (admin)`,
+			`CREATE TABLE csrf (
+				token      TEXT    PRIMARY KEY,
+				session_id TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+				expires_at INTEGER NOT NULL
+			)`,
+			`CREATE INDEX csrf_session ON csrf (session_id)`,
+			`CREATE TABLE login_failures (
+				id  INTEGER PRIMARY KEY,
+				key TEXT    NOT NULL,
+				at  INTEGER NOT NULL
+			)`,
+			`CREATE INDEX login_failures_key ON login_failures (key, at)`,
+		},
+	},
 }
 
 func Migrations() []Migration {
