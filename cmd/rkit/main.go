@@ -12,7 +12,7 @@ import (
 )
 
 func usage() string {
-	return "usage: rkit <build --component <umbree> [flags] | register [flags] | components>"
+	return "usage: rkit <build --component <umbree> [flags] | register [flags] | status [flags] | components>"
 }
 
 func main() {
@@ -31,7 +31,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.
 			return 1
 		}
 	case "register":
-		return reportRegister(runRegister(ctx, args[1:], stdout, hc), stderr)
+		return reportVerb("register", registerUsage, runRegister(ctx, args[1:], stdout, hc), stderr)
+	case "status":
+		return reportVerb("status", statusUsage, runStatus(ctx, args[1:], stdout, hc), stderr)
 	case "components":
 		for _, c := range relconfig.Components {
 			fmt.Fprintln(stdout, c)
@@ -43,15 +45,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.
 	return 0
 }
 
-func reportRegister(err error, stderr io.Writer) int {
+func reportVerb(name, usage string, err error, stderr io.Writer) int {
 	var ue *registerUsageError
 	switch {
 	case err == nil:
 		return 0
 	case errors.As(err, &ue):
-		fmt.Fprintf(stderr, "rkit register: %s\n%s\n", ue.msg, registerUsage)
+		fmt.Fprintf(stderr, "rkit %s: %s\n%s\n", name, ue.msg, usage)
 		return 2
 	}
-	fmt.Fprintln(stderr, "✗ rkit register:", err)
+	fmt.Fprintf(stderr, "✗ rkit %s: %v\n", name, err)
 	return 1
 }
