@@ -85,11 +85,9 @@ type FailureKey struct {
 	Name   string
 }
 
-func (k FailureKey) legacy() string { return k.Step + "\x00" + k.Source + "\x00" + k.Name }
-
 func (s *Store) RecordLoginFailure(k FailureKey, at time.Time) error {
-	if _, err := s.db.Exec(`INSERT INTO login_failures (key, step, source, name, at) VALUES (?, ?, ?, ?, ?)`,
-		k.legacy(), k.Step, k.Source, k.Name, at.Unix()); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO login_failures (step, source, name, at) VALUES (?, ?, ?, ?)`,
+		k.Step, k.Source, k.Name, at.Unix()); err != nil {
 		return fmt.Errorf("store: record login failure: %w", err)
 	}
 	return nil
