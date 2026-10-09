@@ -1,5 +1,3 @@
-// Command rkit drives umbree release cuts on release-kit: `build` produces the
-// signed (and, with --apple, notarized) artifact set into dist/<stamp>/.
 package main
 
 import (
@@ -25,9 +23,6 @@ func main() {
 			os.Exit(1)
 		}
 	case "components":
-		// One component per line, straight from relconfig.Components — the
-		// single list rkit builds from. tools/gen-bootstraps.sh parses this
-		// output so the bootstrap loop can't drift from what rkit builds.
 		for _, c := range relconfig.Components {
 			fmt.Println(c)
 		}
