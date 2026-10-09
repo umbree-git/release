@@ -7,6 +7,58 @@ TEMPLATE="$ROOT/tools/bootstrap.template.sh"
 
 MODDIR="$ROOT/tools/modules"
 
+usage() {
+    cat <<'EOF'
+Usage: tools/gen-bootstraps.sh [--test-build <dir>]
+
+Render <comp>/install.sh for every component from tools/bootstrap.template.sh,
+and <comp>/beta.install.sh while versions/<comp>.beta.stamp exists. A stale
+twin is removed when its stamp is gone.
+
+  --test-build <dir>  render into <dir>/<comp>/ instead of the repository, with
+                      the test seam filled: UMBREE_TEST_ALLOW_HTTP=1 accepts an
+                      http://127.0.0.1:<port> downloads base and UMBREE_DL_BASE
+                      overrides the per-release download base. <dir> must exist
+                      and resolve (pwd -P) outside the repository. A test build
+                      is never published.
+  -h, --help          print this text
+
+Environment:
+  UMBREE_PUBKEY_FILE        minisign public key to bake (default umbree-release.pub,
+                            then tools/testkeys/test.pub)
+  UMBREE_MIN_VERSION        test-only override of the baked version floor
+  UMBREE_MIN_VERSION_FILE   the file the floor is read from (default
+                            versions/<comp>.stamp)
+  UMBREE_R2_DOWNLOADS_BASE  the downloads base to bake; it must be https://
+EOF
+}
+
+TEST_SEAM='DL_BASE="${UMBREE_DL_BASE:-}"; if [ "${UMBREE_TEST_ALLOW_HTTP:-}" = 1 ]; then ALLOW_LOOPBACK_HTTP=1; fi; case "$DL_BASE$ALLOW_LOOPBACK_HTTP" in 0) ;; *) CURL="curl -fsSL --proto =http --proto-redir =http --connect-timeout 15 --max-time 60" ;; esac'
+
+resolve_test_dir() {
+    [ -d "$1" ] || { echo "✗ --test-build: $1 is not a directory" >&2; return 2; }
+    _td="$(CDPATH='' cd -- "$1" && pwd -P)"
+    _root="$(CDPATH='' cd -- "$ROOT" && pwd -P)"
+    case "$_td/" in
+        "$_root"/*) echo "✗ --test-build: $1 resolves to $_td, inside the repository ($_root); a test build never writes into the tree" >&2; return 2 ;;
+    esac
+    printf '%s' "$_td"
+}
+
+OUT_ROOT="$ROOT"
+SEAM=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --test-build)
+            [ $# -ge 2 ] || { { echo "✗ --test-build needs a directory"; echo; usage; } >&2; exit 2; }
+            OUT_ROOT="$(resolve_test_dir "$2")" || exit 2
+            SEAM="$TEST_SEAM"
+            shift 2 ;;
+        *) { echo "✗ unknown argument: $1"; echo; usage; } >&2; exit 2 ;;
+    esac
+done
+
 expand_includes() {
     awk -v moddir="$MODDIR" '
         /^@INCLUDE:[a-z0-9-]+@$/ {
@@ -67,6 +119,10 @@ min_version_of() {
 }
 
 DOWNLOADS_BASE="${UMBREE_R2_DOWNLOADS_BASE-https://downloads.umbree.org}"
+case "$DOWNLOADS_BASE" in
+    https://*) ;;
+    *) echo "✗ UMBREE_R2_DOWNLOADS_BASE must be an https:// base (got '$DOWNLOADS_BASE'); the installers download from nowhere else" >&2; exit 1 ;;
+esac
 
 COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || {
     echo "gen-bootstraps: could not read the component list from rkit" >&2
@@ -82,7 +138,7 @@ render() {
     sed -e "s|@COMP@|$comp|g" -e "s|@PUBKEY@|$PUBKEY|g" \
         -e "s|@BRAND@|UMBREE|g" -e "s|@brand@|umbree|g" \
         -e "s|@CHANNEL@|$channel|g" -e "s|@MIN_VERSION@|$min_version|g" \
-        -e "s|@DOWNLOADS_BASE@|$DOWNLOADS_BASE|g" \
+        -e "s|@DOWNLOADS_BASE@|$DOWNLOADS_BASE|g" -e "s|@TEST_SEAM@|$SEAM|g" \
         "$exp" > "$tmp"
     rm -f "$exp"
     grep -q '@INCLUDE:' "$tmp" && { rm -f "$tmp"; echo "✗ unexpanded @INCLUDE in $out" >&2; exit 1; }
@@ -92,13 +148,17 @@ render() {
 }
 
 for comp in $COMPONENTS; do
-    mkdir -p "$ROOT/$comp"
+    if [ "$OUT_ROOT" != "$ROOT" ] && [ -L "$OUT_ROOT/$comp" ]; then
+        echo "✗ --test-build: $OUT_ROOT/$comp is a symlink; a test build writes only into its own directory" >&2
+        exit 2
+    fi
+    mkdir -p "$OUT_ROOT/$comp"
     for channel in stable beta; do
         if [ "$channel" = beta ]; then
             beta_stamp="$ROOT/versions/${comp}.beta.stamp"
             if [ ! -f "$beta_stamp" ]; then
                 stale=""
-                for f in "$ROOT/$comp"/beta.*.sh "$ROOT/$comp/beta.version.js"; do
+                for f in "$OUT_ROOT/$comp"/beta.*.sh "$OUT_ROOT/$comp/beta.version.js"; do
                     [ -e "$f" ] || continue
                     rm -f "$f"
                     stale="$stale $(basename "$f")"
@@ -111,10 +171,10 @@ for comp in $COMPONENTS; do
                 continue
             fi
             min_version="$(UMBREE_MIN_VERSION_FILE="$beta_stamp" min_version_of "$comp")"
-            render "$comp" beta "$min_version" "$ROOT/$comp/beta.install.sh"
+            render "$comp" beta "$min_version" "$OUT_ROOT/$comp/beta.install.sh"
         else
             min_version="$(min_version_of "$comp")"
-            render "$comp" stable "$min_version" "$ROOT/$comp/install.sh"
+            render "$comp" stable "$min_version" "$OUT_ROOT/$comp/install.sh"
         fi
     done
 done

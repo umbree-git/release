@@ -29,7 +29,8 @@ Prove the whole umbree release chain OFFLINE with the TEST key. No GitHub, no
 release host, no real signing key. For the given component this:
   1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
      dist/<stamp>/, offline (--no-vulncheck).
-  2. regenerates the outer bootstrap (baking the TEST pubkey).
+  2. renders a --test-build outer bootstrap (baking the TEST pubkey) into a
+     temp dir; the committed bootstraps are not touched.
   3. runs verify-no-env on the freshly built binary.
   4. HAPPY PATH: serves dist/<stamp>/ over http and runs the outer bootstrap
      against it; asserts the installed binary reports the expected stamp.
@@ -339,8 +340,10 @@ if [ "${WHAT}" = manifest ]; then
     exit 0
 fi
 
-say "gen-bootstraps.sh (bake TEST pubkey)"
-UMBREE_PUBKEY_FILE="${TEST_PUB}" bash tools/gen-bootstraps.sh
+E2E_BUILD="$(mktemp -d)"
+trap 'cleanup; rm -rf "${E2E_BUILD}"' EXIT INT TERM
+say "gen-bootstraps.sh --test-build (bake TEST pubkey, outside the tree)"
+UMBREE_PUBKEY_FILE="${TEST_PUB}" bash tools/gen-bootstraps.sh --test-build "${E2E_BUILD}"
 
 run_component() {
     local comp="$1" src var stamp serve_dir zip pin
@@ -389,7 +392,7 @@ run_umbree() {
         UMBREE_VERSION="${pin}" \
         UMBREED_NO_SERVICE=1 \
         PREFIX="$1" \
-            sh "${REPO_ROOT}/${comp}/install.sh"
+            sh "${E2E_BUILD}/${comp}/install.sh"
     }
 
     say "HAPPY PATH — install into ${happy}"

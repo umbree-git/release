@@ -68,7 +68,7 @@ for comp in umbree umbreed; do
     check_lacks "no github in generated bootstraps: $comp names no release repo" "$(cat "$gen")" "umbree-git/release"
     check_lacks "no github in generated bootstraps: $comp downloads no GitHub release" "$(outside_minisign "$gen" | grep -E 'github\.com/.*/releases')" "github.com"
     check_lacks "no gh-proxy in generated bootstraps: $comp" "$(tr 'A-Z' 'a-z' < "$gen")" "gh-proxy"
-    check_lacks "no gh-proxy in generated bootstraps: $comp sets no mirror list" "$(grep -E '^GH_PROXIES=' "$gen")" "GH_PROXIES"
+    check "no gh-proxy in generated bootstraps: $comp pins the mirror list empty" "$(grep -E '^GH_PROXIES=' "$gen")" 'GH_PROXIES=""'
     check_contains "downloads base baked and https: $comp" "$(cat "$gen")" 'DOWNLOADS_BASE="${UMBREE_DOWNLOADS_BASE-https://'
     check_contains "downloads base baked and https: $comp pins curl to https, redirects too" "$(grep -E '^CURL=' "$gen")" "--proto =https --proto-redir =https --tlsv1.2"
     check "downloads base baked and https: $comp has one curl line" "$(grep -cE '^ *CURL=' "$gen")" "1"
@@ -76,7 +76,7 @@ for comp in umbree umbreed; do
     check_lacks "committed bootstraps carry no test seam: $comp download hook" "$(cat "$gen")" "UMBREE_DL_BASE"
     check_lacks "committed bootstraps carry no test seam: $comp placeholder" "$(cat "$gen")" "@TEST_SEAM@"
     check_lacks "committed bootstraps carry no test seam: $comp has no http curl" "$(cat "$gen")" "--proto =http "
-    check_contains "committed bootstraps carry no test seam: $comp pins the hooks off" "$(cat "$gen")" "$(printf 'DL_BASE=""\nALLOW_LOOPBACK_HTTP=0')"
+    check_contains "committed bootstraps carry no test seam: $comp pins the hooks off" "$(cat "$gen")" "$(printf 'DL_BASE=""\nGH_PROXIES=""\nALLOW_LOOPBACK_HTTP=0')"
 done
 
 echo "# a test build"
@@ -114,6 +114,16 @@ for link in link-root link-sub; do
 done
 check "test build refuses a symlink into the repo: the repo is untouched" "$(snapshot)" "$before"
 
+mkdir -p "$W/planted"; ln -s "$ROOT/umbree" "$W/planted/umbree"
+out="$("$ROOT/tools/gen-bootstraps.sh" --test-build "$W/planted" 2>&1)"; rc=$?
+check "test build writes only into its dir: a planted component symlink is refused" "$rc" "2"
+check "test build writes only into its dir: nothing written through it" "$(snapshot)" "$before"
+for base in "" "http://downloads.example"; do
+    mkdir -p "$W/base"
+    out="$(UMBREE_R2_DOWNLOADS_BASE="$base" "$ROOT/tools/gen-bootstraps.sh" --test-build "$W/base" 2>&1)"; rc=$?
+    check "downloads base baked and https: '$base' is refused" "$rc" "1"
+    check "downloads base baked and https: '$base' renders nothing" "$(ls -A "$W/base")" ""
+done
 out="$("$ROOT/tools/gen-bootstraps.sh" --test-build "$W/absent" 2>&1)"; rc=$?
 check "test build refuses a missing dir" "$rc" "2"
 out="$("$ROOT/tools/gen-bootstraps.sh" --test-build 2>&1)"; rc=$?
