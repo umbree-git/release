@@ -280,6 +280,75 @@ That prints the admin's TOTP enrolment once. `admin list`, `admin remove` and
 reference. Deploying the service is the operator's step: `ops/README.md` →
 "Manage service".
 
+## Retention
+
+This section is the one statement of how many releases each store keeps.
+`internal/manage/retention/agreement_test.go` fails if any constant disagrees
+with this table.
+
+<!-- retention-counts:begin -->
+| Store | Channel | Keeps |
+|---|---|---|
+| Public surface | production | 5 |
+| Public surface | beta | 1 |
+| Gated store | production | 3 |
+<!-- retention-counts:end -->
+
+**Public surface.** Per component, the newest promoted releases, yanked ones
+included. The current release is always kept and takes one of the slots, even
+when it is the oldest. Pinned releases (`umbree-release-manage admin pin`) are
+kept in addition, and so is whatever stamp `latest.json` names.
+
+**Gated store.** Per component and channel, the newest versions by `sort -V`
+order, whatever their state, `staged` included. The window is hard: there are
+no pins. It may delete the current release's gated copy, but never its public
+bytes.
+
+**The catalog row is the source of truth, and bytes are reconciled to it.**
+
+- A promoted release outside the public window keeps its state (`public` or
+  `yanked`) once its public bytes are gone.
+- A release becomes `expired` only when neither window keeps any of its bytes.
+  A `staged` release outside the gated window is expired at once.
+- Expiring never clears `promoted_at`, so an expired release still bounds the
+  promote floor.
+- Before each delete, the key is checked again. It must be one the row
+  recorded, under the row's own stamp prefix. It is never a `latest.json`. A key
+  that fails the check is skipped and reported, and its row is not recorded as
+  pruned.
+
+**When it runs.** None of these fails the action it is attached to.
+
+- **At registration:** the manage service runs the gated pass with a 15-second
+  budget. Its outcome is the `retention` field of the 201 response.
+- **At the end of every promote:** both passes run, and the result is streamed
+  as a `retention` event.
+- **Nightly:** `umbree-release-manage retain` runs over every component, from
+  `ops/systemd/umbree-release-manage-retain.timer`.
+
+**By hand.** Each component's console overview has two controls, clean gated
+and clean public. Each shows the exact keys it would delete and the rows it
+would expire. A second confirmation deletes exactly those keys. If the plan
+changed in between, the confirmation answers `409` and deletes nothing. Both
+controls need the session, the CSRF token and a single-use confirm token, and
+every prune and expiry is audited with the acting admin.
+`umbree-release-manage retain --dry-run` prints the same plans from the host.
+
+**The costs.**
+
+- An invite link to pruned gated bytes stops resolving.
+- A version outside the gated window cannot be promoted again.
+
+Umbree has no invites and no re-point by promote, so both costs are
+theoretical today. They are stated here so they are not rediscovered.
+
+**Not implemented: the shared rule's `NeverPublic` case.** Umbree has no
+component without a public surface.
+
+**The first deploy can delete real bytes.** The nightly pass acts on the live
+buckets over every row the backfill catalogued. Before enabling the timer, list
+both buckets and run `retain --dry-run`.
+
 ## Has it been promoted? Ask the manifest, never a person
 
 A cut ends at the gated store; going public is the operator's own act. Nothing
@@ -363,11 +432,12 @@ are operator decisions — no tool here does any of them unasked.**
   any tool — remove them over ssh by hand, or leave them: they keep resolving
   to the stable release (`tools/RUNBOOK.md`). `beta` is not deleted; it carries
   the next cycle.
-- **Retention.** `CHANNEL=beta bash tools/prune-releases.sh [--execute]` keeps
-  the newest 1 beta tag per component (stable keeps 10 Releases), and
-  `cd tools/r2-mirror && go run ./cmd/r2-prune --channel beta [--execute]` keeps
-  the newest 1 beta stamp on the mirror. Run the GitHub pass before the R2
-  pass; a tag or key matching neither channel's shape is ignored by both.
+- **Retention.** `CHANNEL=beta bash tools/prune-releases.sh [--execute]` prunes
+  beta tags per component and
+  `cd tools/r2-mirror && go run ./cmd/r2-prune --channel beta [--execute]` prunes
+  beta stamps on the mirror, each to the beta count in "Retention" above. Run the
+  GitHub pass before the R2 pass; a tag or key matching neither channel's shape
+  is ignored by both.
 
 ## Keys
 
