@@ -149,7 +149,8 @@ verifier.
 
 - **`beta.install.sh`** — each component also has a beta twin at the same
   base URL (`https://release.umbree.org/<comp>/beta.install.sh`), served only
-  while a beta cycle is open. It resolves the **newest of beta-or-stable**
+  while a beta cycle is open. Umbree has no beta stage today, so none is
+  served (see "Beta channel"). It resolves the **newest of beta-or-stable**
   comparing `X.Y.Z`, tie to stable, so a host that installed a beta graduates
   onto the stable release when the cycle closes without ever changing which
   URL it uses. Beta bytes are served from the downloads mirror only (a beta is
@@ -218,7 +219,8 @@ Windows is not supported.
 
 ## How releases are made
 
-Building and publishing are two separate steps:
+Building and cutting are two separate steps, and neither makes anything
+public:
 
 - **`rkit build`** (Go orchestrator on
   [`release-kit`](https://github.com/burrowee-git/release-kit)) **produces**
@@ -228,13 +230,17 @@ Building and publishing are two separate steps:
   the standard ship path: it turns on Apple sign+notarize and forces the CVE
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
-- **`tools/release.sh --distribute-only <umbree|umbreed> <stamp>`** **publishes**
-  a staged `dist/<stamp>/`: GitHub Release on this repo, R2 mirror, the
-  component's `versions/<comp>.stamp` (the version floor every bootstrap bakes
-  — a resolved release older than it is refused), bootstrap + `version.js`
-  render, scp to the static host, `[RELEASED]` marker commit. There is no
-  shell build path — `rkit build` is the only builder. The beta channel's
-  publish is the sibling verb `--channel beta <comp> <stamp>` (below).
+- **`tools/release.sh --distribute-only <umbree|umbreed> <stamp>`** **cuts**
+  a staged `dist/<stamp>/`: it uploads the bytes to the private gated store
+  (`UMBREE_R2_GATED_BUCKET`), registers the release as a `staged` row with the
+  manage service (`UMBREE_MANAGE_URL`, signed with the release key) and reads
+  the row back, pushes the tag `<comp>/<stamp>`, and records a
+  `[RELEASED: <comp>]` marker commit carrying `versions/<comp>`. It reports the
+  stamp, the row and the row's console page, and stops. A refused
+  registration, or a row that does not read back `staged`, stops the cut
+  before the tag; `--register-only <comp> <stamp>` re-registers the staged
+  bytes (`tools/RUNBOOK.md`). No GitHub Release is made at any point. There is
+  no shell build path — `rkit build` is the only builder.
 - **Before either half runs, the cut origin is asserted**
   (`tools/release_origin.sh`, in `release.command` before `rkit build` and again
   in `release.sh`): each component's source must be its registry `code/main`
@@ -256,8 +262,9 @@ Building and publishing are two separate steps:
   run it from a shell — it refuses anything but an Aqua session, a non-root user,
   a non-SSH session and a real terminal). It reads what to cut from a gitignored
   `.release-request` (copy `.release-request.example`), decrypts this channel's
-  `RELEASE_HOST`/`STATIC_DIR` and signing key from the operator's sealed
-  configuration, and
+  `UMBREE_R2_GATED_BUCKET`, `UMBREE_MANAGE_URL` and signing key from the
+  operator's sealed configuration (refusing before the build when either
+  setting is missing), and
   pushes each `[RELEASED: <comp>]` marker before the next component starts —
   the cut-origin guard refuses to cut while this repo is ahead of its remote,
   so an unpushed marker aborts the following component. Right after each push
@@ -266,14 +273,25 @@ Building and publishing are two separate steps:
   a fast-forward, or — when `dev` carries commits `main` lacks, its normal
   state — a merge of `main` into `dev` built without a checkout and pushed
   without force. The launcher stops only on a merge conflict or a `dev` that
-  moved during the cut, naming the manual merge. Output goes to
-  `.release.log`, ending in `RELEASE-EXIT:<code>`. Operator hazards the
-  tooling does not prevent are collected in `tools/RUNBOOK.md`.
+  moved during the cut, naming the manual merge. After each push it names the
+  component's page in the manage console, where the row waits for a promote.
+  Output goes to `.release.log`, ending in `RELEASE-EXIT:<code>`. Operator
+  hazards the tooling does not prevent are collected in `tools/RUNBOOK.md`.
 
-Built binaries for the private component sources (`umbree-git/cli` for
-`umbree`, `umbree-git/daemon` for `umbreed`) are published as **GitHub
-Release assets on this repo** (the sources are private and can't be `curl`'d
-anonymously). The static bootstrap scripts are mirrored to
+**Going public is the operator's promote**, in the manage console (below).
+It verifies the gated bytes against the signed sums, copies them to the public
+download surface under `<comp>/<stamp>/`, writes `<comp>/latest.json` last,
+flips the row to `public`, and then republishes the static surface on
+`release.umbree.org`: `<comp>/install.sh` rendered with the promoted stamp as
+its version floor, `<comp>/version.js`, the public key and the site page.
+After the promote, `tools/promote-check.sh <comp> stable --expect <stamp>`
+answers live, and `tools/record-promoted.sh <comp> <stamp>` records the floor
+in this repo (`versions/<comp>.stamp` and the committed bootstrap, one
+`[PROMOTED: <comp>]` marker commit).
+
+The component sources (`umbree-git/cli` for `umbree`, `umbree-git/daemon`
+for `umbreed`) are private. Their built, signed binaries are served from the
+public download surface once promoted, and the bootstraps from
 `release.umbree.org` (nginx + Cloudflare).
 
 ## The manage console
@@ -295,7 +313,14 @@ umbree-release-manage admin add <name> --data-dir <MANAGE_DATA_DIR> --secret-key
 
 That prints the admin's TOTP enrolment once. `admin list`, `admin remove` and
 `admin reset-totp` do the rest, and `docs/manage-help.txt` is the full command
-reference. Deploying the service is the operator's step: `ops/README.md` →
+reference.
+
+Promote and yank end by republishing the static surface to the service's
+`--static-dest`. A failure there is streamed and logged and never undoes the
+promote or yank, whose manifest is already live; the overview's **Republish
+static** control (session, CSRF and a confirm, like the others) or
+`umbree-release-manage publish-static <comp>` on the host does it again from
+the live manifest. Deploying the service is the operator's step: `ops/README.md` →
 "Manage service".
 
 ## Retention
@@ -404,18 +429,23 @@ unreachable, absent, malformed, or a version **newer** than expected. `1` and
 outage as patience and waits for something that will never happen. An empty base
 is a refusal, not a skip — a check with no surface to read is not a check.
 
-> **Today every component answers `3` here**, because this repo still publishes
-> its component binaries as GitHub Release assets (above) and the mirror carries
-> no `latest.json` for `umbree` or `umbreed`. The check is correct and says so
-> rather than guessing; it starts answering the moment a promote writes a channel
-> manifest. Moving this repo's distribution onto the downloads surface is its own
-> piece of work.
+Until a component's first promote, the public surface carries no
+`latest.json` for it, so the check answers `3` for that component; the first
+promote writes the manifest and the answer follows. A live answer for a stable
+stamp is what `tools/record-promoted.sh` requires before it records the floor.
 
 Work blocked on a promote is written `blocked: promote <component> <version>
 <channel>` — this script's arguments — and the resuming session runs it before
 the plan, the worktree, or any question.
 
 ## Beta channel
+
+**Umbree has no beta stage** (operator, 2026-10-09): work goes `dev` → `main`
+and every cut is stable. The beta tooling below is dormant and unused. Unlike
+the stable cut, `release.sh --channel beta` would publish at the cut, straight
+to the public download bucket, with no gated store or promote in front of it.
+It is kept as it is, not extended, and recorded here so the gap is not
+rediscovered.
 
 A beta cycle soaks a batch of work on a beta fleet before it reaches stable
 users. The mechanics are burrowee's, in umbree's three-step cut shape; the
@@ -457,8 +487,8 @@ are operator decisions — no tool here does any of them unasked.**
   channel.
 - **Close (step 2).** Remove `versions/<comp>.beta` and
   `versions/<comp>.beta.stamp`, commit and push. The next
-  `tools/gen-bootstraps.sh` run (the next stable cut runs it) deletes the local
-  twins and the stable marker commit stages that deletion. The **served**
+  `tools/gen-bootstraps.sh` run deletes the local twins; commit that deletion
+  by hand. The **served**
   `beta.install.sh` / `beta.version.js` on the release host are untouched by
   any tool — remove them over ssh by hand, or leave them: they keep resolving
   to the stable release (`tools/RUNBOOK.md`). `beta` is not deleted; it carries
@@ -481,9 +511,11 @@ are operator decisions — no tool here does any of them unasked.**
 
 ## Status
 
-Built on release-kit. Both components are LIVE — signed, notarized and
-published through this repo, with release.umbree.org serving from the release
-host (see `ops/README.md`).
+Built on release-kit. Both components have shipped. Their earlier releases
+went public at the cut, as GitHub Release assets that stay where they are
+until the operator removes them; from the first cut after the gated store
+landed, a cut stages and registers, and only a promote in the manage console
+makes a release public.
 
 | Component | Latest cut |
 |---|---|
