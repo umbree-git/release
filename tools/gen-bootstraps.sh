@@ -61,11 +61,11 @@ done
 
 MODULE_AWK='
         function scan(s, st,    i, n, c, prev) {
-            n = length(s); prev = " "
+            n = length(s); prev = " "; cont = 0
             for (i = 1; i <= n; i++) {
                 c = substr(s, i, 1)
                 if (st == "s") { if (c == sq) st = "n"; prev = c; continue }
-                if (c == "\\") { i++; prev = "x"; continue }
+                if (c == "\\") { if (i == n) { cont = 1; return st } i++; prev = "x"; continue }
                 if (st == "d") { if (c == "\"") st = "n"; prev = c; continue }
                 if (c == sq) { st = "s"; prev = c; continue }
                 if (c == "\"") { st = "d"; prev = c; continue }
@@ -99,11 +99,17 @@ expand_includes() {
             }
             close(path)
             printf("# BEGIN %s\n", name)
-            st = "n"
+            st = "n"; cont = 0
             while ((getline line < path) > 0) {
                 if (line ~ /^# (module|needs|since):/) continue
                 if (st == "n" && line ~ /^[ \t]*#/) {
-                    if (!kept(line)) continue
+                    if (!kept(line)) {
+                        if (cont) {
+                            printf("✗ module %s continues a line onto a comment line, and stripping it would join the next command (no line continuation before a comment): %s\n", name, line) > "/dev/stderr"
+                            exit 1
+                        }
+                        continue
+                    }
                     line = untail(line)
                 }
                 st = scan(line, st)

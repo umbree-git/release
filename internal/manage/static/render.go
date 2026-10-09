@@ -76,18 +76,21 @@ func ExpandIncludes(template []byte, module func(name string) ([]byte, error)) (
 
 func moduleCode(name string, body []byte) (string, error) {
 	var out strings.Builder
-	state := byte('n')
+	state, continued := byte('n'), false
 	for _, line := range records(body) {
 		if moduleHeaderRe.MatchString(line) {
 			continue
 		}
 		if state == 'n' && commentLineRe.MatchString(line) {
 			if !keptCommentRe.MatchString(line) {
+				if continued {
+					return "", fmt.Errorf("%w: %s: %q", ErrModuleContinuation, name, line)
+				}
 				continue
 			}
 			line = withoutProseTail(line)
 		}
-		if state = scanQuotes(line, state); state == 'h' {
+		if state, continued = scanQuotes(line, state); state == 'h' {
 			return "", fmt.Errorf("%w: %s: %q", ErrModuleHeredoc, name, line)
 		}
 		out.WriteString(line + "\n")
@@ -103,7 +106,7 @@ func withoutProseTail(line string) string {
 	return line
 }
 
-func scanQuotes(line string, state byte) byte {
+func scanQuotes(line string, state byte) (byte, bool) {
 	prev := byte(' ')
 	for i := 0; i < len(line); i++ {
 		c := line[i]
@@ -113,6 +116,9 @@ func scanQuotes(line string, state byte) byte {
 				state = 'n'
 			}
 		case c == '\\':
+			if i == len(line)-1 {
+				return state, true
+			}
 			i++
 			c = 'x'
 		case state == 'd':
@@ -124,13 +130,13 @@ func scanQuotes(line string, state byte) byte {
 		case c == '"':
 			state = 'd'
 		case c == '#' && strings.IndexByte(" \t;&|()", prev) >= 0:
-			return state
+			return state, false
 		case c == '<' && i+1 < len(line) && line[i+1] == '<':
-			return 'h'
+			return 'h', false
 		}
 		prev = c
 	}
-	return state
+	return state, false
 }
 
 func (r Renderer) module(name string) ([]byte, error) {
