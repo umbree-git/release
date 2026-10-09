@@ -63,4 +63,15 @@ for odd in "umbree/v0.9.9-rc1" "22222222.extra"; do
 done
 check_contains "beta KEEP=1 counts exactly three betas" "${out_beta1}" "3 releases → keep newest 1, remove 2"
 
+help_out="$(COMPONENTS=umbree UMBREE_GH=/nonexistent bash "${HERE}/prune-releases.sh" --help 2>/dev/null)"; help_rc=$?
+check_contains "--help prints the usage on stdout" "${help_out}" "Usage: tools/prune-releases.sh [--execute]"
+check_contains "--help names the KEEP default" "${help_out}" "KEEP "
+[ "${help_rc}" = 0 ] && echo "ok: --help exits 0" || { echo "FAIL: --help exited ${help_rc}"; fail=1; }
+help_unset="$(env -u COMPONENTS UMBREE_GH=/nonexistent PATH=/usr/bin:/bin bash "${HERE}/prune-releases.sh" -h 2>&1)"; unset_rc=$?
+check_contains "-h needs neither rkit nor gh" "${help_unset}" "Usage: tools/prune-releases.sh"
+[ "${unset_rc}" = 0 ] && echo "ok: -h exits 0 with nothing resolved" || { echo "FAIL: -h exited ${unset_rc}"; fail=1; }
+bad_out="$(COMPONENTS=umbree UMBREE_GH="${STUB}/gh" GH_STUB_TAGS="${WORK}/tags" bash "${HERE}/prune-releases.sh" --bogus 2>&1 >/dev/null)"; bad_rc=$?
+check_contains "an unknown argument prints the usage on stderr" "${bad_out}" "Usage: tools/prune-releases.sh"
+[ "${bad_rc}" = 2 ] && echo "ok: an unknown argument exits 2" || { echo "FAIL: unknown argument exited ${bad_rc}"; fail=1; }
+
 exit "${fail}"

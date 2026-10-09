@@ -43,6 +43,36 @@ export PATH="/usr/bin:/bin:/opt/homebrew/bin:${PATH}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 
+KEEP_STABLE_DEFAULT=3
+KEEP_BETA_DEFAULT=1
+
+usage() {
+  cat <<EOF
+Usage: tools/prune-releases.sh [--execute]
+
+Keep the newest KEEP release tags per component on one channel and delete the
+rest: GitHub Releases with their tags on stable, bare tags on beta. Without
+--execute it lists what it would delete and deletes nothing.
+
+Environment:
+  CHANNEL               stable | beta (default stable)
+  KEEP                  newest versions kept per component (default ${KEEP_STABLE_DEFAULT} on
+                        stable, ${KEEP_BETA_DEFAULT} on beta); tools/retain-permanent pins are kept
+                        in addition
+  COMPONENTS            space-separated components (default: rkit components)
+  UMBREE_RELEASE_REPO   GitHub repo (default umbree-git/release)
+  UMBREE_GH             GitHub CLI to run (default gh)
+
+Run it before tools/r2-mirror/cmd/r2-prune.
+EOF
+}
+
+for a in "$@"; do
+  case "$a" in
+    -h|--help) usage; exit 0 ;;
+  esac
+done
+
 REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
 CHANNEL="${CHANNEL:-stable}"
 case "${CHANNEL}" in
@@ -50,9 +80,9 @@ case "${CHANNEL}" in
   *) echo "✗ CHANNEL must be stable or beta (got '${CHANNEL}')" >&2; exit 2 ;;
 esac
 if [ "${CHANNEL}" = beta ]; then
-  KEEP="${KEEP:-1}"
+  KEEP="${KEEP:-${KEEP_BETA_DEFAULT}}"
 else
-  KEEP="${KEEP:-3}"
+  KEEP="${KEEP:-${KEEP_STABLE_DEFAULT}}"
 fi
 PERMANENT_FILE="${HERE}/retain-permanent"
 
@@ -80,8 +110,7 @@ EXECUTE=0
 for a in "$@"; do
   case "$a" in
     --execute|--yes) EXECUTE=1 ;;
-    -h|--help) awk 'NR==1{next} !/^#/{exit} {sub(/^# ?/,""); print}' "$0"; exit 0 ;;
-    *) echo "✗ unknown argument: $a" >&2; exit 2 ;;
+    *) { echo "✗ unknown argument: $a"; echo; usage; } >&2; exit 2 ;;
   esac
 done
 
