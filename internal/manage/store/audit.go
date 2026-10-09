@@ -52,7 +52,25 @@ func (s *Store) AuditLog() ([]AuditEntry, error) {
 	return out, rows.Err()
 }
 
+func requireActor(action, actor string) error {
+	if strings.TrimSpace(actor) == "" {
+		return fmt.Errorf("%w: %s needs an actor", ErrBadValue, action)
+	}
+	return nil
+}
+
+func auditTx(tx *sql.Tx, at time.Time, actor, action string, rowID int64, detail string) error {
+	if _, err := tx.Exec(`INSERT INTO audit (at, actor, action, row_id, detail) VALUES (?, ?, ?, ?, ?)`,
+		at.Unix(), actor, action, rowID, detail); err != nil {
+		return fmt.Errorf("store: audit %s: %w", action, err)
+	}
+	return nil
+}
+
 func (s *Store) Yank(id, successorID int64, actor string, at time.Time) error {
+	if err := requireActor("yank", actor); err != nil {
+		return err
+	}
 	return s.tx(func(tx *sql.Tx) error {
 		var component, channel, sComponent, sChannel, sState string
 		if err := tx.QueryRow(`SELECT component, channel FROM release_versions WHERE id = ?`, id).Scan(&component, &channel); err != nil {
@@ -68,8 +86,10 @@ func (s *Store) Yank(id, successorID int64, actor string, at time.Time) error {
 		if err := transitionTx(tx, id, catalog.StatePublic, catalog.StateYanked, at); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, successorID)
-		return err
+		if _, err := tx.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, successorID); err != nil {
+			return fmt.Errorf("store: yank %d: set current: %w", id, err)
+		}
+		return auditTx(tx, at, actor, "yank", id, fmt.Sprintf("%s public -> yanked; row %d is current", component, successorID))
 	})
 }
 

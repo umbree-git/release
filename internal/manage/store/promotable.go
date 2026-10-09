@@ -72,9 +72,12 @@ func (s *Store) IsPromotable(rv ReleaseVersion) (bool, error) {
 }
 
 func (s *Store) Promote(id int64, actor string, at time.Time) error {
+	if err := requireActor("promote", actor); err != nil {
+		return err
+	}
 	return s.tx(func(tx *sql.Tx) error {
-		var component, channel string
-		err := tx.QueryRow(`SELECT component, channel FROM release_versions WHERE id = ?`, id).Scan(&component, &channel)
+		var component, channel, stamp string
+		err := tx.QueryRow(`SELECT component, channel, stamp FROM release_versions WHERE id = ?`, id).Scan(&component, &channel, &stamp)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: release row %d", ErrNotFound, id)
 		}
@@ -88,7 +91,9 @@ func (s *Store) Promote(id int64, actor string, at time.Time) error {
 		if err := transitionTx(tx, id, catalog.StateStaged, catalog.StatePublic, at); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, id)
-		return err
+		if _, err := tx.Exec(`UPDATE release_versions SET is_current = 1 WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("store: promote %d: set current: %w", id, err)
+		}
+		return auditTx(tx, at, actor, "promote", id, component+" "+stamp+" staged -> public, current")
 	})
 }

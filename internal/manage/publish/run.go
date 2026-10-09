@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/umbree-git/release/internal/manage/backend"
@@ -46,6 +47,9 @@ type Run struct {
 }
 
 func Begin(ctx context.Context, d Deps, rowID int64, actor string) (*Run, error) {
+	if strings.TrimSpace(actor) == "" {
+		return nil, ErrNoActor
+	}
 	rv, err := d.Store.Get(rowID)
 	if err != nil {
 		return nil, err
@@ -89,4 +93,13 @@ func (r *Run) log() *slog.Logger {
 		return slog.Default()
 	}
 	return r.d.Log
+}
+
+func (r *Run) logOutcome(action string, err error, detail string) {
+	result := "done"
+	if err != nil {
+		result = err.Error()
+	}
+	r.log().Info("release "+action, "actor", r.actor, "row", r.row.ID, "component", r.row.Component,
+		"stamp", r.row.Stamp, "result", result, "detail", detail)
 }

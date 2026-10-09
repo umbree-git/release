@@ -20,7 +20,9 @@ const maxManifestBytes = 64 << 10
 
 func (r *Run) promote(ctx context.Context, st *stream) error {
 	err := r.runPromote(ctx, st)
-	st.finish(err, r.row.ID, fmt.Sprintf("%s %s is live on %s", r.row.Component, r.row.Stamp, r.row.Channel))
+	done := fmt.Sprintf("%s %s is live on %s", r.row.Component, r.row.Stamp, r.row.Channel)
+	st.finish(err, r.row.ID, done)
+	r.logOutcome("promote", err, done)
 	return err
 }
 
@@ -46,7 +48,6 @@ func (r *Run) runPromote(ctx context.Context, st *stream) error {
 		return fmt.Errorf("flip row %d: %w; the manifest already names %s, so re-run the promote to complete the flip", r.row.ID, err, r.row.Stamp)
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})
-	r.log().Info("promoted", "row", r.row.ID, "component", r.row.Component, "stamp", r.row.Stamp)
 	r.afterPromote(ctx, st)
 	r.confirm(ctx, st)
 	return nil

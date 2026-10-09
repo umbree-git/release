@@ -31,6 +31,7 @@ func (r *Run) yank(ctx context.Context, st *stream) error {
 		done = fmt.Sprintf("%s %s yanked; %s now names %s", r.row.Component, r.row.Stamp, r.row.Channel, successor.Stamp)
 	}
 	st.finish(err, r.row.ID, done)
+	r.logOutcome("yank", err, done)
 	return err
 }
 
@@ -54,7 +55,6 @@ func (r *Run) runYank(ctx context.Context, st *stream) (*store.ReleaseVersion, e
 		return nil, fmt.Errorf("flip row %d: %w; the manifest already names %s, so re-run the yank", r.row.ID, err, successor.Stamp)
 	}
 	st.send(Event{Step: "flip", Status: "ok", Row: r.row.ID})
-	r.log().Info("yanked", "row", r.row.ID, "component", r.row.Component, "successor", successor.Stamp)
 	return successor, nil
 }
 
