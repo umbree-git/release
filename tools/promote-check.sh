@@ -8,14 +8,17 @@ help() {
     cat <<'HELP'
 promote-check.sh — has this version actually gone public?
 
-A promote is an operator action (release-management.md §5) and the cut chain
-ends before it. So every session that must wait for a go-live faces one
-question, and until this script existed the only way to answer it was to ask a
-human — who can only report an INTENTION to promote. The failure worth
-catching is the promote that was carried out and still did not land: bytes
-copied, row flipped, manifest write failed. An assertion cannot see that, and
-neither can an authenticated read of the catalog, which reaches the row rather
-than the thing installers actually resolve.
+A cut ends at the gated store: tools/release.sh stages the bytes privately and
+registers a staged row with the manage service (umbree-release-manage). Going
+public is the operator's promote in that service's console, which verifies the
+gated bytes, copies them to the public download surface, writes the channel
+manifest <comp>/latest.json last, flips the row to public and republishes the
+static surface. So every session that must wait for a go-live faces one
+question, and a person can only report an INTENTION to promote. The failure
+worth catching is the promote that was carried out and still did not land:
+bytes copied, manifest write failed. An assertion cannot see that, and neither
+can an authenticated read of the catalog, which reaches the row rather than
+the thing installers actually resolve.
 
 So this asks the way the public does: an unauthenticated GET of the channel
 manifest over the public downloads base, cache-defeating, reading nothing else.
@@ -41,6 +44,9 @@ Exit:
 
 1 and 3 are deliberately different exits. A caller that cannot tell them apart
 treats an outage as patience, and waits for something that will never happen.
+
+After a live answer for a promoted stable stamp, tools/record-promoted.sh
+<comp> <stamp> records the installers' version floor in this repo.
 
 Env (optional):
   UMBREE_R2_DOWNLOADS_BASE   downloads-mirror base (default https://downloads.umbree.org;

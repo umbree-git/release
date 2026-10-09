@@ -131,6 +131,8 @@ set +e; HELP_OUT="$("${CHECK}" --help 2>/dev/null)"; RC=$?; HELP_ERR="$("${CHECK
 [ -z "${HELP_ERR}" ] || die "help wrote to stderr: ${HELP_ERR}"
 has "Usage:" "${HELP_OUT}" || die "help has no usage line: ${HELP_OUT}"
 has "3  cannot determine" "${HELP_OUT}" || die "help does not name exit 3: ${HELP_OUT}"
+has "registers a staged row with the manage service" "${HELP_OUT}" || die "help does not describe this brand's cut and promote: ${HELP_OUT}"
+has "record-promoted.sh" "${HELP_OUT}" || die "help does not name the step after a live answer: ${HELP_OUT}"
 
 say "the check writes nothing and needs no credentials"
 if grep -qE '\b(aws|rclone|scp|ssh)\b' "${CHECK}"; then die "the check reached for a credentialed tool"; fi
