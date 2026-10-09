@@ -1,27 +1,4 @@
 #!/usr/bin/env bash
-# test-version-floor.sh — prove the outer bootstrap will not accept a
-# network-RESOLVED version older than the floor baked into it, and that each
-# channel's resolver only ever sees its own tag shape.
-#
-# Why the floor exists: when GitHub is unreachable, $TAG is answered by a
-# mirror — the same party that then serves the artifacts — so the signature
-# gates compare that party's answer against itself, and ANY older, genuinely
-# signed release passes. @MIN_VERSION@ is the one input a download source
-# cannot choose: it is baked from versions/<comp>.stamp (or .beta.stamp) by
-# gen-bootstraps.sh and reaches the host over the first-party static channel.
-#
-# What this covers:
-#   PREDICATE:  semver_of / is_semver / version_ge / assert_version_floor,
-#               extracted VERBATIM from a scratch render (between the "BEGIN
-#               version-floor" / "END version-floor" markers) and driven
-#               directly — the shipped code, not a copy of it.
-#   RESOLVER:   latest_tag under each channel's TAG_RE over one mixed tag list.
-#   FAIL-CLOSED: an unbaked/placeholder floor aborts rather than waving the
-#               resolved version through.
-#   GENERATOR:  gen-bootstraps.sh refuses to render with no floor to bake.
-#
-# Fully hermetic: renders into a scratch copy of the repo (the real tree is
-# never touched), no network, no minisign, nothing installed.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
@@ -30,8 +7,6 @@ check() { if [ "$2" = "$3" ]; then echo "ok: $1"; else echo "FAIL: $1 — got '$
 check_contains() { case "$2" in *"$3"*) echo "ok: $1";; *) echo "FAIL: $1 — missing '$3' in: $2"; fail=1;; esac; }
 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-# A scratch copy of everything the generator reads; `go` is stubbed so the
-# component list needs no toolchain here.
 mkdir -p "$W/repo/tools" "$W/repo/versions" "$W/bin"
 cp -R "$REPO_ROOT/tools/modules" "$W/repo/tools/modules"
 cp "$REPO_ROOT/tools/gen-bootstraps.sh" "$REPO_ROOT/tools/bootstrap.template.sh" "$W/repo/tools/"
@@ -48,9 +23,6 @@ sh "$W/repo/tools/gen-bootstraps.sh" >/dev/null 2>&1 || { echo "FAIL: scratch re
 STABLE="$W/repo/umbree/install.sh"; TWIN="$W/repo/umbree/beta.install.sh"
 [ -f "$TWIN" ] || { echo "FAIL: twin not rendered in the scratch repo"; exit 1; }
 
-# extract <file> <out> — the knobs (COMP…MIN_VERSION), the version-floor block
-# and the channel-pick block, plus latest_tag, into a sourceable file with the
-# helpers module's fail/info/ok replaced by test doubles.
 extract() {
     {
         echo 'fail() { printf "fail: %s\n" "$*"; exit 1; }'
@@ -61,8 +33,6 @@ extract() {
         sed -n '/^# BEGIN channel-pick/,/^# END channel-pick/p' "$1"
         sed -n '/^latest_tag() {/,/^}/p' "$1"
     } > "$2"
-    # assert_version_floor calls fail, which exits the bootstrap; every call
-    # below runs in a subshell, so that exit is the status the test reads.
 }
 extract "$STABLE" "$W/stable.sh"; extract "$TWIN" "$W/twin.sh"
 for fn in semver_of is_semver version_ge assert_version_floor beta_channel_pick latest_tag; do

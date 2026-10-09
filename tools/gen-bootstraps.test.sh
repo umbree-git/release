@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# gen-bootstraps.test.sh — asserts a bootstrap is generated per component, and
-# that the beta twin (<comp>/beta.install.sh) is rendered ONLY while
-# versions/<comp>.beta.stamp exists and is swept when it goes.
-#
-# gen-bootstraps.sh writes $ROOT/<comp>/install.sh, and those files are
-# COMMITTED (only /dist/ and /build/ are ignored). So this runs the real
-# generator against the real destination and asserts every component got one.
-# The twin cases fabricate versions/umbree.beta.stamp around a run; everything
-# they touch is put back, and the suite ends by asserting the tree is clean.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
@@ -16,7 +7,6 @@ check_lacks() { case "$2" in *"$3"*) echo "FAIL: $1 — unwanted '$3'"; fail=1;;
 
 FAKE_STAMP="$ROOT/versions/umbree.beta.stamp"
 [ ! -e "$FAKE_STAMP" ] || { echo "SKIP-REFUSED: $FAKE_STAMP exists — a beta cycle is open; this suite fabricates that file and will not touch a real one"; exit 1; }
-# Restore on every exit path: the committed stable renders and NO twin.
 cleanup() {
     rm -f "$FAKE_STAMP" "$ROOT/umbree/beta.install.sh" "$ROOT/umbree/beta.version.js"
     ( cd "$ROOT" && git checkout -q -- umbree/install.sh umbreed/install.sh 2>/dev/null ) || true
