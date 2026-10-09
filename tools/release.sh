@@ -188,8 +188,10 @@ apply_retention() {
     local comp="$1" channel="$2"
     echo
     echo "→ retention (applying ${channel}):"
-    env -u KEEP CHANNEL="${channel}" COMPONENTS="${comp}" \
-        bash "${REPO_ROOT}/tools/prune-releases.sh" --execute || true
+    if [ "${channel}" = beta ]; then
+        env -u KEEP CHANNEL="${channel}" COMPONENTS="${comp}" \
+            bash "${REPO_ROOT}/tools/prune-releases.sh" --execute || true
+    fi
     if r2_configured; then
         ( cd "${REPO_ROOT}/tools/r2-mirror" && "${GO_BIN:-go}" run ./cmd/r2-prune \
             --comp "${comp}" --channel "${channel}" --execute ) || true

@@ -5,22 +5,23 @@ export PATH="/usr/bin:/bin:/opt/homebrew/bin:${PATH}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 
-KEEP_STABLE_DEFAULT=5
 KEEP_BETA_DEFAULT=1
 
 usage() {
   cat <<EOF
 Usage: tools/prune-releases.sh [--execute]
 
-Keep the newest KEEP release tags per component on one channel and delete the
-rest: GitHub Releases with their tags on stable, bare tags on beta. Without
+Keep the newest KEEP beta tags per component and delete the rest. Without
 --execute it lists what it would delete and deletes nothing.
 
+Stable tags are never deleted: a tag identifies a build, and the public and
+gated stores are pruned from the manage service's catalog. CHANNEL=stable, or
+CHANNEL unset, is refused before anything is listed.
+
 Environment:
-  CHANNEL               stable | beta (default stable)
-  KEEP                  newest versions kept per component (default ${KEEP_STABLE_DEFAULT} on
-                        stable, ${KEEP_BETA_DEFAULT} on beta); tools/retain-permanent pins are kept
-                        in addition
+  CHANNEL               beta (required)
+  KEEP                  newest versions kept per component (default ${KEEP_BETA_DEFAULT});
+                        tools/retain-permanent pins are kept in addition
   COMPONENTS            space-separated components (default: rkit components)
   UMBREE_RELEASE_REPO   GitHub repo (default umbree-git/release)
   UMBREE_GH             GitHub CLI to run (default gh)
@@ -36,16 +37,13 @@ for a in "$@"; do
 done
 
 REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
-CHANNEL="${CHANNEL:-stable}"
+CHANNEL="${CHANNEL:-}"
 case "${CHANNEL}" in
-  stable|beta) ;;
-  *) echo "✗ CHANNEL must be stable or beta (got '${CHANNEL}')" >&2; exit 2 ;;
+  beta) ;;
+  stable|'') { echo "✗ CHANNEL=${CHANNEL:-<unset>}: stable tags are never deleted; this tool prunes beta tags only (CHANNEL=beta)"; echo; usage; } >&2; exit 2 ;;
+  *) echo "✗ CHANNEL must be beta (got '${CHANNEL}')" >&2; exit 2 ;;
 esac
-if [ "${CHANNEL}" = beta ]; then
-  KEEP="${KEEP:-${KEEP_BETA_DEFAULT}}"
-else
-  KEEP="${KEEP:-${KEEP_STABLE_DEFAULT}}"
-fi
+KEEP="${KEEP:-${KEEP_BETA_DEFAULT}}"
 PERMANENT_FILE="${HERE}/retain-permanent"
 
 is_permanent() {
@@ -83,19 +81,11 @@ mode="DRY-RUN"; [ "$EXECUTE" = 1 ] && mode="EXECUTE"
 echo "repo=${REPO}  channel=${CHANNEL}  keep=${KEEP}  components=[${COMPONENTS}]  mode=${mode}"
 echo
 
-if [ "${CHANNEL}" = beta ]; then
-  tags="$("${GH_CLI}" api "repos/${REPO}/git/matching-refs/tags/" --paginate --jq '.[].ref' | sed 's#^refs/tags/##')"
-else
-  tags="$("${GH_CLI}" api "repos/${REPO}/releases" --paginate --jq '.[].tag_name')"
-fi
+tags="$("${GH_CLI}" api "repos/${REPO}/git/matching-refs/tags/" --paginate --jq '.[].ref' | sed 's#^refs/tags/##')"
 
 planned=0
 for comp in ${COMPONENTS}; do
-  if [ "${CHANNEL}" = beta ]; then
-    pattern="^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$"
-  else
-    pattern="^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$"
-  fi
+  pattern="^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$"
   sorted="$(printf '%s\n' "${tags}" | grep -E "${pattern}" | sort -V || true)"
   if [ -z "${sorted}" ]; then
     echo "[${comp}] no releases"
@@ -116,14 +106,8 @@ for comp in ${COMPONENTS}; do
       continue
     fi
     if [ "${EXECUTE}" = 1 ]; then
-      if [ "${CHANNEL}" = beta ]; then
-        if "${GH_CLI}" api -X DELETE "repos/${REPO}/git/refs/tags/${tag}" >/dev/null 2>&1; then
-          /usr/bin/git -C "${REPO_ROOT}" tag -d "${tag}" >/dev/null 2>&1 || true
-          echo "  ✓ deleted ${tag}"
-        else
-          echo "  ✗ FAILED to delete ${tag}"
-        fi
-      elif "${GH_CLI}" release delete "${tag}" -R "${REPO}" --yes --cleanup-tag >/dev/null 2>&1; then
+      if "${GH_CLI}" api -X DELETE "repos/${REPO}/git/refs/tags/${tag}" >/dev/null 2>&1; then
+        /usr/bin/git -C "${REPO_ROOT}" tag -d "${tag}" >/dev/null 2>&1 || true
         echo "  ✓ deleted ${tag}"
       else
         echo "  ✗ FAILED to delete ${tag}"
