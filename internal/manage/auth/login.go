@@ -14,7 +14,7 @@ const decoyPassword = "unknown-admin-timing-equaliser"
 
 func (s *Service) StartLogin(w http.ResponseWriter, r *http.Request, name, password string) (string, error) {
 	now := s.Now()
-	key := "pw\x00" + ClientIP(r) + "\x00" + name
+	key := failureKey("pw", ClientIP(r), name)
 	if !s.allow(key, now) {
 		return "", ErrRateLimited
 	}
@@ -45,7 +45,7 @@ func (s *Service) CompleteTOTP(w http.ResponseWriter, r *http.Request, code stri
 	if err != nil {
 		return err
 	}
-	key := "totp\x00" + ClientIP(r) + "\x00" + sess.Admin
+	key := failureKey("totp", ClientIP(r), sess.Admin)
 	if !s.allow(key, now) {
 		return ErrRateLimited
 	}
@@ -92,3 +92,7 @@ func (s *Service) decoyHash() string {
 	})
 	return s.decoy
 }
+
+func failureKey(step, ip, name string) string { return step + "\x00" + ip + FailureKeySuffix(name) }
+
+func FailureKeySuffix(name string) string { return "\x00" + name }

@@ -250,3 +250,17 @@ func TestPasswordOnlySessionRefusedOnEveryRoute(t *testing.T) {
 		t.Fatalf("the code step itself: HTTP %d", r.status)
 	}
 }
+
+func TestSignInHugeNameUniformRefusal(t *testing.T) {
+	c := newConsole(t)
+	unknown := c.browser().post("/manage/login", url.Values{"name": {"nobody"}, "password": {adminPassword}})
+	for label, name := range map[string]string{"10 MB": strings.Repeat("a", 10<<20), "malformed": "Ops!"} {
+		r := c.browser().post("/manage/login", url.Values{"name": {name}, "password": {adminPassword}})
+		if r.status != unknown.status || r.body != unknown.body {
+			t.Fatalf("%s name: HTTP %d, not the uniform refusal (HTTP %d)", label, r.status, unknown.status)
+		}
+	}
+	if r := c.signedIn("ops").get("/manage/production/umbree"); r.status != http.StatusOK {
+		t.Fatalf("control: HTTP %d", r.status)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -231,5 +232,58 @@ func TestServeRefusesBadSecretKey(t *testing.T) {
 	}
 	if _, err := auth.LoadSealer(good["UMBREE_MANAGE_SECRET_KEY"]); err != nil {
 		t.Fatalf("control key: %v", err)
+	}
+}
+
+func lockOut(t *testing.T, dir, key, name string) *auth.Service {
+	t.Helper()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sealer, err := auth.LoadSealer(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := auth.New(st, sealer, nil, nil)
+	for i := 0; i < 5; i++ {
+		_, _ = svc.StartLogin(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/manage/login", nil), name, "wrong password!")
+	}
+	if _, err := svc.StartLogin(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/manage/login", nil), name, testPassword); !errors.Is(err, auth.ErrRateLimited) {
+		t.Fatalf("%s is not locked out: %v", name, err)
+	}
+	return svc
+}
+
+func TestAdminUnlockClearsLockout(t *testing.T) {
+	dir, key := t.TempDir(), secretKeyFile(t)
+	addAdmin(t, dir, key, "ops")
+	addAdmin(t, dir, key, "xops")
+	svc := lockOut(t, dir, key, "ops")
+	lockOut(t, dir, key, "xops")
+	if r := invoke(t, map[string]string{"USER": "op-alice"}, "admin", "unlock", "ops", "--data-dir", dir); r.code != exitUsage || !strings.Contains(r.stderr, "--reason") {
+		t.Fatalf("no reason: exit %d %q", r.code, r.stderr)
+	}
+	if r := invoke(t, nil, "admin", "unlock", "nobody", "--data-dir", dir, "--reason", "x"); r.code != 1 || !strings.Contains(r.stderr, "no admin") {
+		t.Fatalf("unknown admin: exit %d %q", r.code, r.stderr)
+	}
+	r := invoke(t, map[string]string{"USER": "op-alice"}, "admin", "unlock", "ops", "--data-dir", dir, "--reason", "locked out by guessing")
+	if r.code != 0 {
+		t.Fatalf("unlock: exit %d %q", r.code, r.stderr)
+	}
+	req := func() *http.Request { return httptest.NewRequest(http.MethodPost, "/manage/login", nil) }
+	if _, err := svc.StartLogin(httptest.NewRecorder(), req(), "ops", testPassword); err != nil {
+		t.Fatalf("after unlock: %v", err)
+	}
+	if _, err := svc.StartLogin(httptest.NewRecorder(), req(), "xops", testPassword); !errors.Is(err, auth.ErrRateLimited) {
+		t.Fatalf("keep-control, another admin whose name ends the same: %v", err)
+	}
+	log, err := svc.Store.AuditLog()
+	if err != nil || len(log) != 1 || log[0].Action != "unlock" || log[0].Actor != "op-alice" || !strings.Contains(log[0].Detail, "locked out by guessing") {
+		t.Fatalf("audit %+v %v", log, err)
+	}
+	if page := invoke(t, nil, "admin", "unlock", "--help").stdout; !strings.Contains(page, "--reason") {
+		t.Fatalf("unlock page %q", page)
 	}
 }

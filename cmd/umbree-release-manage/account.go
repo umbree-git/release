@@ -169,3 +169,12 @@ func runAdminResetTOTP(e *env, v *verb, args []string) error {
 	printEnrolment(e, enrol)
 	return nil
 }
+
+func runAdminUnlock(e *env, v *verb, args []string) error {
+	o, err := parseVerb(e, v, args)
+	if err != nil {
+		return err
+	}
+	_, err = adminName(v, o)
+	return err
+}

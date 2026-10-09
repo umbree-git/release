@@ -115,3 +115,7 @@ func (s *Store) PurgeExpiredSessions(now time.Time, failuresBefore time.Time) er
 	}
 	return nil
 }
+
+func (s *Store) UnlockAdmin(name, keySuffix, actor, reason string, at time.Time) (int, error) {
+	return 0, nil
+}

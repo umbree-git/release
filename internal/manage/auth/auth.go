@@ -30,6 +30,7 @@ var (
 	ErrRateLimited  = errors.New("auth: too many attempts")
 	ErrUnauthorized = errors.New("auth: no valid session")
 	ErrCSRF         = errors.New("auth: missing or invalid CSRF token")
+	ErrBusy         = errors.New("auth: sign-in is busy; try again")
 )
 
 type Service struct {
@@ -40,6 +41,8 @@ type Service struct {
 
 	decoyOnce sync.Once
 	decoy     string
+	hashSlots chan struct{}
+	hashWait  time.Duration
 }
 
 func New(st *store.Store, sealer *Sealer, now func() time.Time, log *slog.Logger) *Service {
