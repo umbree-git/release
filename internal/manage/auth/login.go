@@ -18,34 +18,38 @@ func (s *Service) StartLogin(w http.ResponseWriter, r *http.Request, name, passw
 		return "", ErrRefused
 	}
 	now := s.Now()
-	key := store.FailureKey{Step: "pw", Source: s.source(r), Name: name}
-	if !s.allow(key, now) {
-		return "", ErrRateLimited
-	}
-	release, err := s.acquireHash(r.Context())
+	held, err := s.reserve(r.Context(), store.FailureKey{Step: "pw", Source: s.source(r), Name: name}, now)
 	if err != nil {
 		return "", err
+	}
+	ok, err := s.checkPassword(r.Context(), name, password)
+	if err != nil || ok {
+		held.release()
+	}
+	switch {
+	case err != nil:
+		return "", err
+	case !ok:
+		return "", ErrRefused
+	}
+	return s.openSession(w, name, false, now, now.Add(PendingTTL))
+}
+
+func (s *Service) checkPassword(ctx context.Context, name, password string) (bool, error) {
+	release, err := s.acquireHash(ctx)
+	if err != nil {
+		return false, err
 	}
 	defer release()
 	admin, err := s.Store.Admin(name)
 	if errors.Is(err, store.ErrNotFound) {
 		_, _ = VerifyPassword(s.decoyHash(), password)
-		s.fail(key, now)
-		return "", ErrRefused
+		return false, nil
 	}
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	ok, err := VerifyPassword(admin.PasswordHash, password)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		s.fail(key, now)
-		return "", ErrRefused
-	}
-	s.succeed(key)
-	return s.openSession(w, name, false, now, now.Add(PendingTTL))
+	return VerifyPassword(admin.PasswordHash, password)
 }
 
 func (s *Service) CompleteTOTP(w http.ResponseWriter, r *http.Request, code string) error {
@@ -54,11 +58,14 @@ func (s *Service) CompleteTOTP(w http.ResponseWriter, r *http.Request, code stri
 	if err != nil {
 		return err
 	}
-	key := store.FailureKey{Step: "totp", Source: s.source(r), Name: sess.Admin}
-	if !s.allow(key, now) {
-		return ErrRateLimited
+	held, err := s.reserve(r.Context(), store.FailureKey{Step: "totp", Source: s.source(r), Name: sess.Admin}, now)
+	if err != nil {
+		return err
 	}
 	ok, err := s.checkCode(sess.Admin, strings.TrimSpace(code), now)
+	if err != nil || ok {
+		held.release()
+	}
 	if err != nil {
 		return err
 	}
@@ -66,11 +73,9 @@ func (s *Service) CompleteTOTP(w http.ResponseWriter, r *http.Request, code stri
 		return err
 	}
 	if !ok {
-		s.fail(key, now)
 		ClearCookies(w)
 		return ErrRefused
 	}
-	s.succeed(key)
 	_, err = s.openSession(w, sess.Admin, true, now, now.Add(SessionTTL))
 	return err
 }

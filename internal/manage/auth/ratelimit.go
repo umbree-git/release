@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	"github.com/umbree-git/release/internal/manage/store"
@@ -12,36 +14,28 @@ const (
 	loginNameCeiling = 50
 )
 
-func (s *Service) allow(k store.FailureKey, now time.Time) bool {
-	since := now.Add(-loginWindow)
-	n, err := s.Store.LoginFailures(k, since)
-	if err != nil {
-		s.Log.Warn("could not read the sign-in failure count; refusing", "err", err)
-		return false
-	}
-	if n >= loginMaxFailures {
-		return false
-	}
-	total, err := s.Store.NameFailures(k.Step, k.Name, since)
-	if err != nil {
-		s.Log.Warn("could not read the sign-in failure count; refusing", "err", err)
-		return false
-	}
-	if total >= loginNameCeiling {
+type reservation struct {
+	s  *Service
+	id int64
+}
+
+func (s *Service) reserve(ctx context.Context, k store.FailureKey, now time.Time) (*reservation, error) {
+	id, err := s.Store.ReserveFailure(context.WithoutCancel(ctx), k,
+		store.Budget{Since: now.Add(-loginWindow), PerSource: loginMaxFailures, PerName: loginNameCeiling}, now)
+	switch {
+	case errors.Is(err, store.ErrNameBudgetSpent):
 		s.Log.Warn("sign-in name at its failure ceiling across all sources; `admin unlock` clears it", "name", k.Name, "step", k.Step)
-		return false
+		return nil, ErrRateLimited
+	case errors.Is(err, store.ErrSourceBudgetSpent):
+		return nil, ErrRateLimited
+	case err != nil:
+		return nil, err
 	}
-	return true
+	return &reservation{s: s, id: id}, nil
 }
 
-func (s *Service) fail(k store.FailureKey, now time.Time) {
-	if err := s.Store.RecordLoginFailure(k, now); err != nil {
-		s.Log.Warn("could not record a failed sign-in; the rate limit is not counting", "err", err)
-	}
-}
-
-func (s *Service) succeed(k store.FailureKey) {
-	if err := s.Store.ClearLoginFailures(k); err != nil {
-		s.Log.Warn("could not clear sign-in failures", "err", err)
+func (r *reservation) release() {
+	if err := r.s.Store.ReleaseReservation(r.id); err != nil {
+		r.s.Log.Warn("could not release a sign-in reservation; it counts as a failure until it ages out", "err", err)
 	}
 }

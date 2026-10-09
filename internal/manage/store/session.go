@@ -85,14 +85,6 @@ type FailureKey struct {
 	Name   string
 }
 
-func (s *Store) RecordLoginFailure(k FailureKey, at time.Time) error {
-	if _, err := s.db.Exec(`INSERT INTO login_failures (step, source, name, at) VALUES (?, ?, ?, ?)`,
-		k.Step, k.Source, k.Name, at.Unix()); err != nil {
-		return fmt.Errorf("store: record login failure: %w", err)
-	}
-	return nil
-}
-
 func (s *Store) LoginFailures(k FailureKey, since time.Time) (int, error) {
 	return s.countFailures(`step = ? AND source = ? AND name = ?`, since, k.Step, k.Source, k.Name)
 }
@@ -107,13 +99,6 @@ func (s *Store) countFailures(where string, since time.Time, args ...any) (int, 
 		return 0, fmt.Errorf("store: count login failures: %w", err)
 	}
 	return n, nil
-}
-
-func (s *Store) ClearLoginFailures(k FailureKey) error {
-	if _, err := s.db.Exec(`DELETE FROM login_failures WHERE step = ? AND source = ? AND name = ?`, k.Step, k.Source, k.Name); err != nil {
-		return fmt.Errorf("store: clear login failures: %w", err)
-	}
-	return nil
 }
 
 func (s *Store) PurgeExpiredSessions(now time.Time, failuresBefore time.Time) error {

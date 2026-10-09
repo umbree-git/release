@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -85,7 +86,7 @@ func TestConcurrentWrongPasswordsHoldTheNameCeiling(t *testing.T) {
 	s.TrustedProxy = netip.MustParseAddr("192.0.2.1")
 	for i := 0; i < loginNameCeiling-loginMaxFailures; i++ {
 		k := store.FailureKey{Step: "pw", Source: fmt.Sprintf("198.51.100.%d", i/loginMaxFailures), Name: "ops"}
-		if err := s.Store.RecordLoginFailure(k, s.Now()); err != nil {
+		if err := s.seedFailure(k); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,7 +132,7 @@ func TestSuccessClearsOnlyItsReservation(t *testing.T) {
 	s, _ := boundService(t)
 	k := store.FailureKey{Step: "pw", Source: "192.0.2.1", Name: "ops"}
 	for i := 0; i < 3; i++ {
-		if err := s.Store.RecordLoginFailure(k, s.Now()); err != nil {
+		if err := s.seedFailure(k); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -147,4 +148,9 @@ func TestSuccessClearsOnlyItsReservation(t *testing.T) {
 	if n, _ := s.counted(t, k); n != 4 {
 		t.Fatalf("control: a failure after the success leaves %d, want 4", n)
 	}
+}
+
+func (s *Service) seedFailure(k store.FailureKey) error {
+	_, err := s.Store.ReserveFailure(context.Background(), k, store.Budget{PerSource: 1 << 20, PerName: 1 << 20}, s.Now())
+	return err
 }
