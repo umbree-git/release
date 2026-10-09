@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"umbree-release-r2-mirror/r2"
@@ -43,7 +44,11 @@ func buildService(o *options, log *slog.Logger) (http.Handler, *store.Store, err
 		log.Warn("could not purge expired sessions", "err", err)
 	}
 	deps.Store = st
-	srv, err := web.New(web.Config{Store: st, Auth: auth.New(st, sealer, nil, log), Intake: intake.New(st, key, nil, log),
+	svc := auth.New(st, sealer, nil, log)
+	if o.trustedProxy != "" {
+		svc.TrustedProxy = netip.MustParseAddr(o.trustedProxy)
+	}
+	srv, err := web.New(web.Config{Store: st, Auth: svc, Intake: intake.New(st, key, nil, log),
 		Publish: deps, PublicBaseURL: o.publicBaseURL, Log: log})
 	if err != nil {
 		_ = st.Close()

@@ -189,10 +189,7 @@ func runAdminUnlock(e *env, v *verb, args []string) error {
 	}
 	defer st.Close()
 	actor := actorOf(e)
-	n, err := st.UnlockAdmin(name, auth.FailureKeySuffix(name), actor, o.reason, time.Now())
-	if errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("no admin named %q; `%s admin list` shows the ones that exist", name, toolName)
-	}
+	n, err := st.UnlockAdmin(name, actor, o.reason, time.Now())
 	if err != nil {
 		return err
 	}

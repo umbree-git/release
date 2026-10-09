@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -24,6 +25,9 @@ func runServe(e *env, v *verb, args []string) error {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(e.stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if o.trustedProxy == "" && isLoopback(o.listen) {
+		log.Warn("no --trusted-proxy: behind a loopback front every client shares one sign-in budget; name the front's address with --trusted-proxy", "listen", o.listen)
+	}
 	h, st, err := buildService(o, log)
 	if err != nil {
 		return err
@@ -56,6 +60,11 @@ func checkServeOptions(v *verb, o *options) error {
 	}
 	if !r2AccountRe.MatchString(o.r2Account) {
 		return usagef(v, "--r2-account %q is not an account id; it becomes part of the storage host name", o.r2Account)
+	}
+	if o.trustedProxy != "" {
+		if addr, err := netip.ParseAddr(o.trustedProxy); err != nil || addr.Zone() != "" {
+			return usagef(v, "--trusted-proxy %q is not one IP literal; give the front's address with no port, CIDR, zone or host name", o.trustedProxy)
+		}
 	}
 	u, err := url.Parse(o.publicBaseURL)
 	if err == nil {
@@ -94,4 +103,16 @@ func serveUntilDone(ctx context.Context, ln net.Listener, h http.Handler, log *s
 		}
 		return nil
 	}
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
 }
