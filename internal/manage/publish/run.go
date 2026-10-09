@@ -29,6 +29,12 @@ type Deps struct {
 	Now          func() time.Time
 	Log          *slog.Logger
 	AfterPromote func(ctx context.Context, component, channel string) error
+	Confirm      *Confirmer
+}
+
+type Confirmer struct {
+	BaseURL string
+	Fetcher backend.Fetcher
 }
 
 type Run struct {
