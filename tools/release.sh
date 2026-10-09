@@ -2,88 +2,74 @@
 set -euo pipefail
 
 read -r -d '' HELP_TEXT <<'HELP' || true
-release.sh — PUBLISH an already-staged umbree|umbreed release.
+release.sh — CUT an already-built umbree|umbreed release: stage it to the gated store and register it.
 
 Usage:
-  bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   # stable publish
-  bash tools/release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   # beta publish
+  bash tools/release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   # stable cut
+  bash tools/release.sh --register-only <umbree|umbreed> <stamp> [--dry-run]     # re-register a staged cut
+  bash tools/release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   # dormant beta publish
 
 This repo has NO shell build path. Building, signing, and (with --apple)
 notarizing the artifact set live entirely in `rkit build` (the produce half),
 which stamps + cross-compiles the component for darwin/{arm64,amd64} +
 linux/{arm64,amd64}, writes SHA256SUMS.txt, and minisign-signs it into
-dist/<stamp>/.
+dist/<stamp>/. Nothing here builds, signs, notarizes or bumps a version.
 
-Both verbs publish THAT already-staged dist/<stamp>/ WITHOUT building,
-signing, notarizing, or bumping a version — they run only the publish half.
-They share the pre-flight (staged dir, module gate, cut-origin guard with its
-main→dev sync-back check, the release key check) and differ in where the
-bytes go:
+--distribute-only (STABLE) makes nothing public. After the pre-flight (staged
+dir, module gate, cut-origin guard with its main→dev sync-back check, the
+release key check, the gated store and manage service settings, and no
+existing local tag) it:
+  1. stages every artifact to the private gated store under
+     <comp>/production/<stamp>/ and writes dist/<stamp>/gated-receipt.json;
+  2. registers the row as staged with the manage service (rkit register,
+     signed with the release key), then reads it back (rkit status). A
+     refusal, or a row that does not read back staged with this stamp, stops
+     the cut here with the re-register command; nothing is tagged or marked;
+  3. tags <comp>/<stamp> and pushes the tag. No GitHub Release is made;
+  4. records a [RELEASED: <comp>] marker commit carrying versions/<comp>;
+  5. reports the stamp, the row and its page in the manage console.
+Going public is the operator's promote in the manage console: it copies the
+bytes to the public surface, writes <comp>/latest.json last, and republishes
+the static surface (install.sh, version.js, the public key, the site page).
+versions/<comp>.stamp, the version floor the installers bake, follows the
+promote through tools/record-promoted.sh and is never written by a cut.
 
---distribute-only (STABLE):
-  1. git-tags <comp>/<stamp> + publishes a GitHub Release on umbree-git/release.
-  2. mirrors the artifacts to the R2 download mirror and rewrites its catalog,
-     when the mirror is configured — skipped, loudly, when it is not.
-  3. records versions/<comp>.stamp (the version floor the bootstrap bakes),
-     regenerates the outer bootstrap + version JSONP and scp's the static
-     surface (install.sh, version.js, umbree-release.pub, site/index.html)
-     to the release host.
-  4. records a [RELEASED: <comp>] marker commit.
-  GitHub Releases host the zips and stay primary; the R2 mirror is a fallback
-  and the source of the published-stamp catalog.
+--register-only re-runs step 2 alone, for bytes a cut already staged
+(dist/<stamp>/gated-receipt.json). It tags and marks nothing.
 
---channel beta (BETA — beta.md; "private" = R2-only, no GitHub Release):
-  1. asserts versions/<comp>.beta sorts above versions/<comp>, and that the
-     stamp is beta-shaped (v<X.Y.Z>.beta.<date>.<sha8>).
-  2. REQUIRES the R2 mirror: a beta cut creates no GitHub Release, so an
-     unconfigured mirror is a refusal (exit 1, before any write), not a skip.
-  3. git-tags <comp>/<stamp> and pushes the tag (history; what
-     prune-releases.sh --channel beta counts) — no Release is created, so the
-     stable bootstrap's /releases resolution never sees it.
-  4. uploads every artifact to R2 <comp>/beta/<stamp>/<file>, then
-     <comp>/beta/latest.json LAST.
-  5. records versions/<comp>.beta.stamp, renders <comp>/beta.install.sh and
-     <comp>/beta.version.js (the twins feature 02's `umbree update` fetches —
-     their names and URLs never move), and scp's ONLY those two to the
-     release host. install.sh / version.js / the pubkey / site are the stable
-     surface and are not touched.
-  6. records a [RELEASED: <comp> beta] … (private) marker commit.
-
-There is no console/dispatcher. Opening, approving and closing a cycle are
-operator steps (tools/version.sh --seed; tools/adopt-beta-version.sh;
-README "Beta channel") — nothing here does them.
+--channel beta is dormant: Umbree has no beta stage. Unlike the stable verb
+it would publish at the cut, to the public download bucket, with no gated
+store or promote in front of it: tag and push, upload to <comp>/beta/<stamp>/
+with <comp>/beta/latest.json last, render and scp the beta.install.sh and
+beta.version.js twins to RELEASE_HOST:STATIC_DIR, and a
+[RELEASED: <comp> beta] … (private) marker commit.
 
 On --dry-run: validates the staged dir + component, runs the gates in
-report mode, then prints "would: ..." for every publish action and returns —
-no GitHub/git/ssh/scp/network writes.
+report mode, then prints "would: ..." for every step and returns — no
+network, tag, upload or commit.
 
 Env:
-  RELEASE_HOST           ssh alias for the nginx static host — REQUIRED (no default --
-                          this repo is public, so a default would ship the production
-                          hostname)
-  STATIC_DIR             absolute static dir on that host — REQUIRED (no default,
-                          same reason)
   UMBREE_SRC_UMBREE      umbree component source worktree — REQUIRED (no default) when
-                          distributing umbree. The cut-origin guard requires it to BE
-                          the registry main folder (<brand>/cli/code/main) on stable, or
-                          its code/beta sibling worktree on beta; a different tree is
-                          permitted only under --dry-run
+                          cutting umbree. The cut-origin guard requires it to BE
+                          the registry main folder (<brand>/cli/code/main); a
+                          different tree is permitted only under --dry-run
   UMBREE_SRC_UMBREED     umbreed component source worktree — REQUIRED (no default) when
-                          distributing umbreed; same rule (<brand>/daemon/code/{main,beta})
+                          cutting umbreed; same rule (<brand>/daemon/code/main)
+  UMBREE_R2_ACCOUNT      Cloudflare account id; with UMBREE_R2_CREDS it is the one R2
+                          token that serves both buckets
+  UMBREE_R2_CREDS        path to the R2 S3 credentials TOML
+  UMBREE_R2_GATED_BUCKET the private gated bucket a stable cut stages to — REQUIRED
+                          for a stable cut (no default, never the public bucket);
+                          its name lives in the sealed configuration only
+  UMBREE_MANAGE_URL      the manage service's https base the cut registers with —
+                          REQUIRED for a stable cut; sealed configuration only
+  UMBREE_RELEASE_KEY     the decrypted release key file registration is signed with —
+                          REQUIRED for a stable cut; release.command sets it
+  RELEASE_HOST           beta only: ssh alias for the nginx static host (no default)
+  STATIC_DIR             beta only: absolute static dir on that host (no default)
   BETA_BRANCH            beta only — the branch the beta worktree must be on
                           (default: config/beta-branch, else "beta"; beta.md §2)
-  UMBREE_RELEASE_REPO    GitHub repo for releases (default umbree-git/release)
-  UMBREE_GH              GitHub CLI to publish with (default `gh`) — set it when
-                          your environment provides a different one
-  UMBREE_R2_ACCOUNT      Cloudflare account id for the download mirror. Unset =
-                          stable skips the mirror (GitHub remains the only channel);
-                          beta REFUSES
-  UMBREE_R2_CREDS        path to the R2 S3 credentials TOML. Unset = same
-  UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads)
-  UMBREE_R2_GATED_BUCKET the private gated bucket a stable cut stages to before any
-                          public act — REQUIRED for a stable cut (no default, never
-                          the public bucket); its name lives in the sealed config only.
-                          The same UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS token serves it
+  UMBREE_R2_BUCKET       mirror bucket (default umbree-downloads); beta only
 HELP
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -94,14 +80,16 @@ source "${REPO_ROOT}/tools/module_gate.sh"
 # shellcheck source=tools/release_origin.sh
 source "${REPO_ROOT}/tools/release_origin.sh"
 
-usage() { echo "✗ usage: release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   (stable)
-         release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   (beta)" >&2; }
+usage() { echo "✗ usage: release.sh --distribute-only <umbree|umbreed> <stamp> [--dry-run]   (stable cut)
+         release.sh --register-only <umbree|umbreed> <stamp> [--dry-run]     (re-register a staged cut)
+         release.sh --channel beta     <umbree|umbreed> <stamp> [--dry-run]   (dormant beta)" >&2; }
 print_help() { printf '%s\n' "${HELP_TEXT}"; }
 
 CHANNEL=stable; VERB=""; DIST_COMP=""; DIST_STAMP=""
 case "${1:-}" in
-    --distribute-only)
-        VERB=distribute; shift
+    --distribute-only|--register-only)
+        VERB=distribute; [ "$1" = --register-only ] && VERB=register
+        shift
         DIST_COMP="${1:-}"; DIST_STAMP="${2:-}"
         [ -n "${DIST_COMP}" ] && [ -n "${DIST_STAMP}" ] || { usage; exit 2; }
         shift 2 ;;
@@ -125,7 +113,7 @@ for arg in "$@"; do
         --dry-run) DRY_RUN=1 ;;
         -h|--help) print_help; exit 0 ;;
         --channel|--channel=*)
-            if [ "${VERB}" = distribute ]; then
+            if [ "${VERB}" = distribute ] || [ "${VERB}" = register ]; then
                 echo "✗ --distribute-only is a stable-channel verb; a beta cut publishes to R2 with: release.sh --channel beta <comp> <stamp>" >&2
             else
                 echo "✗ --channel is given once, as the verb" >&2
@@ -135,9 +123,11 @@ for arg in "$@"; do
     esac
 done
 
-RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host}"
-STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host}"
-RELEASE_REPO="${UMBREE_RELEASE_REPO:-umbree-git/release}"
+if [ "${VERB}" = beta ]; then
+    RELEASE_HOST="${RELEASE_HOST:?set RELEASE_HOST to the ssh alias for the nginx static host}"
+    STATIC_DIR="${STATIC_DIR:?set STATIC_DIR to the absolute static dir on that host}"
+fi
+CUT_ROW=""
 
 src_for() {
     case "$1" in
@@ -177,8 +167,6 @@ EOF
     assert_release_origin "release repo" "${REPO_ROOT}" "${REPO_ROOT}" "${mode}" ${staged[@]+"${staged[@]}"} || exit 1
     check_sync_back "release repo" "${REPO_ROOT}" "${mode}" || exit 1
 }
-
-GH_CLI="${UMBREE_GH:-gh}"
 
 r2_configured() {
     [ -n "${UMBREE_R2_ACCOUNT:-}" ] && [ -n "${UMBREE_R2_CREDS:-}" ] && [ -f "${UMBREE_R2_CREDS}" ]
@@ -229,7 +217,7 @@ stage_gated() {
         echo "✓ staged ${comp} to the gated store (receipt: dist/${stamp}/gated-receipt.json)" >&2
         return 0
     fi
-    echo "✗ gated stage FAILED for ${comp} ${stamp} — nothing published (no tag, no GitHub Release, no mirror, no static surface); fix the cause and re-run" >&2
+    echo "✗ gated stage FAILED for ${comp} ${stamp} — nothing registered, tagged or marked, and nothing is public; fix the cause and re-run" >&2
     exit 1
 }
 
@@ -265,11 +253,11 @@ mirror_r2() {
     fi
 
     if [ -z "${account}" ] || [ -z "${creds}" ]; then
-        echo "⚠ R2 mirror skipped: UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS not set — GitHub Releases are published and remain primary" >&2
+        echo "⚠ R2 mirror skipped: UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS not set" >&2
         return 0
     fi
     if [ ! -f "${creds}" ]; then
-        echo "⚠ R2 mirror skipped: credentials file not found — GitHub Releases are published and remain primary" >&2
+        echo "⚠ R2 mirror skipped: credentials file not found" >&2
         return 0
     fi
 
@@ -293,14 +281,7 @@ mirror_r2() {
         echo "  tools/gen-bootstraps.sh, tools/gen-version-jsonp.sh --channel beta ${comp}," >&2
         echo "  the scp of the two beta twins, and the marker commit." >&2
     else
-        echo "  State: the GitHub release IS published; the catalog did NOT update;" >&2
-        echo "  version.js, the bootstraps, the scp to the release host and the" >&2
-        echo "  [RELEASED] marker commit did NOT run." >&2
-        echo "  This cannot simply be re-run: --distribute-only refuses a tag it has" >&2
-        echo "  already created, and the GitHub release for that tag now exists." >&2
-        echo "  Recover by hand — re-run the mirror with the arguments above, then" >&2
-        echo "  tools/gen-bootstraps.sh, tools/gen-version-jsonp.sh ${comp}, the scp," >&2
-        echo "  and the marker commit." >&2
+        echo "  The mirror is the dormant beta verb's; the stable cut never calls it." >&2
     fi
     exit 1
 }
@@ -340,13 +321,6 @@ create_tag() {
     git tag -a "${tag}" -m "$1 $2"
 }
 
-stage_beta_twin_sweep() {
-    local c
-    for c in $(go run ./cmd/rkit components); do
-        git add -A -- "${c}/beta.install.sh" "${c}/beta.version.js" 2>/dev/null || true
-    done
-}
-
 publish_preflight() {
     local comp="$1" stamp="$2" channel="$3"
     validate_stage "${comp}" "${stamp}"
@@ -358,116 +332,134 @@ publish_preflight() {
     assert_origins "${comp}" "${channel}" "${mode}"
 }
 
+require_manage() {
+    case "${UMBREE_MANAGE_URL:-}" in
+        https://?*) ;;
+        "")
+            echo "✗ UMBREE_MANAGE_URL is not set — a stable cut registers its staged row with the manage service; set it from the sealed configuration" >&2
+            exit 1 ;;
+        *)
+            echo "✗ UMBREE_MANAGE_URL must be an https:// URL (got '${UMBREE_MANAGE_URL}') — a release row is never registered over a connection anyone can read" >&2
+            exit 1 ;;
+    esac
+    [ -n "${UMBREE_RELEASE_KEY:-}" ] && [ -r "${UMBREE_RELEASE_KEY}" ] || {
+        echo "✗ UMBREE_RELEASE_KEY must name the readable, decrypted release key file — registration is signed with it (release.command sets it)" >&2
+        exit 1
+    }
+}
+
+manage_dry_run() {
+    case "${UMBREE_MANAGE_URL:-}" in
+        https://?*) ;;
+        "") echo "would: REFUSE — UMBREE_MANAGE_URL is not set (a stable cut registers its row with the manage service)" ;;
+        *) echo "would: REFUSE — UMBREE_MANAGE_URL is not an https:// URL" ;;
+    esac
+}
+
+refuse_existing_tag() {
+    local tag="$1/$2"
+    if git rev-parse --quiet --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+        echo "✗ tag ${tag} already exists locally — this stamp was cut before; nothing staged" >&2
+        exit 1
+    fi
+}
+
+valid_cut_args() {
+    local comp="$1" stamp="$2"
+    case "${comp}" in
+        umbree|umbreed) ;;
+        *) echo "✗ unknown component: ${comp}" >&2; exit 1 ;;
+    esac
+    printf '%s\n' "${stamp}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$' \
+        || { echo "✗ not a stable stamp: ${stamp} (want v<X.Y.Z>.<YYYY>.<MM>.<DD>.<sha8>)" >&2; exit 1; }
+}
+
+run_rkit() {
+    ( cd "${REPO_ROOT}" && "${GO_BIN:-go}" run ./cmd/rkit "$@" )
+}
+
+registration_failed() {
+    local comp="$1" stamp="$2" why="$3" state="$4"
+    echo "✗ registration FAILED for ${comp} ${stamp}: ${why}" >&2
+    echo "  ${state}" >&2
+    echo "  re-register with: bash tools/release.sh --register-only ${comp} ${stamp}" >&2
+    echo "  nothing is tagged or marked; once the row reads back staged, tools/RUNBOOK.md has the tag and marker steps" >&2
+    exit 1
+}
+
+register_staged() {
+    local comp="$1" stamp="$2" stage="$3" semver
+    semver="$(cat "${REPO_ROOT}/versions/${comp}")"
+    echo "→ registering ${comp} ${stamp} as staged with the manage service" >&2
+    run_rkit register --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
+        --receipt "${stage}/gated-receipt.json" --component "${comp}" \
+        --channel "$(gated_channel_for stable)" --version "${semver}" --stamp "${stamp}" >&2 \
+        || registration_failed "${comp}" "${stamp}" "the manage service refused it" \
+            "the bytes are in the gated store, no row exists"
+}
+
+confirm_row() {
+    local comp="$1" stamp="$2" line word id state version got
+    line="$(run_rkit status --manage-url "${UMBREE_MANAGE_URL}" --sign-key "${UMBREE_RELEASE_KEY}" \
+        --component "${comp}" --channel "$(gated_channel_for stable)" --stamp "${stamp}")" \
+        || registration_failed "${comp}" "${stamp}" "the row could not be read back" \
+            "the bytes are in the gated store, no row exists"
+    read -r word id state version got <<EOF
+${line}
+EOF
+    if [ "${word}" != row ] || ! printf '%s' "${id}" | grep -Eq '^[0-9]+$' \
+        || [ "${state}" != staged ] || [ "${got}" != "${stamp}" ]; then
+        registration_failed "${comp}" "${stamp}" "the service reads it back as '${line}'" \
+            "the bytes are in the gated store; the row read back is not this cut's staged row"
+    fi
+    CUT_ROW="${id}"
+    echo "✓ row ${CUT_ROW} reads back staged: ${comp} ${version} ${stamp}" >&2
+}
+
+stage_and_register() {
+    local comp="$1" stamp="$2" stage="$3"
+    stage_gated "${comp}" "${stamp}" "${stage}"
+    register_staged "${comp}" "${stamp}" "${stage}"
+    confirm_row "${comp}" "${stamp}"
+}
+
+tag_and_mark() {
+    local comp="$1" stamp="$2" tag="$1/$2"
+    create_tag "${comp}" "${stamp}"
+    git push origin "refs/tags/${tag}" || {
+        git tag -d "${tag}" >/dev/null 2>&1 || true
+        echo "✗ could not push tag ${tag} — row ${CUT_ROW} is registered and staged, nothing is public; the local tag was removed, so push it by hand and make the [RELEASED: ${comp}] marker commit (tools/RUNBOOK.md)" >&2
+        exit 1
+    }
+    git add "versions/${comp}"
+    git commit --allow-empty -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
+}
+
+report_cut() {
+    local comp="$1" stamp="$2" row="$3"
+    echo "✓ cut ${comp} ${stamp}: staged in the gated store and registered as row ${row} — nothing is public"
+    echo "  Promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/$(gated_channel_for stable)/${comp} (row ${row})"
+    echo "  After the promote: tools/promote-check.sh ${comp} stable --expect ${stamp}, then tools/record-promoted.sh ${comp} ${stamp}"
+}
+
 distribute_dry_run() {
     local comp="$1" stamp="$2"
     echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
     gated_dry_run "${comp}" "${stamp}" "${REPO_ROOT}/dist/${stamp}"
-    echo "would: gh release create ${comp}/${stamp} (GitHub Release, public)"
-    echo "would: mirror ${comp} to the R2 download mirror (when configured)"
-    echo "would: write versions/${comp}.stamp = ${stamp} (the bootstrap's version floor)"
-    echo "would: gen-bootstraps.sh (regenerate ${comp}/install.sh; sweep beta twins of closed cycles)"
-    echo "would: gen-version-jsonp.sh ${comp} (regenerate ${comp}/version.js)"
-    echo "would: scp install.sh/version.js/umbree-release.pub/site/index.html to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
-    echo "would: marker commit [RELEASED: ${comp}] ${stamp}"
-    echo "✓ dry-run distribute-only: no real writes"
+    manage_dry_run
+    echo "would: register ${comp} ${stamp} as staged with the manage service"
+    echo "would: confirm row ${comp} ${stamp} reads back staged"
+    echo "would: tag ${comp}/${stamp} and push the tag (no GitHub Release)"
+    echo "would: marker commit [RELEASED: ${comp}] ${stamp} (versions/${comp} only)"
+    echo "✓ dry-run distribute-only: nothing staged, registered, tagged or committed"
 }
 
 distribute_preflight() {
-    local stage="$1"
+    local comp="$1" stamp="$2" stage="$3"
     verify_release_key "${stage}"
     require_gated
-
-    command -v "${GH_CLI}" >/dev/null 2>&1 \
-        || { echo "✗ GitHub CLI not found: ${GH_CLI} (set UMBREE_GH to override)" >&2; exit 1; }
-    "${GH_CLI}" repo view "${RELEASE_REPO}" --json name >/dev/null 2>&1 \
-        || { echo "✗ ${GH_CLI} cannot access ${RELEASE_REPO} — check its authentication" >&2; exit 1; }
-    require_release_host
-}
-
-release_changes() {
-    local comp="$1" src="$2"
-    local prev_tag prev_sha changes
-    prev_tag="$(/usr/bin/git tag -l "${comp}/v*" --sort=version:refname \
-        | grep -E "^${comp}/v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}\$" | tail -n1 || true)"
-    prev_sha="${prev_tag##*.}"
-    if [ -n "${prev_sha}" ] && git -C "${src}" cat-file -e "${prev_sha}^{commit}" 2>/dev/null; then
-        changes="$(git -C "${src}" log --oneline --no-merges "${prev_sha}..HEAD" 2>/dev/null)" || return 1
-        [ -n "${changes}" ] || changes="No code changes since ${prev_tag} (re-release)."
-    else
-        changes="Initial release."
-    fi
-    printf '%s\n' "${changes}"
-}
-
-write_release_notes() {
-    local comp="$1" stamp="$2" notes="$3" changes="$4"
-    local tag="${comp}/${stamp}"
-    cat > "${notes}" <<NOTES
-${comp} ${stamp} — $(date -u +%Y-%m-%d)
-
-## Changes
-${changes}
-
-Install:
-  curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/${comp}/install.sh | sh
-
-Pin this version:
-  UMBREE_VERSION=${tag} \\
-    curl -fsSL https://release.umbree.org/${comp}/install.sh | sh
-
-Verify by hand:
-  minisign -Vm SHA256SUMS.txt -P "\$(cat umbree-release.pub | tail -n1)"
-  f=<file>                                      # the file you downloaded
-  want=\$(awk -v f="\$f" '{ n = \$2; sub(/^\\*/, "", n); if (n == f) { print \$1; exit } }' SHA256SUMS.txt)
-  got=\$(shasum -a 256 "\$f" | awk '{print \$1}')  # sha256sum "\$f" on Linux
-  if   [ -z "\$want" ];        then echo "NO ENTRY for \$f in SHA256SUMS.txt — do not install"
-  elif [ "\$want" = "\$got" ];  then echo "OK \$f"
-  else                             echo "MISMATCH for \$f — do not install"; fi
-NOTES
-}
-
-stage_and_publish() {
-    local comp="$1" stamp="$2" stage="$3" changes="$4"
-    stage_gated "${comp}" "${stamp}" "${stage}"
-    local tag="${comp}/${stamp}"
-    create_tag "${comp}" "${stamp}"
-    local notes; notes="${stage}/release-notes.md"
-    write_release_notes "${comp}" "${stamp}" "${notes}" "${changes}"
-    ( cd "${stage}" && "${GH_CLI}" -R "${RELEASE_REPO}" release create "${tag}" \
-        --title "${comp} ${stamp}" --notes-file "${notes}" \
-        "${comp}"-*.zip SHA256SUMS.txt SHA256SUMS.txt.minisig \
-        "${REPO_ROOT}/umbree-release.pub" )
-
-    mirror_r2 "${comp}" "${stamp}" "${stage}" stable
-}
-
-mark_release() {
-    local comp="$1" stamp="$2"
-    local tag="${comp}/${stamp}"
-    printf '%s\n' "${stamp}" > "${REPO_ROOT}/versions/${comp}.stamp"
-    git add "versions/${comp}.stamp"
-    bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
-    bash "${REPO_ROOT}/tools/gen-version-jsonp.sh" "${comp}" >&2
-
-    # shellcheck disable=SC2029
-    ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
-    scp -q "${REPO_ROOT}/${comp}/install.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/install.sh"
-    scp -q "${REPO_ROOT}/${comp}/version.js" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/version.js"
-    if [ -f "${REPO_ROOT}/umbree-release.pub" ]; then
-        scp -q "${REPO_ROOT}/umbree-release.pub" "${RELEASE_HOST}:${STATIC_DIR}/umbree-release.pub"
-    fi
-    if [ -f "${REPO_ROOT}/site/index.html" ]; then
-        scp -q "${REPO_ROOT}/site/index.html" "${RELEASE_HOST}:${STATIC_DIR}/index.html"
-    fi
-
-    git add "versions/${comp}" "versions/${comp}.stamp" "${comp}/install.sh" "${comp}/version.js"
-    stage_beta_twin_sweep
-    git commit --allow-empty -m "[RELEASED: ${comp}] $(date -u +%Y-%m-%d) ${stamp}"
-
-    apply_retention "${comp}" stable
-
-    echo "✓ distributed ${tag}"
-    echo "  Release: https://github.com/${RELEASE_REPO}/releases/tag/${tag}"
+    require_manage
+    refuse_existing_tag "${comp}" "${stamp}"
 }
 
 distribute_only() {
@@ -478,14 +470,31 @@ distribute_only() {
         distribute_dry_run "${comp}" "${stamp}"
         return 0
     fi
-    local src changes; src="$(src_for "${comp}")"
-    changes="$(release_changes "${comp}" "${src}")" || {
-        echo "✗ cannot read the change summary for ${comp} from ${src} (git log failed) — nothing published" >&2
+    distribute_preflight "${comp}" "${stamp}" "${stage}"
+    stage_and_register "${comp}" "${stamp}" "${stage}"
+    tag_and_mark "${comp}" "${stamp}"
+    report_cut "${comp}" "${stamp}" "${CUT_ROW}"
+}
+
+register_only() {
+    local comp="$1" stamp="$2"
+    local stage="${REPO_ROOT}/dist/${stamp}"
+    valid_cut_args "${comp}" "${stamp}"
+    [ -f "${stage}/gated-receipt.json" ] || {
+        echo "✗ no dist/${stamp}/gated-receipt.json — --register-only registers bytes a cut already staged, and this stamp was never staged here" >&2
         exit 1
     }
-    distribute_preflight "${stage}"
-    stage_and_publish "${comp}" "${stamp}" "${stage}" "${changes}"
-    mark_release "${comp}" "${stamp}"
+    if [ "${DRY_RUN}" = 1 ]; then
+        manage_dry_run
+        echo "would: register ${comp} ${stamp} as staged with the manage service"
+        echo "would: confirm row ${comp} ${stamp} reads back staged"
+        return 0
+    fi
+    require_manage
+    register_staged "${comp}" "${stamp}" "${stage}"
+    confirm_row "${comp}" "${stamp}"
+    echo "✓ registered ${comp} ${stamp} as row ${CUT_ROW} — nothing tagged or marked; tools/RUNBOOK.md has the steps that finish the cut"
+    echo "  Promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/$(gated_channel_for stable)/${comp} (row ${CUT_ROW})"
 }
 
 publish_beta() {
@@ -555,5 +564,6 @@ publish_beta() {
 
 case "${VERB}" in
     distribute) distribute_only "${DIST_COMP}" "${DIST_STAMP}" ;;
+    register)   register_only "${DIST_COMP}" "${DIST_STAMP}" ;;
     beta)       publish_beta "${DIST_COMP}" "${DIST_STAMP}" ;;
 esac

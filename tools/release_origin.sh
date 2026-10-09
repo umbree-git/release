@@ -70,7 +70,7 @@ staged_tolerance_for() {
     if [ "${channel}" = beta ]; then
         printf '%s\n%s\n' "versions/${comp}.beta" "versions/${comp}.beta.stamp"
     else
-        printf '%s\n%s\n' "versions/${comp}" "versions/${comp}.stamp"
+        printf '%s\n' "versions/${comp}"
     fi
 }
 
