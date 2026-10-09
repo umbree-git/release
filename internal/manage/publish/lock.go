@@ -13,12 +13,14 @@ const DefaultLockWait = 5 * time.Second
 var ErrBusy = errors.New("publish: channel busy")
 
 type Locks struct {
-	After  func(time.Duration) <-chan time.Time
-	OnWait func(component, channel string)
-	wait   time.Duration
-	dir    string
-	mu     sync.Mutex
-	slots  map[string]chan struct{}
+	After   func(time.Duration) <-chan time.Time
+	OnWait  func(component, channel string)
+	Euid    func() int
+	OwnerOf func(path string) (int, error)
+	wait    time.Duration
+	dir     string
+	mu      sync.Mutex
+	slots   map[string]chan struct{}
 }
 
 func NewLocks(wait time.Duration) *Locks {

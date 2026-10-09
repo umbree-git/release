@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,44 @@ func TestSharedLockFileIsSafe(t *testing.T) {
 	}
 	if _, err := publish.NewSharedLocks(time.Second, ""); err == nil {
 		t.Fatal("shared locks with no data dir were accepted")
+	}
+}
+
+func TestSharedLockRefusesAnotherUser(t *testing.T) {
+	dir := t.TempDir()
+	l := sharedLocks(t, dir)
+	l.Euid = func() int { return 0 }
+	l.OwnerOf = func(path string) (int, error) { return 1001, nil }
+	_, err := l.Acquire(context.Background(), "umbree", "production")
+	if err == nil || !strings.Contains(err.Error(), "uid 1001") || !strings.Contains(err.Error(), "uid 0") {
+		t.Fatalf("root on a service user's data dir: %v, want a refusal naming both uids", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "lock.umbree.production")); !os.IsNotExist(err) {
+		t.Fatal("the refused acquire created the lock file")
+	}
+	if r, err := sharedLocks(t, dir).Acquire(context.Background(), "umbree", "production"); err != nil {
+		t.Fatalf("keep-control, the data dir's owner: %v", err)
+	} else {
+		r()
+	}
+}
+
+func TestSharedLockRefusesForeignLockFile(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "lock.umbree.production")
+	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := sharedLocks(t, dir)
+	l.Euid = func() int { return 1001 }
+	l.OwnerOf = func(path string) (int, error) {
+		if path == lockPath {
+			return 0, nil
+		}
+		return 1001, nil
+	}
+	_, err := l.Acquire(context.Background(), "umbree", "production")
+	if err == nil || !strings.Contains(err.Error(), lockPath) || !strings.Contains(err.Error(), "uid 0") {
+		t.Fatalf("a root-owned lock file in a service user's data dir: %v, want a refusal naming it", err)
 	}
 }

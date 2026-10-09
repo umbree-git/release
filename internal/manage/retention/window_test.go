@@ -369,3 +369,21 @@ func TestManifestSwitchedMidPassKeepsNamedRow(t *testing.T) {
 		t.Fatalf("the kept row is not reported: %+v", reps[0].Skipped)
 	}
 }
+
+func TestPinRefusedWhilePublicPruning(t *testing.T) {
+	w := newWorld(t)
+	w.live("0.1.1", "0.1.2")
+	if err := w.st.MarkPublicPruning(w.ids["0.1.1"], epoch); err != nil {
+		t.Fatal(err)
+	}
+	_, err := w.st.SetPermanent("umbree", "production", stampOf("0.1.1"), true, "test-operator", epoch)
+	if err == nil || !strings.Contains(err.Error(), "public bytes are being pruned") {
+		t.Fatalf("pinning a part-pruned row: %v, want a refusal naming the state", err)
+	}
+	if rv := w.row("0.1.1"); rv.Permanent {
+		t.Fatal("the refused pin set the row permanent")
+	}
+	if _, err := w.st.SetPermanent("umbree", "production", stampOf("0.1.2"), true, "test-operator", epoch); err != nil {
+		t.Fatalf("keep-control, an intact row: %v", err)
+	}
+}
