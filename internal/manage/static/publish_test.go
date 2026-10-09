@@ -175,6 +175,20 @@ func parseBatch(t *testing.T, path string) []batchCommand {
 	return out
 }
 
+func assertSftpArgv(t *testing.T, name string, args []string) {
+	t.Helper()
+	joined := strings.Join(args, " ")
+	if name != "sftp" || args[len(args)-1] != "deploy@static-host" {
+		t.Fatalf("ran %s %q, want sftp to deploy@static-host", name, joined)
+	}
+	for _, want := range []string{"-i /keys/static", "-o BatchMode=yes", "-o IdentitiesOnly=yes",
+		"-o StrictHostKeyChecking=accept-new", "-o UserKnownHostsFile=/data/known_hosts"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("sftp argv %q lacks %q", joined, want)
+		}
+	}
+}
+
 func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	var name string
 	var args []string
@@ -198,16 +212,7 @@ func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	if _, err := p.Publish(context.Background(), "umbree"); err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(args, " ")
-	if name != "sftp" || args[len(args)-1] != "deploy@static-host" {
-		t.Fatalf("ran %s %q, want sftp to deploy@static-host", name, joined)
-	}
-	for _, want := range []string{"-i /keys/static", "-o BatchMode=yes", "-o IdentitiesOnly=yes",
-		"-o StrictHostKeyChecking=accept-new", "-o UserKnownHostsFile=/data/known_hosts"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("sftp argv %q lacks %q", joined, want)
-		}
-	}
+	assertSftpArgv(t, name, args)
 	final := map[string]string{}
 	lastPut, firstRename := -1, len(batch)
 	for i, c := range batch {
@@ -230,8 +235,7 @@ func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	if !slices.Equal(keys, want) {
 		t.Fatalf("renamed into place %v, want %v", keys, want)
 	}
-	install, _ := static.NewRenderer(release.Assets).Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase)
-	if final["/srv/static/umbree/install.sh"] != string(install) {
+	if install, _ := static.NewRenderer(release.Assets).Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase); final["/srv/static/umbree/install.sh"] != string(install) {
 		t.Fatal("the bytes renamed to install.sh are not the render")
 	}
 }
