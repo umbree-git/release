@@ -146,7 +146,7 @@ last`
 
 const edgeWant = `# BEGIN edge
 code_one   # a trailing comment is not stripped
-# shellcheck disable=SC2086  # a directive keeps its line
+# shellcheck disable=SC2086
 echo "a string that spans lines
 # this line is string text, not a comment
 done"

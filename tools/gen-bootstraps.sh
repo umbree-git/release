@@ -60,7 +60,33 @@ while [ $# -gt 0 ]; do
 done
 
 expand_includes() {
-    awk -v moddir="$MODDIR" '
+    awk -v moddir="$MODDIR" -v sq="'" '
+        function scan(s, st,    i, n, c, prev) {
+            n = length(s); prev = " "
+            for (i = 1; i <= n; i++) {
+                c = substr(s, i, 1)
+                if (st == "s") { if (c == sq) st = "n"; prev = c; continue }
+                if (c == "\\") { i++; prev = "x"; continue }
+                if (st == "d") { if (c == "\"") st = "n"; prev = c; continue }
+                if (c == sq) { st = "s"; prev = c; continue }
+                if (c == "\"") { st = "d"; prev = c; continue }
+                if (c == "#" && index(" \t;&|()", prev) > 0) return st
+                if (c == "<" && substr(s, i + 1, 1) == "<") return "h"
+                prev = c
+            }
+            return st
+        }
+        function untail(line,    h, rest) {
+            h = index(line, "#")
+            if (substr(line, h) ~ /^# (BEGIN|END) /) return line
+            rest = substr(line, h + 1)
+            if (match(rest, /[ \t]+#/)) return substr(line, 1, h + RSTART - 1)
+            return line
+        }
+        function kept(line) {
+            return line ~ /^[ \t]*#[ \t]*(shellcheck[ \t]+[^ \t]+=|noqa|type:|pragma:|exempt(\([a-z0-9][a-z0-9-]*\))?:[ \t]*[^ \t]|channel-(literal|word)-ok:[ \t]*[^ \t])/ \
+                || line ~ /^# (BEGIN|END)( shared)? [a-z0-9][a-z0-9-]*([ \t]|$)/
+        }
         /^@INCLUDE:[a-z0-9-]+@$/ {
             name = substr($0, 10, length($0) - 9 - 1)
             path = moddir "/" name ".sh"
@@ -70,8 +96,18 @@ expand_includes() {
             }
             close(path)
             printf("# BEGIN %s\n", name)
+            st = "n"
             while ((getline line < path) > 0) {
                 if (line ~ /^# (module|needs|since):/) continue
+                if (st == "n" && line ~ /^[ \t]*#/) {
+                    if (!kept(line)) continue
+                    line = untail(line)
+                }
+                st = scan(line, st)
+                if (st == "h") {
+                    printf("✗ module %s has a heredoc, so its comment lines cannot be told from heredoc text: %s\n", name, line) > "/dev/stderr"
+                    exit 1
+                }
                 print line
             }
             close(path)

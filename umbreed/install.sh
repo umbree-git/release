@@ -77,45 +77,16 @@ assert_version_floor() {
 # END version-floor
 
 # BEGIN channel-pick
-# Copied VERBATIM below this header from burrowee-git/release, branch beta-channel-graduation
-# (UNMERGED into burrowee main as of 2026-09-05), tools/modules/channel-pick.sh. Once burrowee
-# merges it, drop these three lines so tools/sync-modules.sh compares shas as for any module.
-# The beta channel installs the NEWEST of its own channel and stable, so a host
-# that soaked a cycle graduates onto the release without ever changing channel —
-# the channel flip is what caused a beta fleet to silently migrate to stable
-# once already. The two channels keep SEPARATE sorts: `sort -V` does not
-# implement semver pre-release ordering (it puts 0.3.0.beta.… ABOVE 0.3.0), so a
-# mixed list would pin a beta host to a pre-release forever. Each shape is
-# sorted alone, where sort -V is correct, and only the two winners are compared.
 
-# latest_tag_matching <regex> <file> — highest tag in <file> whose shape matches
-# <regex>. One shape per call: every tag in the result has the same number of
-# dot-separated fields, which is the condition under which `sort -V` is right.
 latest_tag_matching() {
     grep -E "$1" < "$2" | sort -V | tail -n1
 }
 
-# beta_channel_pick <beta_tag> <stable_tag> — the tag a BETA host installs.
-# Compares X.Y.Z only: semver_of truncates at three fields, so it drops a
-# .beta.<date>.<sha8> suffix and a beta tag compares equal to the stable tag
-# it was cut from. A TIE therefore means "this stable release is the one this
-# beta soaked", and it goes to stable — that single case is what graduates the
-# fleet at cycle close.
-#
-# A malformed side must never win, and which side is malformed decides the
-# outcome on its own — version_ge alone can't carry that: it fails CLOSED
-# whenever EITHER side isn't a well-formed semver, so version_ge(stable, beta)
-# returns false both when stable is malformed (beta should win) and when beta
-# is malformed (stable should win), and "false" only ever routes to one
-# branch. So malformed-ness is checked per side, explicitly, before falling
-# back to version_ge for the case both sides are well-formed.
 beta_channel_pick() {
     _bcp_beta="$1"
     _bcp_stable="$2"
     if [ -z "$_bcp_stable" ]; then printf '%s' "$_bcp_beta"; return 0; fi
     if [ -z "$_bcp_beta" ]; then printf '%s' "$_bcp_stable"; return 0; fi
-    # Strip the "<comp>/" prefix before comparing — semver_of only strips a
-    # leading "v", exactly as assert_version_floor does at its call site.
     _bcp_stable_v="${_bcp_stable#*/}"
     _bcp_beta_v="${_bcp_beta#*/}"
     if ! is_semver "$(semver_of "$_bcp_stable_v")"; then
@@ -244,9 +215,6 @@ dl "SHA256SUMS.txt"         "SHA256SUMS.txt"
 dl "SHA256SUMS.txt.minisig" "SHA256SUMS.txt.minisig"
 
 # BEGIN sha256
-# sha256 of a file, as a bare hex digest. shasum on macOS, sha256sum on stock
-# Debian/Ubuntu (which ships no perl and therefore no shasum). Both spellings
-# are pre-2016-safe: no --ignore-missing, no --check.
 sha256_of() {
     if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
     elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
@@ -255,41 +223,14 @@ sha256_of() {
 # END sha256
 
 # BEGIN install-minisign-common
-# Provides minisign when the host has none. The per-platform modules that follow
-# try the OS package manager first, then the official jedisct1/minisign release
-# archive whose SHA-256 is PINNED here. This bootstrap is the install's trust
-# root already — it is served from the release host over HTTPS and the operator
-# runs it — so a hash carried inside it makes the fetched verifier exactly as
-# trusted as the script that carries the hash. The mirror or CDN that served
-# the bytes never enters that calculation: only bytes matching the pin survive
-# minisign_fetch. A second seal, minisign_seal, then checks the archive's own
-# .minisig against upstream's release key using the binary just installed.
-#
-# BUMPING THE PIN is a deliberate, reviewed change — never "latest":
-#   1. download minisign-<v>-linux.tar.gz, minisign-<v>-macos.zip and both
-#      .minisig files from https://github.com/jedisct1/minisign/releases
-#   2. minisign -Vm <archive> -P "$MINISIGN_UPSTREAM_PUBKEY"     (each archive)
-#   3. shasum -a 256 <archive>                                    (each archive)
-#   4. update MINISIGN_VERSION and both sha256 constants, bump this module's vN,
-#      sh tools/lock-modules.sh && sh tools/gen-bootstraps.sh &&
-#      sh tools/test-modules.sh && sh tools/test-install-minisign.sh
-#      (the suite reads MINISIGN_VERSION and the pins from the generated block —
-#      nothing in it to edit)
-#   5. sync-modules.sh from the other products (they carry this module too)
 MINISIGN=""
 MINISIGN_VERSION="0.12"
 MINISIGN_LINUX_SHA256="9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73"
 MINISIGN_MACOS_SHA256="89000b19535765f9cffc65a65d64a820f433ef6db8020667f7570e06bf6aac63"
 MINISIGN_UPSTREAM_PUBKEY="RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3"
 MINISIGN_UPSTREAM_BASE="https://github.com/jedisct1/minisign/releases/download/$MINISIGN_VERSION"
-# Homebrew locations a daemon-hosted shell's bare PATH omits — the same two the
-# product's `update` verb probes.
 MINISIGN_KNOWN_PATHS="/opt/homebrew/bin/minisign /usr/local/bin/minisign"
 
-# minisign_known — print the first executable minisign at a location PATH may
-# not cover: the install destination itself (an earlier run, or the operator's
-# own copy in $PREFIX/bin), then the Homebrew locations. Nothing here is ever
-# overwritten; require-minisign uses whatever this finds.
 minisign_known() {
     for _mk_p in "${PREFIX:-/usr/local}/bin/minisign" $MINISIGN_KNOWN_PATHS; do
         [ -x "$_mk_p" ] && { printf '%s' "$_mk_p"; return 0; }
@@ -297,22 +238,12 @@ minisign_known() {
     return 1
 }
 
-# minisign_dest_dir — where a fetched minisign lands: beside the product, in
-# $PREFIX/bin. The inner installer puts that directory on PATH, so the
-# product's `update` verb finds it on later runs. PREFIX is resolved by the
-# bootstrap before this point; empty means the root-only installers' /usr/local.
 minisign_dest_dir() {
     _md="${PREFIX:-/usr/local}/bin"
     mkdir -p "$_md" 2>/dev/null || { info "minisign: cannot create $_md" >&2; return 1; }
     printf '%s' "$_md"
 }
 
-# minisign_fetch <name> [sha256] — download <name> into $TMP. With a pin,
-# succeed only when the sha256 matches; a mismatch is deleted and the next
-# source tried. Without a pin (the .minisig only — the seal proves it) the
-# first successful download wins. Sources: $DL_BASE (the test hook), else
-# upstream GitHub, then each GH_PROXIES mirror in the <mirror>/<full-url> form
-# the download module uses. Every source exhausted -> 1.
 minisign_fetch() {
     _mf_name="$1"; _mf_want="${2:-}"; _mf_out="$TMP/$_mf_name"
     if [ -n "${DL_BASE:-}" ]; then
@@ -325,7 +256,7 @@ minisign_fetch() {
     fi
     for _mf_src in $_mf_srcs; do
         rm -f "$_mf_out"
-        # shellcheck disable=SC2086  # $CURL is a command plus its flags
+        # shellcheck disable=SC2086
         $CURL -o "$_mf_out" "$_mf_src" 2>/dev/null || continue
         [ -n "$_mf_want" ] || return 0
         _mf_got="$(sha256_of "$_mf_out")" || break
@@ -336,11 +267,6 @@ minisign_fetch() {
     return 1
 }
 
-# minisign_install_file <src> — install <src> as minisign in the destination
-# directory and print the absolute path. Never overwrites: a file already
-# there belongs to the operator (or an earlier run) and minisign_known will
-# have reported it — so minisign_seal's removal below only ever touches a
-# file this run created.
 minisign_install_file() {
     _mi_dir="$(minisign_dest_dir)" || return 1
     if [ -e "$_mi_dir/minisign" ]; then
@@ -352,9 +278,6 @@ minisign_install_file() {
     printf '%s/minisign' "$_mi_dir"
 }
 
-# minisign_seal <archive> <bin> — the second seal: verify the archive's own
-# upstream .minisig with the minisign just installed. Failure (including a
-# .minisig that cannot be fetched) removes <bin> and returns 1.
 minisign_seal() {
     _ms_arc="$1"; _ms_bin="$2"; _ms_name="$(basename "$_ms_arc")"
     if minisign_fetch "$_ms_name.minisig" \
@@ -367,12 +290,6 @@ minisign_seal() {
 }
 # END install-minisign-common
 # BEGIN install-minisign-linux
-# Linux: the package manager first — but only as root or with passwordless
-# sudo, because a user-level install must never prompt for a password inside
-# curl|sh — then the pinned static upstream build (x86_64 / aarch64, statically
-# linked, so distro and libc do not matter). Every failure here is an info
-# line and falls through; require-minisign is the one that decides.
-# MINISIGN_SKIP_PM=1 says a preflight already made the package-manager attempt.
 if [ "$OS" = linux ] && ! command -v minisign >/dev/null 2>&1 && ! minisign_known >/dev/null; then
     _ml_sudo=""; _ml_can_pm=0
     if [ "$(id -u)" = 0 ]; then
@@ -384,7 +301,7 @@ if [ "$OS" = linux ] && ! command -v minisign >/dev/null 2>&1 && ! minisign_know
         :
     elif [ "$_ml_can_pm" = 1 ]; then
         info "minisign: not found — trying the package manager"
-        # shellcheck disable=SC2086  # $_ml_sudo is an optional prefix word
+        # shellcheck disable=SC2086
         if command -v apt-get >/dev/null 2>&1; then
             { $_ml_sudo apt-get update && $_ml_sudo apt-get install -y minisign; } >/dev/null 2>&1 || true
         elif command -v dnf >/dev/null 2>&1; then
@@ -423,12 +340,6 @@ if [ "$OS" = linux ] && ! command -v minisign >/dev/null 2>&1 && ! minisign_know
 fi
 # END install-minisign-linux
 # BEGIN install-minisign-darwin
-# macOS: Homebrew first when it is there (as this user, never via sudo), then
-# the pinned upstream build — which upstream ships for arm64 only, so an Intel
-# Mac without Homebrew gets a plain statement of the gap and require-minisign's
-# brew recipe. A Homebrew minisign that a daemon-hosted shell's bare PATH cannot
-# see, or one already at the install destination, is still an install:
-# minisign_known counts it as present.
 if [ "$OS" = darwin ] && ! command -v minisign >/dev/null 2>&1 && ! minisign_known >/dev/null; then
     if [ -z "${MINISIGN_SKIP_PM:-}" ] && command -v brew >/dev/null 2>&1; then
         info "minisign: not found — trying Homebrew"
@@ -455,15 +366,6 @@ fi
 # END install-minisign-darwin
 
 # BEGIN require-minisign
-# minisign is the trust root of this install. The install-minisign-* modules
-# above try to PROVIDE it: the OS package manager first, then the official
-# upstream archive whose SHA-256 is pinned in this bootstrap — the bootstrap is
-# the install's trust root already, so a hash it carries makes the fetched
-# verifier exactly as trusted as the script itself (see install-minisign-common).
-# This module only DECIDES: an executable $MINISIGN set by those modules, else
-# PATH, else a copy at the install destination or the Homebrew locations a
-# daemon-hosted shell cannot see (minisign_known), else refuse. Verification
-# is mandatory and is never skipped.
 if [ -n "$MINISIGN" ] && [ -x "$MINISIGN" ]; then
     :
 elif command -v minisign >/dev/null 2>&1; then
@@ -489,11 +391,6 @@ fi
 
 # BEGIN verify-signature
 info "verifying signature"
-# 1) signature over the sums file, using the baked pubkey (inline, no key fetch).
-# Capture stdout — minisign prints the SIGNED "Trusted comment:" line there, and
-# that comment is the only version-bearing field in the whole verified set (the
-# zip name and SHA256SUMS.txt are both version-independent). stderr is left
-# attached so a verification failure still shows minisign's own diagnostics.
 verify_out="$("$MINISIGN" -V -P "$PUBKEY" -m "$TMP/SHA256SUMS.txt" -x "$TMP/SHA256SUMS.txt.minisig")" \
     || fail "signature verification failed — aborting (refusing to install unverified bytes)"
 ok "minisign signature valid"
@@ -501,17 +398,6 @@ ok "minisign signature valid"
 
 info "verifying checksum"
 # BEGIN verify-checksum
-# v4: declares needs: helpers too — the block below calls fail(), which lives
-# in the helpers module, not sha256. Under-declaring it was latent only because
-# every current template happens to splice helpers before this module.
-# Compare ONE hash directly instead of `-c --ignore-missing` over the whole
-# sums file: --ignore-missing is a 2016-era addition (Digest::SHA 5.96 /
-# coreutils 8.25) and the stock shasum on an older macOS rejects it outright
-# ("Unknown option: ignore-missing"). That non-zero exit came back through the
-# `||` as "checksum mismatch", so every install on such a host accused a
-# perfectly good zip of tampering. Picking the line by EXACT filename (awk, both
-# the "hash  name" and binary "hash *name" spellings) is also stricter than the
-# substring grep this replaces.
 want="$(awk -v f="$ZIP" '{ n = $2; sub(/^\*/, "", n); if (n == f) { print $1; exit } }' "$TMP/SHA256SUMS.txt")"
 [ -n "$want" ] \
     || fail "no checksum entry for $ZIP — release incomplete or tampered; aborting"

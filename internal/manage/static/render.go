@@ -30,6 +30,9 @@ var (
 var (
 	includeRe      = regexp.MustCompile(`^@INCLUDE:([a-z0-9-]+)@$`)
 	moduleHeaderRe = regexp.MustCompile(`^# (module|needs|since):`)
+	commentLineRe  = regexp.MustCompile(`^[ \t]*#`)
+	directiveTail  = regexp.MustCompile(`[ \t]+#`)
+	keptCommentRe  = regexp.MustCompile(`^[ \t]*#[ \t]*(shellcheck[ \t]+[^ \t]+=|noqa|type:|pragma:|exempt(\([a-z0-9][a-z0-9-]*\))?:[ \t]*[^ \t]|channel-(literal|word)-ok:[ \t]*[^ \t])|^# (BEGIN|END)( shared)? [a-z0-9][a-z0-9-]*([ \t]|$)`)
 	pubkeyRe       = regexp.MustCompile(`^[A-Za-z0-9+/=]+$`)
 	baseRe         = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$`)
 )
@@ -61,15 +64,72 @@ func ExpandIncludes(template []byte, module func(name string) ([]byte, error)) (
 		if err != nil {
 			return nil, fmt.Errorf("%w: @INCLUDE:%s@: %v", ErrMissingModule, m[1], err)
 		}
-		fmt.Fprintf(&out, "# BEGIN %s\n", m[1])
-		for _, ml := range records(body) {
-			if !moduleHeaderRe.MatchString(ml) {
-				out.WriteString(ml + "\n")
-			}
+		kept, err := moduleCode(m[1], body)
+		if err != nil {
+			return nil, err
 		}
-		fmt.Fprintf(&out, "# END %s\n", m[1])
+		fmt.Fprintf(&out, "# BEGIN %s\n%s# END %s\n", m[1], kept, m[1])
 	}
 	return out.Bytes(), nil
+}
+
+func moduleCode(name string, body []byte) (string, error) {
+	var out strings.Builder
+	state := byte('n')
+	for _, line := range records(body) {
+		if moduleHeaderRe.MatchString(line) {
+			continue
+		}
+		if state == 'n' && commentLineRe.MatchString(line) {
+			if !keptCommentRe.MatchString(line) {
+				continue
+			}
+			line = withoutProseTail(line)
+		}
+		if state = scanQuotes(line, state); state == 'h' {
+			return "", fmt.Errorf("%w: %s: %q", ErrModuleHeredoc, name, line)
+		}
+		out.WriteString(line + "\n")
+	}
+	return out.String(), nil
+}
+
+func withoutProseTail(line string) string {
+	hash := strings.IndexByte(line, '#')
+	if loc := directiveTail.FindStringIndex(line[hash+1:]); loc != nil && !strings.HasPrefix(line[hash:], "# BEGIN") && !strings.HasPrefix(line[hash:], "# END") {
+		return line[:hash+1+loc[0]]
+	}
+	return line
+}
+
+func scanQuotes(line string, state byte) byte {
+	prev := byte(' ')
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case state == 's':
+			if c == '\'' {
+				state = 'n'
+			}
+		case c == '\\':
+			i++
+			c = 'x'
+		case state == 'd':
+			if c == '"' {
+				state = 'n'
+			}
+		case c == '\'':
+			state = 's'
+		case c == '"':
+			state = 'd'
+		case c == '#' && strings.IndexByte(" \t;&|()", prev) >= 0:
+			return state
+		case c == '<' && i+1 < len(line) && line[i+1] == '<':
+			return 'h'
+		}
+		prev = c
+	}
+	return state
 }
 
 func (r Renderer) module(name string) ([]byte, error) {
