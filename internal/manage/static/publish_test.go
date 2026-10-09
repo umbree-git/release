@@ -190,13 +190,6 @@ func TestStaticDestScpStubbed(t *testing.T) {
 	if want := []string{"index.html", "umbree-release.pub", "umbree/install.sh", "umbree/version.js"}; !slices.Equal(keys, want) {
 		t.Fatalf("staged %v, want %v", keys, want)
 	}
-	failing := &static.Publisher{Assets: release.Assets, Source: sourceFor(t, "umbree"), DownloadsBase: fixtureBase, Dest: dest,
-		Run: func(context.Context, string, ...string) ([]byte, error) {
-			return []byte("Permission denied (publickey)"), errors.New("exit status 1")
-		}}
-	if _, err := failing.Publish(context.Background(), "umbree"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
-		t.Fatalf("a failed scp: %v, want its output in the error", err)
-	}
 }
 
 func TestStaticRefusesBadManifest(t *testing.T) {
@@ -214,5 +207,19 @@ func TestStaticRefusesBadManifest(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("a refused manifest still wrote %d entries", len(entries))
+	}
+}
+
+func TestStaticScpFailureNamesItsOutput(t *testing.T) {
+	dest, err := static.ParseDest("static-host:/srv/static", "/keys/static", "/data/known_hosts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := &static.Publisher{Assets: release.Assets, Source: sourceFor(t, "umbree"), DownloadsBase: fixtureBase, Dest: dest,
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			return []byte("Permission denied (publickey)"), errors.New("exit status 1")
+		}}
+	if _, err := failing.Publish(context.Background(), "umbree"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("a failed scp: %v, want its output in the error", err)
 	}
 }

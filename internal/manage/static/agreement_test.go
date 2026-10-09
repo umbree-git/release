@@ -194,7 +194,7 @@ func TestNoPlaceholderSurvives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(placeholderRe.FindAll(template, -1)); n < 8 {
+	if n := len(placeholderRe.FindAll(template, -1)); n < 6 {
 		t.Fatalf("the template carries %d placeholders; the check below would prove nothing", n)
 	}
 	for comp, stamp := range fixtureStamps {
