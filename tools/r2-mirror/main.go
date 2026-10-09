@@ -1,32 +1,3 @@
-// Command r2-mirror publishes a per-stamp release dist directory to the public
-// Cloudflare R2 bucket behind downloads.umbree.org. It uploads every top-level
-// *.zip plus SHA256SUMS.txt + SHA256SUMS.txt.minisig from the stage dir to
-// <comp>/[beta/]<stamp>/<file>, then writes <comp>/[beta/]latest.json
-// pointing at them — the manifest LAST, so a reader never sees a catalog that
-// names bytes not yet there.
-//
-// Two channels, one key layout per channel (burrowee's
-// 2026-08-31-release-retention-and-beta-layout-design.md §3.1):
-//
-//	stable  <comp>/<stamp>/<file>        <comp>/latest.json
-//	beta    <comp>/beta/<stamp>/<file>   <comp>/beta/latest.json
-//
-// On stable R2 is a MIRROR: GitHub Releases stay primary and the release
-// script treats an unconfigured mirror as a skip. On beta R2 is the ONLY
-// place the bytes exist (a beta cut creates no GitHub Release), so the release
-// script requires it. The stamp shape is checked against the channel: a
-// stable stamp never carries ".beta.", a beta stamp always does, and the two
-// never cross.
-//
-// Usage:
-//
-//	r2-mirror --account <id> --bucket umbree-downloads --stage-dir dist/<stamp> \
-//	          --comp <umbree|umbreed> [--channel stable|beta] --version <X.Y.Z> \
-//	          --stamp <v…stamp> --creds <path to the r2 creds TOML> [--dry-run]
-//
-// The S3 credentials (access_key_id + secret_access_key) are read from the TOML
-// file at --creds and are NEVER printed. --dry-run prints the planned keys and
-// uploads nothing (no creds required).
 package main
 
 import (
@@ -49,16 +20,11 @@ const (
 	minisigName = "SHA256SUMS.txt.minisig"
 )
 
-// The two stamp shapes tools/version.sh emits, anchored. One per channel;
-// a stamp matching neither is refused rather than filed somewhere.
 var (
 	stableStampRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
 	betaStampRe   = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$`)
 )
 
-// latestManifest is the <comp>/latest.json schema. Fields are declared in
-// alphabetical order so json.Marshal emits them in the same order as the live
-// bucket's hand-uploaded manifest (a stable, diff-friendly shape).
 type latestManifest struct {
 	Component  string   `json:"component"`
 	Minisig    string   `json:"minisig"`
@@ -82,8 +48,6 @@ type config struct {
 	dryRun   bool
 }
 
-// keyPrefix is the bucket prefix every key of this cut goes under:
-// "<comp>/" on stable, "<comp>/beta/" on beta.
 func (c config) keyPrefix() string {
 	if c.channel == "beta" {
 		return c.comp + "/beta/"
@@ -91,10 +55,6 @@ func (c config) keyPrefix() string {
 	return c.comp + "/"
 }
 
-// plannedKeys returns the upload plan in upload ORDER: every artifact under
-// <prefix><stamp>/, then the manifest key LAST. The order is load-bearing —
-// a manifest uploaded before its bytes advertises a release that 404s — so
-// run() iterates this slice rather than composing keys inline.
 func plannedKeys(cfg config, artifacts []string) []string {
 	keys := make([]string, 0, len(artifacts)+1)
 	for _, name := range artifacts {
@@ -157,8 +117,6 @@ func run() error {
 	ctx := context.Background()
 	client := r2.New(cfg.account, cfg.bucket, accessKeyID, secret, nil)
 
-	// Artifacts first, in plan order; the manifest (the last planned key) is
-	// uploaded only after every byte it names is in place.
 	for i, name := range artifacts {
 		key := keys[i]
 		body, err := os.ReadFile(filepath.Join(cfg.stageDir, name))
@@ -228,9 +186,6 @@ func (c config) validate() error {
 	return nil
 }
 
-// collectArtifacts returns the top-level files to upload (sorted) and the subset
-// that are zips (sorted) for the manifest. It requires at least one zip plus
-// SHA256SUMS.txt and SHA256SUMS.txt.minisig — a release without them is broken.
 func collectArtifacts(stageDir string) (artifacts, zips []string, err error) {
 	entries, err := os.ReadDir(stageDir)
 	if err != nil {
@@ -293,9 +248,6 @@ func contentType(name string) string {
 	}
 }
 
-// readCreds parses access_key_id + secret_access_key from a minimal TOML file
-// (`key = "value"` or `key = value`, one per line; '#' comments allowed). The
-// secret is returned to the caller and never logged.
 func readCreds(path string) (accessKeyID, secret string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

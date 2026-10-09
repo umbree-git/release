@@ -1,6 +1,3 @@
-// Package r2 is a minimal stdlib AWS-SigV4 client for PUT/LIST/DELETE against a
-// Cloudflare R2 bucket (S3-compatible API). Ported from the console's
-// r2_mirror.go signer; no SDK dependency.
 package r2
 
 import (
@@ -20,14 +17,13 @@ type Doer interface {
 }
 
 type Client struct {
-	endpoint    string // https://<account>.r2.cloudflarestorage.com
+	endpoint    string
 	bucket      string
 	accessKeyID string
 	secret      string
 	doer        Doer
 }
 
-// New builds a Client. doer nil → a 30s http.Client.
 func New(accountID, bucket, accessKeyID, secret string, doer Doer) *Client {
 	if doer == nil {
 		doer = &http.Client{Timeout: 30 * time.Second}
@@ -41,7 +37,6 @@ func New(accountID, bucket, accessKeyID, secret string, doer Doer) *Client {
 	}
 }
 
-// Put uploads body to <endpoint>/<bucket>/<key> with a SigV4-signed PUT.
 func (c *Client) Put(ctx context.Context, key string, body []byte, contentType string) error {
 	url := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
@@ -63,7 +58,6 @@ func (c *Client) Put(ctx context.Context, key string, body []byte, contentType s
 	return nil
 }
 
-// listResult is the subset of the S3 ListObjectsV2 XML response we read.
 type listResult struct {
 	Contents []struct {
 		Key string `xml:"Key"`
@@ -72,9 +66,6 @@ type listResult struct {
 	NextToken   string `xml:"NextContinuationToken"`
 }
 
-// List returns every object key under prefix, following continuation tokens so
-// buckets with more than 1000 objects are fully enumerated. An empty body is
-// signed (GETs carry no payload).
 func (c *Client) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	token := ""
@@ -85,10 +76,6 @@ func (c *Client) List(ctx context.Context, prefix string) ([]string, error) {
 		if token != "" {
 			q.Set("continuation-token", token)
 		}
-		// url.Values.Encode encodes spaces as '+', but SigV4 canonicalization
-		// (signer.go signs req.URL.RawQuery verbatim) requires '%20'. Convert so
-		// the signed query matches what S3/R2 re-encodes for verification — a
-		// latent 403 once any value carries a space.
 		enc := strings.ReplaceAll(q.Encode(), "+", "%20")
 		reqURL := fmt.Sprintf("%s/%s?%s", c.endpoint, c.bucket, enc)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -123,8 +110,6 @@ func (c *Client) List(ctx context.Context, prefix string) ([]string, error) {
 	return keys, nil
 }
 
-// Delete removes the object at key. A 404/NoSuchKey is treated as success
-// (deleting an absent key is a no-op, which keeps prune idempotent).
 func (c *Client) Delete(ctx context.Context, key string) error {
 	reqURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)

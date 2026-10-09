@@ -15,9 +15,6 @@ const (
 
 var arts = []string{"SHA256SUMS.txt", "SHA256SUMS.txt.minisig", "umbree-darwin-arm64.zip", "umbree-linux-amd64.zip"}
 
-// TestPlannedKeysBetaLayout: beta keys sit under <comp>/beta/<stamp>/ and the
-// beta manifest <comp>/beta/latest.json is the LAST key; stable keys carry no
-// beta/ segment.
 func TestPlannedKeysBetaLayout(t *testing.T) {
 	beta := plannedKeys(config{comp: "umbree", channel: "beta", stamp: betaStamp}, arts)
 	want := []string{
@@ -45,8 +42,6 @@ func TestPlannedKeysBetaLayout(t *testing.T) {
 	}
 }
 
-// TestValidateChannelStampShapes: the two shapes never cross, and an unknown
-// channel is refused.
 func TestValidateChannelStampShapes(t *testing.T) {
 	stage := t.TempDir()
 	base := config{comp: "umbree", version: "0.2.0", stageDir: stage, dryRun: true}
@@ -71,8 +66,6 @@ func TestValidateChannelStampShapes(t *testing.T) {
 	}
 }
 
-// TestCollectArtifactsAndDryRunOrder: over a real stage dir the artifacts
-// are collected sorted and the manifest is planned last.
 func TestCollectArtifactsAndDryRunOrder(t *testing.T) {
 	stage := t.TempDir()
 	for _, n := range []string{"umbree-linux-amd64.zip", "SHA256SUMS.txt", "SHA256SUMS.txt.minisig", "umbree-darwin-arm64.zip", "release-notes.md"} {

@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# release.test.sh — tools/release.sh's refusals and its beta verb, driven
-# against a copy of this repo under a fixture brand root.
-#
-# Nothing real is published: gh, ssh, scp, minisign and go are stubbed on PATH
-# (go answers only `run ./cmd/rkit components`; the module gate's own `go run`
-# and the r2-mirror are never reached on the paths exercised here — every case
-# ends at a refusal or at --dry-run's "would:" lines). The release repo copy and
-# the component "repos" are real throwaway git repos with a bare origin, because
-# tools/release_origin.sh calls /usr/bin/git by absolute path and could not see
-# a stub. Layout under $T mirrors the committed workspace shape the scripts
-# derive paths from:
-#
-#   $T/Umbree/release/code/main      the release repo copy (REPO_ROOT)
-#   $T/Umbree/cli/code/main          umbree's registry main (+ code/beta when a case adds it)
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_ROOT="$(cd "${HERE}/.." && pwd)"
@@ -28,7 +14,6 @@ export GIT_CONFIG_GLOBAL="$T/gitconfig"
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
 unset BETA_BRANCH UMBREE_R2_ACCOUNT UMBREE_R2_CREDS
 
-# ---- stubs ------------------------------------------------------------------
 STUB="$T/stub"; mkdir -p "$STUB"
 for tool in gh ssh scp minisign; do
     printf '#!/bin/sh\nexit 0\n' > "$STUB/$tool"; chmod +x "$STUB/$tool"
@@ -42,25 +27,18 @@ chmod +x "$STUB/go"
 export PATH="$STUB:$PATH"
 export RELEASE_HOST=x STATIC_DIR=/x
 
-# ---- the release repo copy --------------------------------------------------
 REL="$T/Umbree/release/code/main"
 mkdir -p "$REL"
 ( cd "$REAL_ROOT" && /usr/bin/git ls-files -z ) | ( cd "$REAL_ROOT" && tar --null -cf - -T - ) | ( cd "$REL" && tar -xf - )
-# A committed baseline == origin/main, so the release-repo origin check has a
-# real remote to compare against. Versions: umbree stable 0.1.8, no cycle open.
 printf '0.1.8\n' > "$REL/versions/umbree"; rm -f "$REL/versions/umbree.beta" "$REL/versions/umbree.beta.stamp"
-# the module gate is not under test here; make it a no-op in the copy (before
-# the baseline commit, so the copy is CLEAN — the origin guard checks that)
 printf 'module_gate() { :; }\n' > "$REL/tools/module_gate.sh"
 /usr/bin/git -C "$REL" init -q
 /usr/bin/git -C "$REL" add -A && /usr/bin/git -C "$REL" commit -q -m baseline
 /usr/bin/git init -q --bare "$T/release.git"
 /usr/bin/git -C "$REL" remote add origin "$T/release.git"
 /usr/bin/git -C "$REL" push -q -u origin main
-# dev at main: the sync-back check (dev.md check 4) reads origin/dev too.
 /usr/bin/git -C "$REL" push -q origin main:refs/heads/dev
 
-# ---- the component repo (registry main) ------------------------------------
 CLI="$T/Umbree/cli/code/main"
 mkdir -p "$CLI"; /usr/bin/git -C "$CLI" init -q
 echo x > "$CLI/f"; /usr/bin/git -C "$CLI" add f; /usr/bin/git -C "$CLI" commit -q -m seed
@@ -70,7 +48,6 @@ echo x > "$CLI/f"; /usr/bin/git -C "$CLI" add f; /usr/bin/git -C "$CLI" commit -
 /usr/bin/git -C "$CLI" push -q origin main:refs/heads/dev
 export UMBREE_SRC_UMBREE="$CLI"
 
-# ---- a staged dist/<stamp>/ for each stamp shape ---------------------------
 BETA_STAMP=v0.2.0.beta.2026.09.05.deadbeef
 STABLE_STAMP=v0.1.8.2026.08.31.46b36734
 for st in "$BETA_STAMP" "$STABLE_STAMP"; do
@@ -106,9 +83,6 @@ echo "# beta pre-flight: origin"
 run --channel beta umbree "$BETA_STAMP" --dry-run
 check "no code/beta under --dry-run → 1 (the guard reports, the assert refuses)" "$rc" "1"
 check_contains "…names the missing beta worktree" "$out" "beta worktree missing: $T/Umbree/cli/code/beta"
-# Under --dry-run the guard is in REPORT mode, so the missing worktree alone
-# does not refuse — the refusal above is the beta version assert, which runs
-# after the guard and has no cycle open (no versions/umbree.beta). Pin both.
 check_contains "…and the assert finds no open cycle" "$out" "versions/umbree.beta not found"
 
 echo "# beta pre-flight: version"
@@ -122,7 +96,7 @@ check_contains "…says must sort above" "$out" "must sort above"
 
 echo "# beta dry run"
 printf '0.2.0\n' > "$REL/versions/umbree.beta"
-/usr/bin/git -C "$REL" add versions/umbree.beta   # exactly what rkit build stages (the tolerated pair)
+/usr/bin/git -C "$REL" add versions/umbree.beta
 run --channel beta umbree "$BETA_STAMP" --dry-run
 check "beta --dry-run with code/beta, beta 0.2.0, R2 unset → 0" "$rc" "0"
 check_contains "…would refuse on R2" "$out" "REFUSE — beta is R2-only"
@@ -155,9 +129,6 @@ check_contains "…plans the version floor" "$out" "write versions/umbree.stamp"
 check_lacks "…the stable rehearsal prints no ⚠ for an in-sync registry main" "$out" "⚠ umbree"
 
 echo "# the sync-back check: origin/main must be contained in origin/dev"
-# The release repo's main advances past dev — a cut whose predecessor skipped
-# the sync-back. REL stays == origin/main, so assert_release_origin passes and
-# check_sync_back is the only thing left that can refuse.
 echo m > "$REL/prior-marker.txt"; /usr/bin/git -C "$REL" add prior-marker.txt
 /usr/bin/git -C "$REL" commit -q -m "[RELEASED: umbree] prior cut"
 /usr/bin/git -C "$REL" push -q origin main
@@ -169,9 +140,8 @@ check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
 run --distribute-only umbree "$STABLE_STAMP" --dry-run
 check "…the same state under --dry-run reports and continues → 0" "$rc" "0"
 check_contains "…as a ⚠" "$out" "⚠ release repo: origin/main is not an ancestor of dev"
-/usr/bin/git -C "$REL" push -q origin main:refs/heads/dev   # the sync-back (a fast-forward)
+/usr/bin/git -C "$REL" push -q origin main:refs/heads/dev
 
-# The component source: its main advances past its dev.
 echo y > "$CLI/g"; /usr/bin/git -C "$CLI" add g; /usr/bin/git -C "$CLI" commit -q -m "hotfix on main"
 /usr/bin/git -C "$CLI" push -q origin main
 run --distribute-only umbree "$STABLE_STAMP"
