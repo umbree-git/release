@@ -250,4 +250,10 @@ func TestStaticStripAgreesWithShellOnEdgeCases(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "heredoc") {
 		t.Fatalf("gen-bootstraps.sh rendered a module with a heredoc: %v %s", err, out)
 	}
+	writeFile(t, filepath.Join(dir, "tools/modules/edge.sh"), "set -- a \\\n# gone\necho \"n=$#\"\n")
+	cmd = exec.Command("sh", "tools/gen-bootstraps.sh")
+	cmd.Dir, cmd.Env = dir, []string{"PATH=" + filepath.Join(dir, ".stub") + ":/usr/local/bin:/usr/bin:/bin", "HOME=" + dir, "UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "continuation") {
+		t.Fatalf("gen-bootstraps.sh joined a continued line onto the command after a stripped comment: %v %s", err, out)
+	}
 }

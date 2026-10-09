@@ -145,6 +145,25 @@ for comp in umbree umbreed; do
     check_lacks "…without its prose tail" "$(cat "$ROOT/$comp/install.sh")" 'is a command plus its flags'
     check_contains "…and the splice markers" "$(cat "$ROOT/$comp/install.sh")" "# BEGIN verify-checksum"
 done
+echo "# a comment after a continued line is refused, not stripped"
+FX="$(mktemp -d)"
+mkdir -p "$FX/tools/modules" "$FX/versions" "$FX/stub"
+cp "$ROOT/tools/gen-bootstraps.sh" "$FX/tools/"
+cp "$ROOT/umbree-release.pub" "$FX/"
+printf '#!/bin/sh\n@INCLUDE:edge@\n' > "$FX/tools/bootstrap.template.sh"
+printf 'v0.1.0.2026.10.09.0a1b2c3d\n' > "$FX/versions/umbree.stamp"; cp "$FX/versions/umbree.stamp" "$FX/versions/umbreed.stamp"
+printf '#!/bin/sh\necho umbree\necho umbreed\n' > "$FX/stub/go"; chmod +x "$FX/stub/go"
+printf 'set -- a \\\n# gone\necho "n=$#"\n' > "$FX/tools/modules/edge.sh"
+out="$(cd "$FX" && PATH="$FX/stub:$PATH" sh tools/gen-bootstraps.sh 2>&1)"; rc=$?
+check "a continued line before a stripped comment refuses" "$([ "$rc" -ne 0 ] && echo refused)" "refused"
+check_contains "…naming the continuation" "$out" "continuation"
+check "…and writes no bootstrap" "$([ -e "$FX/umbree/install.sh" ] && echo written)" ""
+printf 'set -- a \\\n  b\n# goes\necho "n=$#"\n' > "$FX/tools/modules/edge.sh"
+out="$(cd "$FX" && PATH="$FX/stub:$PATH" sh tools/gen-bootstraps.sh 2>&1)"; rc=$?
+check "keep-control: a continued line ended by code renders" "$rc" "0"
+check "…with the comment stripped" "$(grep -c '^# goes$' "$FX/umbree/install.sh" 2>/dev/null)" "0"
+rm -rf "$FX"
+
 echo "# tree clean"
 cleanup
 dirty="$(cd "$ROOT" && git status --porcelain -- umbree umbreed versions)"

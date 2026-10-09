@@ -140,6 +140,13 @@ echo "escaped \" quote" x
 # after an escaped quote, a comment again
 n=$#
 echo "${#n}" # trailing
+set -- a \
+  b
+x=1 # a comment ending in a backslash does not continue \
+# so this comment line can go
+echo "dq \
+# inside a continued double-quoted string, kept
+"
 # BEGIN shared inner
 # END shared inner
 last`
@@ -156,6 +163,12 @@ done'
 echo "escaped \" quote" x
 n=$#
 echo "${#n}" # trailing
+set -- a \
+  b
+x=1 # a comment ending in a backslash does not continue \
+echo "dq \
+# inside a continued double-quoted string, kept
+"
 # BEGIN shared inner
 # END shared inner
 last
@@ -169,6 +182,27 @@ func TestRenderStripsModuleComments(t *testing.T) {
 	}
 	if want := "#!/bin/sh\n# a template comment is the template's own\n" + edgeWant; string(got) != want {
 		t.Fatalf("expanded\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRenderRefusesCommentAfterContinuation(t *testing.T) {
+	for name, body := range map[string]string{
+		"continued then comment":          "set -- a \\\n# gone\necho \"n=$#\"\n",
+		"continued then indented comment": "x \\\n\t# gone\ny\n",
+	} {
+		if _, err := static.ExpandIncludes([]byte("@INCLUDE:m@\n"), moduleNamed(map[string]string{"m": body})); !errors.Is(err, static.ErrModuleContinuation) {
+			t.Errorf("%s: %v, want ErrModuleContinuation", name, err)
+		}
+	}
+	for name, body := range map[string]string{
+		"escaped backslash":       "x \\\\\n# goes\ny\n",
+		"single-quoted backslash": "x '\\'\n# goes\ny\n",
+		"continued code":          "x \\\n  y\n# goes\n",
+		"comment ends in one":     "x # c \\\n# goes\ny\n",
+	} {
+		if _, err := static.ExpandIncludes([]byte("@INCLUDE:m@\n"), moduleNamed(map[string]string{"m": body})); err != nil {
+			t.Errorf("keep-control, %s: %v", name, err)
+		}
 	}
 }
 
