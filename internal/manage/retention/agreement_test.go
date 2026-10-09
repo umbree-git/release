@@ -42,13 +42,18 @@ func readmeCounts(t *testing.T) map[string]int {
 	return counts
 }
 
-func scriptDefault(t *testing.T, name string) int {
+func scriptAssignments(t *testing.T, name string) [][]string {
 	t.Helper()
 	body, err := os.ReadFile("../../../tools/prune-releases.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`(?m)^`+name+`=([0-9]+)$`).FindAllStringSubmatch(string(body), -1)
+	return regexp.MustCompile(`(?m)^`+name+`=([0-9]+)$`).FindAllStringSubmatch(string(body), -1)
+}
+
+func scriptDefault(t *testing.T, name string) int {
+	t.Helper()
+	m := scriptAssignments(t, name)
 	if len(m) != 1 {
 		t.Fatalf("prune-releases.sh sets %s %d times, want once", name, len(m))
 	}
@@ -72,15 +77,17 @@ func TestRetentionCountsAgree(t *testing.T) {
 		}
 	}
 	for name, pair := range map[string][2]int{
-		"retention.KeepPublicProduction":        {retention.KeepPublicProduction, readme["Public surface production"]},
-		"retention.KeepGated":                   {retention.KeepGated, readme["Gated store production"]},
-		"prune.DefaultKeepStable":               {prune.DefaultKeepStable, readme["Public surface production"]},
-		"prune.DefaultKeepBeta":                 {prune.DefaultKeepBeta, readme["Public surface beta"]},
-		"prune-releases.sh KEEP_STABLE_DEFAULT": {scriptDefault(t, "KEEP_STABLE_DEFAULT"), readme["Public surface production"]},
-		"prune-releases.sh KEEP_BETA_DEFAULT":   {scriptDefault(t, "KEEP_BETA_DEFAULT"), readme["Public surface beta"]},
+		"retention.KeepPublicProduction":      {retention.KeepPublicProduction, readme["Public surface production"]},
+		"retention.KeepGated":                 {retention.KeepGated, readme["Gated store production"]},
+		"prune.DefaultKeepStable":             {prune.DefaultKeepStable, readme["Public surface production"]},
+		"prune.DefaultKeepBeta":               {prune.DefaultKeepBeta, readme["Public surface beta"]},
+		"prune-releases.sh KEEP_BETA_DEFAULT": {scriptDefault(t, "KEEP_BETA_DEFAULT"), readme["Public surface beta"]},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %d, the README says %d", name, pair[0], pair[1])
 		}
+	}
+	if m := scriptAssignments(t, "KEEP_STABLE_DEFAULT"); len(m) != 0 {
+		t.Errorf("prune-releases.sh sets KEEP_STABLE_DEFAULT %d times; stable tags are never deleted, so it keeps no stable count", len(m))
 	}
 }

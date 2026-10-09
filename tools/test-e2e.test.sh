@@ -32,7 +32,7 @@ fi
 echo "# expect: --help prints the usage from code, an unknown argument exits 2"
 help_out="$(bash "${E2E}" --help 2>/dev/null)" && help_rc=0 || help_rc=$?
 case "${help_out}" in
-    *"Usage: tools/test-e2e.sh <umbree|umbreed>"*"UMBREED_NO_SERVICE=1"*) echo "--help prints the usage" ;;
+    *"Usage: tools/test-e2e.sh <umbree|umbreed|manifest>"*"UMBREED_NO_SERVICE=1"*) echo "--help prints the usage" ;;
     *) echo "FAIL: --help printed: ${help_out}"; fails=1 ;;
 esac
 [ "${help_rc}" = 0 ] || { echo "FAIL: --help exited ${help_rc}"; fails=1; }

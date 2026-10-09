@@ -31,30 +31,32 @@ extract() {
         sed -n '/^COMP=/,/^MIN_VERSION=/p' "$1"
         sed -n '/^# BEGIN version-floor/,/^# END version-floor/p' "$1"
         sed -n '/^# BEGIN channel-pick/,/^# END channel-pick/p' "$1"
-        sed -n '/^latest_tag() {/,/^}/p' "$1"
+        sed -n '/^latest_stamp() {/,/^}/p' "$1"
+        sed -n '/^is_tag() {/,/^}/p' "$1"
     } > "$2"
 }
 extract "$STABLE" "$W/stable.sh"; extract "$TWIN" "$W/twin.sh"
-for fn in semver_of is_semver version_ge assert_version_floor beta_channel_pick latest_tag; do
+for fn in semver_of is_semver version_ge assert_version_floor beta_channel_pick latest_stamp is_tag; do
     grep -q "^${fn}() {" "$W/twin.sh" || { echo "FAIL: ${fn} not found in the rendered twin"; exit 1; }
 done
 
-TAGS="$W/tags.json"
-cat > "$TAGS" <<'EOF'
-[{"tag_name":"umbree/v0.3.0.beta.2026.09.10.aaaaaaaa"},
- {"tag_name":"umbree/v0.2.1.2026.09.09.bbbbbbbb"},
- {"tag_name":"umbree/v0.1.8.2026.08.31.46b36734"},
- {"tag_name":"umbreed/v9.9.9.2026.09.05.ffffffff"}]
-EOF
+NEWEST_BETA=umbree/v0.3.0.beta.2026.09.10.aaaaaaaa
+STABLE_TAG=umbree/v0.2.1.2026.09.09.bbbbbbbb
+OTHER_COMP=umbreed/v9.9.9.2026.09.05.ffffffff
 
-echo "# RESOLVER: each channel sees only its own shape"
-# shellcheck disable=SC1090
-( . "$W/stable.sh"; latest_tag < "$TAGS" ) > "$W/out" 2>&1
-check "stable latest_tag picks the newest STABLE, ignoring a higher beta" "$(cat "$W/out")" "umbree/v0.2.1.2026.09.09.bbbbbbbb"
-( . "$W/twin.sh"; latest_tag < "$TAGS" ) > "$W/out" 2>&1
-check "beta latest_tag (TAG_RE beta) picks the beta, ignoring stable" "$(cat "$W/out")" "umbree/v0.3.0.beta.2026.09.10.aaaaaaaa"
-( . "$W/twin.sh"; latest_tag "$STABLE_TAG_RE" < "$TAGS" ) > "$W/out" 2>&1
-check "twin's explicit STABLE_TAG_RE picks the stable side" "$(cat "$W/out")" "umbree/v0.2.1.2026.09.09.bbbbbbbb"
+echo "# RESOLVER: each channel accepts only its own shape"
+shape() { ( . "$1"; is_tag "$2" "${!3}" ) && echo yes || echo no; }
+check "stable TAG_RE accepts a stable tag" "$(shape "$W/stable.sh" "$STABLE_TAG" TAG_RE)" "yes"
+check "stable TAG_RE refuses a beta tag" "$(shape "$W/stable.sh" "$NEWEST_BETA" TAG_RE)" "no"
+check "stable TAG_RE refuses another component" "$(shape "$W/stable.sh" "$OTHER_COMP" TAG_RE)" "no"
+check "twin TAG_RE accepts a beta tag" "$(shape "$W/twin.sh" "$NEWEST_BETA" TAG_RE)" "yes"
+check "twin TAG_RE refuses a stable tag" "$(shape "$W/twin.sh" "$STABLE_TAG" TAG_RE)" "no"
+check "twin STABLE_TAG_RE accepts the stable side" "$(shape "$W/twin.sh" "$STABLE_TAG" STABLE_TAG_RE)" "yes"
+check "stable BETA_TAG_RE accepts a beta pin" "$(shape "$W/stable.sh" "$NEWEST_BETA" BETA_TAG_RE)" "yes"
+check "a tag with a second line is refused" "$(shape "$W/stable.sh" "$(printf '%s\n../x' "$STABLE_TAG")" TAG_RE)" "no"
+check "a tag with a trailing path is refused" "$(shape "$W/stable.sh" "$STABLE_TAG/../x" TAG_RE)" "no"
+( . "$W/stable.sh"; printf '{"stamp":"v0.2.1.2026.09.09.bbbbbbbb","x":1}' | latest_stamp ) > "$W/out" 2>&1
+check "latest_stamp reads the stamp field" "$(cat "$W/out")" "v0.2.1.2026.09.09.bbbbbbbb"
 ( . "$W/twin.sh"; beta_channel_pick "umbree/v0.2.0.beta.2026.09.05.deadbeef" "umbree/v0.2.0.2026.09.12.cccccccc" ) > "$W/out"
 check "pick: tie on X.Y.Z goes to stable (graduation)" "$(cat "$W/out")" "umbree/v0.2.0.2026.09.12.cccccccc"
 
