@@ -44,8 +44,7 @@ func verifyOne(ctx context.Context, gated backend.Gated, a register.Artifact) ([
 	if err != nil {
 		return nil, fmt.Errorf("verify %s: %w", a.Key, err)
 	}
-	sum := sha256.Sum256(body)
-	if got := hex.EncodeToString(sum[:]); got != a.SHA256 {
+	if got := sha256Hex(body); got != a.SHA256 {
 		return nil, fmt.Errorf("verify %s: sha256 is %s, the catalog says %s", a.Key, got, a.SHA256)
 	}
 	return body, nil
@@ -98,4 +97,9 @@ func (r *Run) copyAll(ctx context.Context, st *stream, arts []register.Artifact)
 		st.send(Event{Step: "copy", Key: dst, Bytes: size, Status: "ok"})
 	}
 	return nil
+}
+
+func sha256Hex(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
