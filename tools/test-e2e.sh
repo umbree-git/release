@@ -25,12 +25,14 @@ usage() {
     cat <<'EOF'
 Usage: tools/test-e2e.sh <umbree|umbreed|manifest>
 
-Prove the whole umbree release chain OFFLINE with the TEST key. No GitHub, no
-release host, no real signing key. For the given component this:
-  1. dry-run-builds the release via `rkit build` (signed by the TEST key) into
-     dist/<stamp>/, offline (--no-vulncheck).
-  2. renders a --test-build outer bootstrap (baking the TEST pubkey) into a
-     temp dir; the committed bootstraps are not touched.
+Prove the whole umbree release chain OFFLINE with a throwaway key. No GitHub,
+no release host, no real signing key, and no private key file kept anywhere:
+each run generates a password-less minisign keypair in its own temp dir and
+removes it at exit. For the given component this:
+  1. dry-run-builds the release via `rkit build --sign-key <the run's key>`
+     into dist/<stamp>/, offline (--no-vulncheck).
+  2. renders a --test-build outer bootstrap (baking the run's public key) into
+     a temp dir; the committed bootstraps are not touched.
   3. runs verify-no-env on the freshly built binary.
   4. HAPPY PATH: serves dist/<stamp>/ over http and runs the outer bootstrap
      against it; asserts the installed binary reports the expected stamp.
@@ -64,8 +66,6 @@ command -v python3  >/dev/null 2>&1 || die "python3 not found (needed for the lo
 if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
     die "neither shasum nor sha256sum found"
 fi
-TEST_PUB="${REPO_ROOT}/tools/testkeys/test.pub"
-[ -f "${TEST_PUB}" ] || die "TEST pubkey missing: ${TEST_PUB} (minisign -G -p tools/testkeys/test.pub -s tools/testkeys/test.key)"
 
 case "$(uname -s)" in Darwin) OS=darwin ;; Linux) OS=linux ;; *) die "unsupported OS $(uname -s)" ;; esac
 case "$(uname -m)" in arm64|aarch64) ARCH=arm64 ;; x86_64|amd64) ARCH=amd64 ;; *) die "unsupported arch $(uname -m)" ;; esac
@@ -347,9 +347,12 @@ if [ "${WHAT}" = manifest ]; then
 fi
 
 E2E_BUILD="$(mktemp -d)"
-trap 'cleanup; rm -rf "${E2E_BUILD}"' EXIT INT TERM
-say "gen-bootstraps.sh --test-build (bake TEST pubkey, outside the tree)"
-UMBREE_PUBKEY_FILE="${TEST_PUB}" bash tools/gen-bootstraps.sh --test-build "${E2E_BUILD}"
+E2E_KEYS="$(mktemp -d)"
+trap 'cleanup; rm -rf "${E2E_BUILD}" "${E2E_KEYS}"' EXIT INT TERM
+say "a throwaway minisign keypair for this run only (no password, removed at exit)"
+minisign -G -W -p "${E2E_KEYS}/run.pub" -s "${E2E_KEYS}/run.key" >/dev/null
+say "gen-bootstraps.sh --test-build (bake the run's public key, outside the tree)"
+UMBREE_PUBKEY_FILE="${E2E_KEYS}/run.pub" bash tools/gen-bootstraps.sh --test-build "${E2E_BUILD}"
 
 run_component() {
     local comp="$1" src var stamp serve_dir zip pin
@@ -357,8 +360,8 @@ run_component() {
     var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
     export "${var}=${src}"
 
-    say "rkit build ${comp} --dry-run --no-vulncheck (TEST-key signed, offline)"
-    "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --no-vulncheck
+    say "rkit build ${comp} --dry-run --no-vulncheck (signed by the run's key, offline)"
+    "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --no-vulncheck --sign-key "${E2E_KEYS}/run.key"
 
     stamp="$(SRC_DIR="${src}" bash tools/version.sh "${comp}" --stamp)"
     serve_dir="${REPO_ROOT}/dist/${stamp}"
