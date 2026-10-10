@@ -89,6 +89,7 @@ e2e_build() {
 : > "${W}/calls"
 out="$(e2e_build)" && rc=0 || rc=$?
 case "${out}" in
+    *"signature verification failed"*) echo "FAIL: the run-key build tripped the signature check"; fails=1 ;;
     *"HAPPY-PATH OK (umbree)"*"TAMPER-ABORTED OK (umbree)"*"E2E PASSED (umbree)"*) echo "a build mode passes signed by its own key" ;;
     *) echo "FAIL: build mode rc ${rc}: $(printf '%s' "${out}" | tail -n 5)"; fails=1 ;;
 esac
@@ -104,7 +105,8 @@ if [ -e "${REPO}/tools/testkeys/test.key" ]; then echo "FAIL: a private key file
 out="$(e2e_build STUB_SIGN_OTHER=1)" && rc=0 || rc=$?
 case "${out}" in
     *"HAPPY-PATH OK"*) echo "FAIL: an install signed by another key passed — the bootstrap does not verify against the run's key"; fails=1 ;;
-    *) [ "${rc}" -ne 0 ] && echo "a release signed by another key is refused" || { echo "FAIL: rc 0 with another key"; fails=1; } ;;
+    *"signature verification failed"*) [ "${rc}" -ne 0 ] && echo "a release signed by another key is refused at the signature check" || { echo "FAIL: rc 0 with another key"; fails=1; } ;;
+    *) echo "FAIL: the other-key run did not reach the signature check (rc ${rc}): $(printf '%s' "${out}" | tail -n 3)"; fails=1 ;;
 esac
 rm -rf "${REPO}"/dist/v*.*.*.*.*.*."$(git -C "${W}/src" rev-parse --short=8 HEAD)"
 
