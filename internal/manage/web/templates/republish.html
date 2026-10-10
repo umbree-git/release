@@ -1,0 +1,23 @@
+{{define "content"}}
+<h1>Republish the static surface <span class="dim">· {{.Component}} · {{.Channel}}</span></h1>
+{{if .Failure}}<p class="flash error">{{.Failure}}</p>{{end}}
+{{if .Token}}
+<section class="panel">
+  <p>Renders <code>{{.Component}}/install.sh</code> and <code>{{.Component}}/version.js</code> from the public manifest as it is at the moment you confirm, with the manifest's stamp as the installer's version floor, and copies them, the public key and the site page to the static host. It changes no catalog row and no download.</p>
+  <form method="post" action="{{.Action}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="confirm" value="{{.Token}}">
+    <button class="btn primary" type="submit">Confirm republish</button>
+    <a class="btn" href="{{.Back}}">Cancel</a>
+  </form>
+  <p class="dim">This confirmation is single-use and expires in ten minutes.</p>
+</section>
+{{end}}
+{{if .Result}}
+<section class="panel">
+  <h2>Result</h2>
+  <p>{{.Result}}</p>
+</section>
+{{end}}
+<p><a href="{{.Back}}">← overview</a></p>
+{{end}}

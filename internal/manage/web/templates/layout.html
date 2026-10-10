@@ -1,0 +1,35 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{.Title}} · umbree release</title>
+<link rel="stylesheet" href="/manage/static/site.css">
+</head>
+<body>
+<header class="top">
+  <span class="brand">umbree release</span>
+  {{if .Admin}}<nav class="components">{{range .Nav}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav>
+  <form class="signout" method="post" action="/manage/logout">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <span class="dim">{{.Admin}}</span> <button class="btn" type="submit">Sign out</button>
+  </form>{{end}}
+</header>
+<main>
+{{if .Error}}<p class="flash error">{{.Error}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}
+
+{{define "rowcells"}}<tr class="row state-{{.State}}" id="row-{{.ID}}">
+  <td><span class="state">{{.State}}</span>{{if .IsCurrent}} <span class="state current">current</span>{{end}}</td>
+  <td>{{.Version}}</td>
+  <td class="stamp">{{.Stamp}}</td>
+  <td>{{.Created}}</td>
+  <td>{{.Promoted}}</td>
+  <td>{{.Yanked}}</td>
+  <td>{{.Expired}}</td>
+  <td>{{range .Links}}<a href="{{.URL}}">{{.Name}}</a> {{end}}</td>
+</tr>{{end}}

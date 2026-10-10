@@ -27,8 +27,9 @@
 # that is a no-op, not a failure to work around. Drop it from COMPONENTS.
 #
 # FLAGS — passed to the BUILD half (`rkit build`), which is the half that signs.
-# Unlike clawee/burrowee, publishing here is a separate `--distribute-only` step
-# the launcher runs for you; it takes no flags from this file. Accepted:
+# Unlike clawee/burrowee, the cut here is a separate `--distribute-only` step
+# the launcher runs for you (stage to the gated store, register the row, tag,
+# marker — nothing public); it takes no flags from this file. Accepted:
 #
 #     --public        Developer-ID signing + notarization AND the CVE gate.
 #                     The standard ship path. (--public-release is an alias.)
@@ -38,16 +39,16 @@
 #                     habit across.
 #     --no-vulncheck  skip the CVE gate. Offline rehearsals only.
 #     --dry-run       build without bumping the version or needing a real key,
-#                     then rehearse the publish half too ("would: ..." only).
-#                     Nothing is tagged, uploaded, marked or pushed.
+#                     then rehearse the cut half too ("would: ..." only).
+#                     Nothing is tagged, uploaded, registered, marked or pushed.
 #     --bump-patch    move the patch version before building
 #     --bump-minor    move the minor (prompts unless UMBREE_RELEASE_YES=1)
 #     --bump-major    move the major (same prompt)
 #
 # Leaving FLAGS empty is not "defaults", it is a trap: the build still signs with
 # the minisign release key and still runs the CVE gate, but it does NOT
-# Developer-ID sign or notarize — so it publishes a macOS binary to the PUBLIC
-# channel that Gatekeeper will refuse. Say what you want.
+# Developer-ID sign or notarize — so the release it cuts carries a macOS binary
+# that Gatekeeper will refuse once it is promoted. Say what you want.
 #
 # VERSIONS. A component's FIRST cut takes NO bump flag — versions/<comp> is
 # seeded at the version it should ship (umbreed is seeded 0.1.0). Adding
@@ -55,19 +56,25 @@
 # released. Every LATER cut needs a bump flag, or the stamp is unchanged and the
 # tag already exists.
 #
-# Republishing an already-staged dist/<stamp>/ is NOT a launcher path:
+# Cutting an already-built dist/<stamp>/ by hand is NOT a launcher path:
 #
 #     bash tools/release.sh --distribute-only <comp> <stamp>
 #
-# run by hand, with RELEASE_HOST/STATIC_DIR sourced from the sealed configuration.
+# run by hand, with UMBREE_R2_GATED_BUCKET, the R2 token, UMBREE_MANAGE_URL and
+# UMBREE_RELEASE_KEY (the decrypted key file) from the sealed configuration. A
+# registration the cut could not complete is re-run with
+# `bash tools/release.sh --register-only <comp> <stamp>` (tools/RUNBOOK.md).
 # --distribute-only is recognised only as release.sh's FIRST argument, because it
 # takes its component and stamp positionally — so it cannot be expressed in FLAGS.
 
 # CHANNEL — stable (default) or beta.
 #
-#     stable    cut from <repo>/code/main; publish = tag + GitHub Release + R2
-#               mirror + install.sh/version.js to the static host.
-#     beta      cut from <repo>/code/beta — a LINKED worktree of the registry
+#     stable    cut from <repo>/code/main; the cut stages to the private gated
+#               store, registers a staged row with the manage service, tags and
+#               marks. Nothing is public until an operator promotes the row in
+#               the manage console, which also republishes the static surface.
+#     beta      DORMANT: Umbree has no beta stage (operator, 2026-10-09). Cuts
+#               from <repo>/code/beta — a LINKED worktree of the registry
 #               main repo, on the beta branch, == origin/<beta branch>; the
 #               launcher never creates it (open the cycle first: README "Beta
 #               channel"). Reads versions/<comp>.beta (the open-cycle marker,

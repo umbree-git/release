@@ -6,8 +6,10 @@
   uses whichever account is globally active) · Go + shell.
 - **Kind `code`, on the branch spine**: `dev` is the integration point, `main`
   is the publishing branch, and there is **no permanent `beta` git branch** —
-  Umbree has no beta line (registry ruling, 2026-09-12). A release repo is code
-  because it carries the installers, bootstraps and tooling (`dev.md`).
+  Umbree has no beta line (registry ruling, 2026-09-12) and no beta stage:
+  work goes `dev` → `main` and every cut is stable (operator, 2026-10-09). A
+  release repo is code because it carries the installers, bootstraps and
+  tooling (`dev.md`).
   **Do not read `README.md`'s "Beta channel" as contradicting that**: that is the
   *download* channel a published build can sit on, and `tools/adopt-beta-version.sh`
   serves it. A beta **cycle** — the `beta` branch, `beta.md` — is what Umbree does
@@ -25,10 +27,11 @@
 | Path | What lives there |
 |---|---|
 | `cmd/rkit` | the release kit — `rkit build` assembles and signs a cut |
+| `cmd/umbree-release-manage`, `internal/manage/` | the manage service: the catalog intake a cut registers through, and the operator console that promotes and yanks |
 | `tools/` | the cut itself: `release.command` (desktop launcher), `release.sh`, the bootstrap/JSONP generators, retention, hygiene checks |
 | `tools/RUNBOOK.md` | **the hazards the tooling cannot prevent** — read before a cut |
 | `tools/modules/`, `tools/lock-modules.sh`, `sync-modules.sh` | shared shell modules and their pinning |
-| `versions/<component>`, `versions/<component>.stamp` | the released version and its full stamp, per component |
+| `versions/<component>`, `versions/<component>.stamp` | the version the last cut carried, and the stamp of the newest promoted release (the installers' version floor, written by `tools/record-promoted.sh`), per component |
 | `inner/`, `site/`, `ops/nginx` | the verified inner installer, the channel's pages, the serving config |
 | `config/apple-account`, `config/apple-home` | which signing identity plugin this repo uses (`apple-signing.md`) |
 | `umbree/`, `umbreed/` | per-component release assets and bootstraps |
@@ -62,9 +65,20 @@ can run at all:
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
 
-The agent chain ends at the **cut**: build, cut, report the stamp, sync `main`
-back down into `dev`. Promoting a cut to the public surface, minting invite
-links and installing on a node are operator steps (`release-management.md`).
+The agent chain ends at the **cut**: build, stage the bytes to the private
+gated store, register the `staged` row with the manage service and read it
+back, tag, mark, report the stamp and the row, and sync `main` back down into
+`dev`. Nothing an agent runs makes a release public. Promoting a cut to the
+public surface, yanking, re-running retention, republishing the static
+surface, minting invite links and installing on a node are operator steps
+(`release-management.md`); after a promote, `tools/record-promoted.sh` records
+the version floor once `tools/promote-check.sh` answers live.
+Promote and yank run in the manage console (`umbree-release-manage serve`), an
+authenticated operator surface: password, then a TOTP second factor, CSRF on
+every write and a two-step confirm on promote and yank. Its admins are added on
+the service host with `umbree-release-manage admin add`; there is no sign-up.
+Agents do not sign in to it, add admins, or deploy it. Its address reaches the
+cut only as the sealed `UMBREE_MANAGE_URL`, and no host is named here.
 
 ## Global policy
 

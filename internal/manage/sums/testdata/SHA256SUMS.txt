@@ -1,0 +1,2 @@
+e37287b0ddbda7edb55845acc6de4244cd82e14df5824bdd71007a452a7cbaab  umbree-darwin-arm64.zip
+2898d907fba3a01bbe9e078e73fb9c20c33a69fc322d062c61e826f2798e3621  umbree-linux-amd64.zip

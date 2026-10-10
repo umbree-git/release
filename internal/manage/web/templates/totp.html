@@ -1,0 +1,11 @@
+{{define "content"}}
+<section class="panel narrow">
+  <h1>Verification code</h1>
+  <form method="post" action="/manage/login/totp">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field"><span>Six-digit code</span>
+      <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" autofocus required></label>
+    <button class="btn primary" type="submit">Sign in</button>
+  </form>
+</section>
+{{end}}
