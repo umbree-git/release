@@ -7,14 +7,14 @@ check() { if [ "$2" = "$3" ]; then echo "ok: $1"; else echo "FAIL: $1 — got '$
 check_contains() { case "$2" in *"$3"*) echo "ok: $1";; *) echo "FAIL: $1 — output does not contain '$3':"; printf '%s\n' "$2" | sed 's/^/      /'; fail=1;; esac; }
 check_lacks() { case "$2" in *"$3"*) echo "FAIL: $1 — output contains '$3'"; fail=1;; *) echo "ok: $1";; esac; }
 
+unset GO_BIN RELEASE_ORIGIN_REPO_ROOT UMBREE_R2_BUCKET UMBREE_SRC_UMBREED \
+    GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+    GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_SYSTEM
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export GIT_CONFIG_GLOBAL="$T/gitconfig"
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" user.name t
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" user.email t@t
 /usr/bin/git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
-unset GO_BIN RELEASE_ORIGIN_REPO_ROOT UMBREE_R2_BUCKET UMBREE_GH UMBREE_RELEASE_REPO \
-    GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR \
-    GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_SYSTEM
 unset BETA_BRANCH UMBREE_R2_ACCOUNT UMBREE_R2_CREDS UMBREE_R2_GATED_BUCKET STUB_GATED_FAIL \
     UMBREE_MANAGE_URL UMBREE_RELEASE_KEY STUB_REGISTER STUB_STATUS STUB_STATUS_STAMP STUB_STATUS_SEQ STUB_STATUS_EXTRA
 
@@ -149,6 +149,7 @@ run --channel beta umbree "$BETA_STAMP" --dry-run
 check "beta --dry-run with code/beta, beta 0.2.0, R2 unset → 0" "$rc" "0"
 check_contains "…would refuse on R2" "$out" "REFUSE — beta is R2-only"
 check_contains "…plans the beta key layout" "$out" "umbree/beta/$BETA_STAMP/umbree-darwin-arm64.zip"
+check_contains "…into the default bucket, whatever the caller exported" "$out" "would: upload to R2 bucket umbree-downloads:"
 check_contains "…plans no GitHub Release" "$out" "no GitHub Release"
 check_lacks "…never plans gh release create" "$out" "gh release create"
 last_would="$(printf '%s\n' "$out" | grep '^would:   ' | tail -n1)"
@@ -505,6 +506,13 @@ check_contains "…prune-releases.sh --execute runs first" "$ar_first" "bash $AR
 check_contains "…on the cut's channel and component" "$ar_first" "CHANNEL=beta COMPONENTS=umbree"
 check_contains "…KEEP=1 does not reach prune-releases.sh" "$ar_first" "KEEP=unset"
 check_contains "…r2-prune --execute runs second" "$ar_second" "go run ./cmd/r2-prune --comp umbree --channel beta --execute"
+
+echo "# umbreed needs its own source worktree"
+echo x > "$REL/dist/$STABLE_STAMP/umbreed-linux-amd64.zip"
+run --distribute-only umbreed "$STABLE_STAMP" --dry-run
+check "umbreed with no UMBREE_SRC_UMBREED → refused" "$([ "$rc" -ne 0 ] && echo refused)" "refused"
+check_contains "…naming UMBREE_SRC_UMBREED" "$out" "set UMBREE_SRC_UMBREED to the component source worktree"
+rm -f "$REL/dist/$STABLE_STAMP/umbreed-linux-amd64.zip"
 
 echo "# prose agrees"
 PROSE="$(cd "$REAL_ROOT" && /usr/bin/git ls-files -- '*.md' '.release-request.example' 'tools/*.sh' 'tools/release.command' 'docs/*.txt' | grep -v '\.test\.sh$')"
