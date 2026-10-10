@@ -1,38 +1,59 @@
-// Command rkit drives umbree release cuts on release-kit: `build` produces the
-// signed (and, with --apple, notarized) artifact set into dist/<stamp>/.
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 
 	"github.com/umbree-git/release/internal/relconfig"
 )
 
 func usage() string {
-	return "usage: rkit <build --component <umbree> [flags] | components>"
+	return "usage: rkit <build --component <umbree> [flags] | register [flags] | status [flags] | components>"
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage())
-		os.Exit(2)
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, nil))
+}
+
+func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.Client) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, usage())
+		return 2
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "build":
-		if err := runBuild(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "✗", err)
-			os.Exit(1)
+		if err := runBuild(args[1:]); err != nil {
+			fmt.Fprintln(stderr, "✗", err)
+			return 1
 		}
+	case "register":
+		return reportVerb("register", registerUsage, runRegister(ctx, args[1:], stdout, hc), stderr)
+	case "status":
+		return reportVerb("status", statusUsage, runStatus(ctx, args[1:], stdout, hc), stderr)
 	case "components":
-		// One component per line, straight from relconfig.Components — the
-		// single list rkit builds from. tools/gen-bootstraps.sh parses this
-		// output so the bootstrap loop can't drift from what rkit builds.
 		for _, c := range relconfig.Components {
-			fmt.Println(c)
+			fmt.Fprintln(stdout, c)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, usage())
-		os.Exit(2)
+		fmt.Fprintln(stderr, usage())
+		return 2
 	}
+	return 0
+}
+
+func reportVerb(name, usage string, err error, stderr io.Writer) int {
+	var ue *registerUsageError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ue):
+		fmt.Fprintf(stderr, "rkit %s: %s\n%s\n", name, ue.msg, usage)
+		return 2
+	}
+	fmt.Fprintf(stderr, "✗ rkit %s: %v\n", name, err)
+	return 1
 }

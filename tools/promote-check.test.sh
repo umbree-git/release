@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# promote-check.test.sh — tools/promote-check.sh over a fixture HTTP server.
-#
-# The script answers one question — "does the public channel manifest name this
-# version?" — and the whole point of it is that the answer is never taken from a
-# human. So the suite pins the three answers apart, because the failure this
-# tool exists to prevent is a session that treats "cannot tell" as "not yet" and
-# waits for something that already happened.
-#
-# Nothing here reaches the network: the downloads base points at one local
-# python http.server serving a fixture tree.
-#
-#     bash tools/promote-check.test.sh
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,8 +19,7 @@ trap cleanup EXIT
 SRV="${W}/srv"
 mkdir -p "${SRV}/umbreed/beta" "${SRV}/umbree"
 
-# umbreed beta: a promoted 0.3.9. umbree stable: a promoted 0.3.13.
-manifest() { # manifest <dir> <comp> <path> <version> <stamp>
+manifest() {
     cat > "$1/latest.json" <<JSON
 {
   "component": "$2",
@@ -61,7 +48,6 @@ done
 export UMBREE_R2_DOWNLOADS_BASE="http://127.0.0.1:${PORT}"
 export UMBREE_CHECK_ALLOW_HTTP=1
 
-# run <args...> -> sets OUT and RC, never aborts the suite on a non-zero exit
 run() { set +e; OUT="$("${CHECK}" "$@" 2>&1)"; RC=$?; set -e; }
 
 say "the expected version is live -> 0, and the line is quotable"
@@ -138,6 +124,15 @@ say "a plaintext base is refused unless the test hook says otherwise"
 set +e; OUT="$(UMBREE_CHECK_ALLOW_HTTP= "${CHECK}" umbreed beta --expect 0.3.9 2>&1)"; RC=$?; set -e
 [ "${RC}" -eq 2 ] || die "expected 2 for an http base, got ${RC}: ${OUT}"
 has "https" "${OUT}" || die "did not explain why the base was refused: ${OUT}"
+
+say "explicit help is stdout and exit 0, with the exits spelled out"
+set +e; HELP_OUT="$("${CHECK}" --help 2>/dev/null)"; RC=$?; HELP_ERR="$("${CHECK}" -h 2>&1 >/dev/null)"; set -e
+[ "${RC}" -eq 0 ] || die "expected 0 for --help, got ${RC}"
+[ -z "${HELP_ERR}" ] || die "help wrote to stderr: ${HELP_ERR}"
+has "Usage:" "${HELP_OUT}" || die "help has no usage line: ${HELP_OUT}"
+has "3  cannot determine" "${HELP_OUT}" || die "help does not name exit 3: ${HELP_OUT}"
+has "registers a staged row with the manage service" "${HELP_OUT}" || die "help does not describe this brand's cut and promote: ${HELP_OUT}"
+has "record-promoted.sh" "${HELP_OUT}" || die "help does not name the step after a live answer: ${HELP_OUT}"
 
 say "the check writes nothing and needs no credentials"
 if grep -qE '\b(aws|rclone|scp|ssh)\b' "${CHECK}"; then die "the check reached for a credentialed tool"; fi

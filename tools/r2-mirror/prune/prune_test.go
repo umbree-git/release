@@ -9,12 +9,10 @@ import (
 	"testing"
 )
 
-// fakeStore satisfies Store: List returns the fixed key set filtered by prefix,
-// Delete records what was removed.
 type fakeStore struct {
 	keys    []string
 	deleted []string
-	failOn  string // if non-empty, Delete of this key returns an error
+	failOn  string
 }
 
 func (f *fakeStore) List(_ context.Context, prefix string) ([]string, error) {
@@ -35,8 +33,6 @@ func (f *fakeStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-// objectsFor expands stamps into the six-object shape a real cut uploads
-// under <comp>/<sub><stamp>/ (sub is "" or "beta/").
 func objectsFor(comp, sub string, stamps ...string) []string {
 	var out []string
 	for _, s := range stamps {
@@ -51,7 +47,6 @@ func objectsFor(comp, sub string, stamps ...string) []string {
 	return out
 }
 
-// twelveStamps is ascending oldest→newest (verified against real `sort -V`).
 var twelveStamps = []string{
 	"v0.1.4.2026.06.13.15646772",
 	"v0.1.9.2026.06.13.15646772",
@@ -87,7 +82,7 @@ func TestPruneKeepsNewestNAndDeletesTheRest(t *testing.T) {
 	}
 	keepSet := map[string]bool{}
 	for _, s := range twelveStamps[:dropN] {
-		keepSet[s] = true // actually the DROP set
+		keepSet[s] = true
 	}
 	for _, k := range store.deleted {
 		stamp := strings.Split(k, "/")[1]
@@ -120,8 +115,6 @@ func TestPruneDryRunDeletesNothing(t *testing.T) {
 	}
 }
 
-// TestManifestsAreNeverCandidates: <comp>/latest.json and
-// <comp>/beta/latest.json survive both passes.
 func TestManifestsAreNeverCandidates(t *testing.T) {
 	keys := append(objectsFor("umbree", "", twelveStamps...), objectsFor("umbree", "beta/", threeBetas...)...)
 	keys = append(keys, "umbree/latest.json", "umbree/beta/latest.json")
@@ -140,10 +133,6 @@ func TestManifestsAreNeverCandidates(t *testing.T) {
 	}
 }
 
-// TestStablePassIgnoresBetaPrefix: the stable pass lists <comp>/ and therefore
-// sees <comp>/beta/<stamp>/… — those keys have "beta" as their stamp segment,
-// which is no stamp at all, and must be neither counted nor deleted. With
-// 12 stables and keep 3, exactly the objects of the 9 oldest stables go.
 func TestStablePassIgnoresBetaPrefix(t *testing.T) {
 	keys := append(objectsFor("umbree", "", twelveStamps...), objectsFor("umbree", "beta/", threeBetas...)...)
 	store := &fakeStore{keys: keys}
@@ -163,8 +152,6 @@ func TestStablePassIgnoresBetaPrefix(t *testing.T) {
 	}
 }
 
-// TestBetaPassKeepsOne: three betas, keep 1 → the two oldest go, the newest
-// stays, and no stable object is touched.
 func TestBetaPassKeepsOne(t *testing.T) {
 	keys := append(objectsFor("umbree", "", twelveStamps...), objectsFor("umbree", "beta/", threeBetas...)...)
 	store := &fakeStore{keys: keys}
@@ -186,9 +173,6 @@ func TestBetaPassKeepsOne(t *testing.T) {
 	}
 }
 
-// TestNeitherShapeIgnored: a directory matching neither shape (a pre-release
-// spelled with a dash, a nightly, a hand-upload) is ignored on BOTH passes —
-// never counted, never deleted.
 func TestNeitherShapeIgnored(t *testing.T) {
 	odd := []string{
 		"umbree/v0.9.9-rc1/umbree-linux-amd64.zip",
@@ -215,7 +199,6 @@ func TestNeitherShapeIgnored(t *testing.T) {
 			}
 		}
 	}
-	// Counted? The stable pass must report exactly 12 stamps, the beta pass 3.
 	if !strings.Contains(out.String(), "[umbree/stable] 12 stamp(s)") || !strings.Contains(out.String(), "[umbree/beta] 3 stamp(s)") {
 		t.Errorf("a neither-shape key was counted:\n%s", out.String())
 	}
@@ -244,7 +227,6 @@ func TestPruneSkipsPermanentInDropWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PruneProtect: %v", err)
 	}
-	// 5 stamps, keep 3 → drop window is [0] and [1]; pin skips [0], so only [1] × 6.
 	if n != 6 {
 		t.Errorf("deleted count = %d, want 6", n)
 	}
@@ -266,8 +248,8 @@ func TestPruneRejectsKeepBelowOneAndUnknownChannel(t *testing.T) {
 	if len(store.deleted) != 0 {
 		t.Errorf("a refused call deleted %d objects", len(store.deleted))
 	}
-	if DefaultKeep("stable") != 3 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
-		t.Fatal("DefaultKeep: want stable 3, beta 1, unknown 0")
+	if DefaultKeep("stable") != 5 || DefaultKeep("beta") != 1 || DefaultKeep("x") != 0 {
+		t.Fatal("DefaultKeep: want stable 5, beta 1, unknown 0")
 	}
 }
 
@@ -296,7 +278,6 @@ func TestPruneOnlyReadsItsOwnComponent(t *testing.T) {
 }
 
 func TestVersionOrderMatchesSortV(t *testing.T) {
-	// Exactly what GNU `sort -V` produces for this set (captured from the shell).
 	in := []string{
 		"v0.1.9.2026.06.13.15646772",
 		"v0.1.12.2026.06.14.3449c8b9",
@@ -321,9 +302,6 @@ func TestVersionOrderMatchesSortV(t *testing.T) {
 }
 
 func TestVersionOrderShaTieBreak(t *testing.T) {
-	// Same triple and date, differing only in the trailing 8-hex sha. `sort -V`
-	// puts alpha-leading shas BEFORE numeric-leading ones; naive field-wise
-	// lexical comparison gets this backwards. Captured from the shell.
 	in := []string{
 		"v0.2.5.2026.08.20.0abcdef0",
 		"v0.2.5.2026.08.20.abcdef00",
@@ -342,5 +320,17 @@ func TestVersionOrderShaTieBreak(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("sha tie-break mismatch:\n got: %v\nwant: %v", got, want)
 		}
+	}
+}
+
+func TestDefaultKeepStableIsFive(t *testing.T) {
+	if DefaultKeepStable != 5 {
+		t.Fatalf("DefaultKeepStable = %d, want 5: the public surface keeps the 5 newest production versions", DefaultKeepStable)
+	}
+	if DefaultKeepBeta != 1 {
+		t.Fatalf("DefaultKeepBeta = %d, want 1", DefaultKeepBeta)
+	}
+	if DefaultKeep("stable") != DefaultKeepStable || DefaultKeep("beta") != DefaultKeepBeta {
+		t.Fatal("DefaultKeep disagrees with the constants")
 	}
 }

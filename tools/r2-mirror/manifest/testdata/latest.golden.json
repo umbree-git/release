@@ -1,0 +1,13 @@
+{
+  "component": "umbree",
+  "minisig": "umbree/v0.1.8.2026.09.20.7162a3f3/SHA256SUMS.txt.minisig",
+  "path": "umbree/v0.1.8.2026.09.20.7162a3f3",
+  "sha256sums": "umbree/v0.1.8.2026.09.20.7162a3f3/SHA256SUMS.txt",
+  "stamp": "v0.1.8.2026.09.20.7162a3f3",
+  "updated": "2026-09-20T12:00:00Z",
+  "version": "0.1.8",
+  "zips": [
+    "umbree-darwin-arm64.zip",
+    "umbree-linux-amd64.zip"
+  ]
+}

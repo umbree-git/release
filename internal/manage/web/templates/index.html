@@ -1,0 +1,40 @@
+{{define "content"}}
+<h1>{{.Component}} <span class="dim">· {{.Channel}}</span></h1>
+<p><a href="{{.History}}">history →</a></p>
+<section class="panel">
+  <h2>Current</h2>
+  {{with .Current}}
+  <table><tbody>{{template "rowcells" .}}</tbody></table>
+  <form class="act" method="post" action="/manage/releases/{{.ID}}/yank">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn danger" type="submit">Yank {{.Version}}</button>
+  </form>
+  {{else}}<p class="dim">No current public release in the catalog.</p>{{end}}
+</section>
+<section class="panel">
+  <h2>Newest promotable</h2>
+  {{with .Promotable}}
+  <table><tbody>{{template "rowcells" .}}</tbody></table>
+  <form class="act" method="post" action="/manage/releases/{{.ID}}/promote">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn primary" type="submit">Promote {{.Version}}</button>
+  </form>
+  {{else}}<p class="dim">Nothing staged is newer than the newest release that was ever public.</p>{{end}}
+</section>
+<section class="panel">
+  <h2>Retention</h2>
+  <p class="dim">Each control previews the keys it would delete; a second confirmation deletes exactly those.</p>
+  {{range .Retention}}<form class="act" method="post" action="{{.Path}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn" type="submit">Preview: clean {{.Name}}</button>
+  </form>{{end}}
+</section>
+{{with .Republish}}<section class="panel">
+  <h2>Static surface</h2>
+  <p class="dim">Promote and yank republish the installer, <code>version.js</code>, the public key and the site page. If that step failed, republish them here from the live manifest.</p>
+  <form class="act" method="post" action="{{.}}">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    <button class="btn" type="submit">Republish static</button>
+  </form>
+</section>{{end}}
+{{end}}

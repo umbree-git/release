@@ -1,27 +1,3 @@
-// Command r2-prune applies retention to the public Cloudflare R2 bucket behind
-// downloads.umbree.org, ONE CHANNEL per run: it keeps the newest N per-stamp
-// directories for each component under that channel's prefix (<comp>/ on
-// stable, <comp>/beta/ on beta) and deletes every object beneath the older
-// ones. Stable keeps 3, beta keeps 1 (prune.DefaultKeep).
-//
-// R2 is the install-time fallback mirror on stable (GitHub Releases stay
-// primary) and the ONLY home of beta bytes, so it accumulated every stamp ever
-// cut. This is the pass that bounds it.
-//
-// Usage:
-//
-//	r2-prune [--comp umbree|umbreed|all] [--channel stable|beta] [--keep N] [--execute]
-//	         --account <id> --bucket <name> --creds <path to the r2 creds TOML>
-//	         [--protect tools/retain-permanent]
-//
-// Dry-run by default: it prints the planned deletions and removes nothing.
-// --execute performs them. Account, bucket and the S3 credentials are the
-// operator's — flags, or the same UMBREE_R2_ACCOUNT / UMBREE_R2_BUCKET /
-// UMBREE_R2_CREDS environment tools/release.sh reads; this file names none of
-// them and the secret is never printed.
-//
-// ORDERING: run tools/prune-releases.sh (the GitHub side) BEFORE this, on the
-// same channel. Draining R2 first leaves GitHub tags whose bytes are gone.
 package main
 
 import (
@@ -35,10 +11,16 @@ import (
 	"umbree-release-r2-mirror/r2"
 )
 
-// components is the full set r2-mirror publishes, and so the full set
-// retention applies to. Literal here (this module must not import the parent
-// repo's internal/relconfig), exactly as r2-mirror's own validate() spells it.
 var components = []string{"umbree", "umbreed"}
+
+const protectUsage = "a pin list file, one <comp>/<stamp> or stamp per line, kept from deletion; with no --protect nothing is pinned, and --execute deletes pinned releases too: this manual tool never reads the catalog's admin pin rows"
+
+func loadProtect(path string) (map[string]struct{}, error) {
+	if path == "" {
+		return map[string]struct{}{}, nil
+	}
+	return prune.LoadProtectFile(path)
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -53,8 +35,8 @@ func run() error {
 	creds := flag.String("creds", os.Getenv("UMBREE_R2_CREDS"), "path to the r2 creds TOML: access_key_id + secret_access_key (default: $UMBREE_R2_CREDS)")
 	comp := flag.String("comp", "all", "component: umbree | umbreed | all")
 	channel := flag.String("channel", "stable", "release channel: stable | beta")
-	keep := flag.Int("keep", 0, "stamps to retain per component (default: 3 on stable, 1 on beta)")
-	protectPath := flag.String("protect", "", "permanent pin list (default: tools/retain-permanent or ../retain-permanent)")
+	keep := flag.Int("keep", 0, fmt.Sprintf("stamps to retain per component (default: %d on stable, %d on beta)", prune.DefaultKeepStable, prune.DefaultKeepBeta))
+	protectPath := flag.String("protect", "", protectUsage)
 	execute := flag.Bool("execute", false, "actually delete (default: dry-run)")
 	flag.Parse()
 
@@ -86,15 +68,7 @@ func run() error {
 		return err
 	}
 
-	if *protectPath == "" {
-		for _, p := range []string{"tools/retain-permanent", "../retain-permanent"} {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				*protectPath = p
-				break
-			}
-		}
-	}
-	protect, err := prune.LoadProtectFile(*protectPath)
+	protect, err := loadProtect(*protectPath)
 	if err != nil {
 		return err
 	}
@@ -142,10 +116,6 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// readCreds parses access_key_id + secret_access_key from a minimal TOML file
-// (`key = "value"` or `key = value`, one per line; '#' comments allowed). The
-// secret is returned to the caller and never logged. Same shape as the one in
-// r2-mirror's main.go — the two binaries read the same file.
 func readCreds(path string) (accessKeyID, secret string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

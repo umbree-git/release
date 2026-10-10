@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>{{.Component}} history <span class="dim">· {{.Channel}}</span></h1>
+<p><a href="{{.Overview}}">← overview</a></p>
+<section class="panel">
+{{if .Rows}}
+<table>
+  <thead><tr><th>state</th><th>version</th><th>stamp</th><th>cut</th><th>promoted</th><th>yanked</th><th>expired</th><th>downloads</th></tr></thead>
+  <tbody>
+  {{range .Rows}}{{template "rowcells" .}}{{end}}
+  </tbody>
+</table>
+{{else}}<p class="dim">No rows yet.</p>{{end}}
+</section>
+{{end}}
