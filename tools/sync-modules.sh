@@ -1,26 +1,4 @@
 #!/bin/sh
-# tools/sync-modules.sh — compare this repo's tools/modules against another
-# product's and copy in the ones that are newer.
-#
-#     sh tools/sync-modules.sh ../../../../Clawee/release/code/main
-#     sh tools/sync-modules.sh --repo <local-root> <remote-root>   # for tests
-#
-# Verdicts: UPDATED (remote newer — copied), ok (same version, same bytes),
-# LOCAL FORK (same version, different bytes — never overwritten, resolve by
-# hand), AHEAD (local newer — nothing copied; the other product is behind),
-# NOT CARRIED (recorded in tools/modules/MODULES.exclude — this product's
-# shipped logic is not this module, so nothing is copied or compared).
-#
-# NOT CARRIED is the verdict that keeps the other four honest. A module that
-# sits in tools/modules/ without being @INCLUDEd anywhere reports "v1 == v1 ok",
-# and the day upstream fixes a real defect and ships v2 it reports
-# "v1 -> v2 UPDATED" — an operator commits the copy, every gate passes, and the
-# generated bootstrap is byte-for-byte what it was, bug included. Recording the
-# module as not-carried says so out loud on every run instead.
-#
-# Nothing is automatic: a person runs this and reviews the diff. The outer
-# bootstrap is a trust anchor, and an unreviewed edit to one is exactly the
-# risk this whole arrangement exists to reduce.
 set -eu
 LOCAL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ "${1:-}" = "--repo" ]; then LOCAL_ROOT="$2"; shift 2; fi
@@ -40,8 +18,6 @@ sha_of() {
     if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
     else sha256sum "$1" | awk '{print $1}'; fi
 }
-# Only the first field of a non-comment row is a module name; the rest of the
-# row is the human reason and is never parsed.
 is_excluded() {
     [ -f "$EXCLUDE" ] || return 1
     awk -v n="$1" '/^[[:space:]]*#/ { next } $1 == n { hit = 1 } END { exit !hit }' "$EXCLUDE"

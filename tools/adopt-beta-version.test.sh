@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# tools/adopt-beta-version.test.sh — cycle close: versions/<comp> adopts
-# versions/<comp>.beta (beta.md §5 step 3). Copied from burrowee-git/release
-# branch beta-channel-graduation (unmerged as of 2026-09-05). This step is load-bearing and has no other
-# guard: if it does not run, the stable release carries a lower version than the
-# beta everyone soaked, the tie in beta_channel_pick never fires, and beta hosts
-# silently never graduate. Every failure mode below is therefore a hard error,
-# never a warning.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fail_count=0
@@ -38,10 +31,6 @@ printf '0.1.0\n' > "$ROOT/versions/other"
 check "malformed beta → refuses"  "$(run other)"                       "1"
 check "stable left alone"         "$(cat "$ROOT/versions/other")"      "0.1.0"
 
-# A glob-plus-charclass check ("[0-9]*.[0-9]*.[0-9]*" + "*[!0-9.]*") accepts
-# both of these: an extra field ("0.3.5.6", rc 0 under a naive X.Y.Z read) and
-# a doubled/misplaced dot ("1..2.3") — only a strict ^[0-9]+\.[0-9]+\.[0-9]+$
-# anchor rejects them.
 printf '0.3.5.6\n' > "$ROOT/versions/fourfield.beta"
 printf '0.3.0\n' > "$ROOT/versions/fourfield"
 check "4-field beta → refuses"     "$(run fourfield)"                      "1"
@@ -52,7 +41,6 @@ printf '1.0.0\n' > "$ROOT/versions/doubledot"
 check "doubled-dot beta → refuses" "$(run doubledot)"                        "1"
 check "stable left alone"          "$(cat "$ROOT/versions/doubledot")"       "1.0.0"
 
-# The closing line names umbree's own no-bump rule, not burrowee's --keep-version.
 msg="$(cd "$ROOT" && REPO_ROOT="$ROOT" bash "${HERE}/adopt-beta-version.sh" umbree 2>&1)"
 case "$msg" in
     *"NO bump flag"*) echo "ok: closing line says to cut stable with no bump flag" ;;
