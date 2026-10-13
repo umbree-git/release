@@ -1,34 +1,4 @@
 #!/bin/sh
-# tools/test-install-minisign.sh — the bootstrap provides minisign before it
-# requires it, and the trust gate is not weakened by that.
-#
-#     sh tools/test-install-minisign.sh          # this shell (macOS /bin/sh = bash 3.2)
-#     dash tools/test-install-minisign.sh        # harness under dash; the BLOCKS run under
-#                                                # dash only where `sh` IS dash (the CI container)
-#
-# The install-minisign-* blocks are extracted verbatim from a GENERATED
-# bootstrap and driven under a controlled PATH / PREFIX / TMP with DL_BASE
-# pointing at a file:// directory of fixture archives. The only edits ever
-# made to the extracted copy are (a) the pin constants, replaced by the
-# fixture's real sha256 so a fixture can pass the pin, and (b) the known-paths
-# list, pointed at nowhere so a Homebrew minisign on this machine is invisible.
-# Cases:
-#   PRESENT       minisign on PATH -> no fetch, no write, MINISIGN empty
-#   DEST-PRESENT  minisign at PREFIX/bin, off PATH -> no fetch, untouched, require uses it
-#   USER-HAPPY    non-root, sudo -n fails -> package manager never called,
-#                 pinned fixture installs into PREFIX/bin, MINISIGN set
-#   PIN-MISMATCH  fixture bytes != pin -> nothing installed; require refuses
-#   MUTATION      with the pin comparison removed, PIN-MISMATCH would install ->
-#                 the case can fail, so it means something
-#   SEAL-FAILS    fixture minisign rejects the .minisig -> binary removed
-#   ROOT-PM       root + apt-get that "installs" -> package manager path taken,
-#                 no fetch; SKIP-PM -> apt-get not called, fetch taken
-#   DARWIN        arm64 fixture zip installs; amd64 without brew refuses with
-#                 the brew hint
-#   REAL          the real pinned upstream release archive for THIS host, if
-#                 reachable, else SKIPPED (offline) on its own line;
-#                 RELEASE_TESTS_OFFLINE=1 skips it by request (cut on an
-#                 air-gapped host)
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,7 +12,6 @@ sha_of() {
     else sha256sum "$1" | awk '{print $1}'; fi
 }
 
-# ---- locate a generated bootstrap that carries the blocks -------------------
 GEN=""
 for f in "$REPO_ROOT"/*/install.sh; do
     case "$f" in */inner/*) continue ;; esac
@@ -60,21 +29,15 @@ for m in helpers sha256 install-minisign-common install-minisign-linux install-m
     grep -q "^# END $m\$" "$W/block.sh" || die "could not extract the $m block (markers missing or renamed)"
 done
 grep -q '^# END require-minisign$' "$W/require.sh" || die "could not extract the require-minisign block"
-# The pins must be single-line assignments, or the substitutions below miss.
 for v in MINISIGN_VERSION MINISIGN_LINUX_SHA256 MINISIGN_MACOS_SHA256 MINISIGN_KNOWN_PATHS; do
     [ "$(grep -c "^$v=" "$W/block.sh")" = 1 ] || die "expected exactly one '$v=' line in the extracted block"
 done
-# Read the pinned version from the same extracted block the fixtures below have
-# to match — a pin bump never has to touch this suite.
 MV="$(sed -n 's/^MINISIGN_VERSION="\(.*\)"$/\1/p' "$W/block.sh")"
 [ -n "$MV" ] || die "could not read MINISIGN_VERSION from the extracted block"
 sed -i.orig "s|^MINISIGN_KNOWN_PATHS=.*|MINISIGN_KNOWN_PATHS=\"$W/nowhere/minisign\"|" "$W/block.sh"
 rm -f "$W/block.sh.orig"
 printf '  OK\n'
 
-# ---- a PATH that holds only what the blocks need --------------------------
-# Neither this Mac's /opt/homebrew/bin nor the container's /usr/bin may leak a
-# real minisign, brew, sudo or apt-get into a case.
 mkdir -p "$W/sys" "$W/bin"
 for t in sh mkdir install curl tar unzip rm basename dirname awk sed shasum sha256sum cat gzip chmod; do
     p="$(command -v "$t" 2>/dev/null || true)"
@@ -84,9 +47,7 @@ done
 [ -x "$W/sys/tar" ] || die "tar not found"
 SYSPATH="$W/bin:$W/sys"
 
-# stub_id <uid>  — `id -u` answers <uid>
 stub_id() { printf '#!/bin/sh\n[ "$1" = -u ] && { echo %s; exit 0; }\nexec /usr/bin/id "$@"\n' "$1" > "$W/bin/id"; chmod +x "$W/bin/id"; }
-# stub_sudo — `sudo -n …` fails (no cached credential); anything else is a PROMPT, recorded
 stub_sudo() {
     cat > "$W/bin/sudo" <<'STUB'
 #!/bin/sh
@@ -95,7 +56,6 @@ echo "SUDO PROMPT: $*" >> "$LOG"; exit 1
 STUB
     chmod +x "$W/bin/sudo"
 }
-# stub_apt <installs:0|1> — records every call; with 1, drops a fake minisign on PATH
 stub_apt() {
     cat > "$W/bin/apt-get" <<STUB
 #!/bin/sh
@@ -105,18 +65,13 @@ exit 0
 STUB
     chmod +x "$W/bin/apt-get"
 }
-# also resets SKIP_PM / KEEP_PREFIX / CASE_MINISIGN: in dash, `SKIP_PM=1 run …`
-# leaves the variable set after the call
 clear_stubs() { rm -f "$W/bin/id" "$W/bin/sudo" "$W/bin/apt-get" "$W/bin/minisign" "$W/bin/brew"; SKIP_PM=""; KEEP_PREFIX=""; CASE_MINISIGN=""; }
 
-# ---- fixtures: a fake static minisign inside the upstream archive layouts ---
-# fake_minisign <path> <verify-rc>  — `-v` prints a version; `-V*` exits <rc>
 fake_minisign() {
     mkdir -p "$(dirname "$1")"
     printf '#!/bin/sh\ncase "$1" in -v) echo "minisign '"$MV"' (fixture)" ;; -V*) exit %s ;; esac\n' "$2" > "$1"
     chmod +x "$1"
 }
-# linux_fixture <serve-dir> <verify-rc> — builds minisign-$MV-linux.tar.gz (+ .minisig) and prints its sha256
 linux_fixture() {
     _lf="$W/lf.$$"; rm -rf "$_lf"; mkdir -p "$_lf" "$1"
     fake_minisign "$_lf/minisign-linux/x86_64/minisign" "$2"
@@ -125,7 +80,6 @@ linux_fixture() {
     printf 'untrusted comment: fixture\nsig\ntrusted comment: fixture\nsig\n' > "$1/minisign-$MV-linux.tar.gz.minisig"
     sha_of "$1/minisign-$MV-linux.tar.gz"
 }
-# macos_fixture <serve-dir> <verify-rc> — builds minisign-$MV-macos.zip (+ .minisig) and prints its sha256
 macos_fixture() {
     _mf="$W/mf.$$"; rm -rf "$_mf"; mkdir -p "$_mf" "$1"
     fake_minisign "$_mf/minisign" "$2"
@@ -133,13 +87,8 @@ macos_fixture() {
     printf 'untrusted comment: fixture\nsig\ntrusted comment: fixture\nsig\n' > "$1/minisign-$MV-macos.zip.minisig"
     sha_of "$1/minisign-$MV-macos.zip"
 }
-# pin <block-copy> <VAR> <sha> — substitute a pin in a COPY of the block
 pin() { sed -i.bak "s|^$2=.*|$2=\"$3\"|" "$1"; rm -f "$1.bak"; }
 
-# ---- driver -----------------------------------------------------------------
-# Runs the block (and, with WITH_REQUIRE=1, the require block) in a child sh so
-# `fail` exits the child, not this script. Prints the block's output, then a
-# final MINISIGN=<value> line.
 cat > "$W/run.sh" <<'RUNNER'
 #!/bin/sh
 set -eu
@@ -152,7 +101,6 @@ mkdir -p "$TMP"
 printf 'MINISIGN=%s\n' "${MINISIGN:-}"
 RUNNER
 
-# run <block> <os> <arch> <serve-dir> [WITH_REQUIRE=1] — fresh PREFIX/TMP per call
 run() {
     [ -n "${KEEP_PREFIX:-}" ] || rm -rf "$W/prefix"
     rm -rf "$W/tmp"; mkdir -p "$W/prefix" "$W/tmp"
@@ -164,7 +112,6 @@ run() {
 }
 has() { case "$1" in *"$2"*) return 0 ;; esac; return 1; }
 
-# ============================================================================
 say "CASE PRESENT: minisign already on PATH -> nothing fetched, nothing written"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
 printf '#!/bin/sh\necho minisign '"$MV"' (present)\n' > "$W/bin/minisign"; chmod +x "$W/bin/minisign"
@@ -180,11 +127,8 @@ $out"
 has "$out" "MINISIGN=minisign" || die "PRESENT+require: expected MINISIGN=minisign (PATH lookup): $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE PRESEED: a pre-seeded \$MINISIGN in the environment is discarded, not trusted"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
-# the unmodified block carries the REAL pin; "$W/serve-empty" holds no fixture
-# that could match it, so nothing installs here either — same stubs as PIN-MISMATCH
 mkdir -p "$W/serve-empty"
 if out="$(CASE_MINISIGN=/bin/echo run "$W/block.sh" linux amd64 "$W/serve-empty" 1)"; then
     die "PRESEED: the trust gate ACCEPTED a pre-seeded \$MINISIGN with nothing verified:
@@ -193,7 +137,6 @@ fi
 has "$out" "could not be provided" || die "PRESEED: expected the refusal: $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE USER-HAPPY: non-root, no passwordless sudo -> no package manager, pinned fixture installs"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo; stub_apt 0
 S="$W/serve-good"; rm -rf "$S"; sha="$(linux_fixture "$S" 0)"
@@ -210,13 +153,11 @@ has "$out" "pinned upstream build)" || die "USER-HAPPY: expected the ok line: $o
 v="$("$W/prefix/bin/minisign" -v)"; has "$v" "fixture" || die "USER-HAPPY: installed binary is not the fixture: $v"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE DEST-PRESENT: minisign already at PREFIX/bin but not on PATH -> nothing fetched, not overwritten, require resolves to it"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
 rm -rf "$W/prefix"; mkdir -p "$W/prefix/bin"
 printf '#!/bin/sh\necho minisign '"$MV"' (operator copy)\n' > "$W/prefix/bin/minisign"; chmod +x "$W/prefix/bin/minisign"
 before="$(sha_of "$W/prefix/bin/minisign")"
-# block-good.sh + the good fixture: if the guard failed, this WOULD install over the copy
 out="$(KEEP_PREFIX=1 run "$W/block-good.sh" linux arm64 "$S" 1)" || die "DEST-PRESENT: refused:
 $out"
 has "$out" "minisign:" && die "DEST-PRESENT: the block spoke although a minisign is at PREFIX/bin:
@@ -225,7 +166,6 @@ $out"
 has "$out" "MINISIGN=$W/prefix/bin/minisign" || die "DEST-PRESENT: require should resolve to PREFIX/bin/minisign: $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE DEST-UNWRITABLE: PREFIX/bin exists but cannot be written -> the write failure is reported, not swallowed"
 if [ "$(/usr/bin/id -u)" = 0 ]; then
     printf '  SKIPPED (running as root)\n'
@@ -239,10 +179,8 @@ else
     printf '  OK\n'
 fi
 
-# ============================================================================
 say "CASE PIN-MISMATCH: fixture bytes != pinned sha256 -> nothing installed, require refuses"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
-# the unmodified block carries the REAL pin; the fixture cannot match it
 out="$(run "$W/block.sh" linux amd64 "$S")" || die "PIN-MISMATCH: block (without require) must not exit non-zero:
 $out"
 has "$out" "does not match the pinned sha256" || die "PIN-MISMATCH: expected the discard line: $out"
@@ -256,10 +194,8 @@ has "$out" "could not be provided" || die "PIN-MISMATCH+require: wrong refusal: 
 has "$out" "_GH_PROXY" || die "PIN-MISMATCH+require: the Linux hint should name the mirror env: $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE MUTATION: with the pin comparison removed, PIN-MISMATCH would install"
 cp "$W/block.sh" "$W/block-mut.sh"
-# the comparison line, in the shipped block:  [ "$_mf_got" = "$_mf_want" ] && return 0
 sed -i.bak 's|^\([[:space:]]*\)\[ "\$_mf_got" = "\$_mf_want" \] && return 0$|\1return 0|' "$W/block-mut.sh"; rm -f "$W/block-mut.sh.bak"
 cmp -s "$W/block.sh" "$W/block-mut.sh" && die "MUTATION: the pin comparison line was not found — the mutation did not apply (has the module changed shape?)"
 out="$(run "$W/block-mut.sh" linux amd64 "$S")" || true
@@ -267,7 +203,6 @@ out="$(run "$W/block-mut.sh" linux amd64 "$S")" || true
 $out"
 printf '  OK (the case can fail)\n'
 
-# ============================================================================
 say "CASE SEAL-FAILS: archive matches the pin, its .minisig does not verify -> binary removed"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
 S2="$W/serve-badsig"; rm -rf "$S2"; sha="$(linux_fixture "$S2" 1)"
@@ -279,7 +214,6 @@ has "$out" "did not verify — removing" || die "SEAL-FAILS: expected the remova
 has "$out" "MINISIGN=/" && die "SEAL-FAILS: MINISIGN set after a failed seal: $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE ROOT-PM: root + a package manager that installs -> no fetch"
 clear_stubs; rm -f "$W/log"; stub_id 0; stub_apt 1
 out="$(run "$W/block-good.sh" linux arm64 "$S")" || die "ROOT-PM: block exited non-zero:
@@ -299,7 +233,6 @@ $out"
 $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE DARWIN arm64: no brew -> pinned fixture zip installs"
 clear_stubs; rm -f "$W/log"; stub_id 501
 if command -v zip >/dev/null 2>&1 && [ -x "$W/sys/unzip" ]; then
@@ -325,7 +258,6 @@ has "$out" "no Intel build" || die "DARWIN amd64: expected the Intel gap line: $
 has "$out" "brew install minisign" || die "DARWIN amd64: the refusal should carry the brew recipe: $out"
 printf '  OK\n'
 
-# ============================================================================
 say "CASE REAL: the pinned $MV archive for this host (network; SKIPPED if unreachable)"
 clear_stubs; rm -f "$W/log"; stub_id 1000; stub_sudo
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/release-tests/minisign-$MV"
@@ -338,9 +270,6 @@ esac
 if [ -z "$ros" ]; then
     printf '  SKIPPED (no upstream build for %s/%s)\n' "$(uname -s)" "$(uname -m)"
 else
-    # The pin the shipped block carries for THIS host's archive — read from the
-    # unmodified extracted copy, so a stale or truncated cache file is rejected
-    # by the same value the bootstrap enforces, and refetched.
     case "$asset" in
         *linux*) want="$(sed -n 's/^MINISIGN_LINUX_SHA256="\(.*\)"$/\1/p' "$W/block.sh")" ;;
         *)       want="$(sed -n 's/^MINISIGN_MACOS_SHA256="\(.*\)"$/\1/p' "$W/block.sh")" ;;

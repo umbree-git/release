@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# tools/channel-pick.test.sh — the beta channel's "newest of beta-or-stable"
-# decision (burrowee's docs/specs/2026-08-28-beta-cycle-release-flow-design.md
-# §3; the shared beta guideline §6). Copied from burrowee-git/release branch
-# beta-channel-graduation (unmerged as of 2026-09-05) with umbree/ tags.
-#
-# Sources the REAL semver_of/is_semver/version_ge out of bootstrap.template.sh
-# rather than restating them, so this tests the composition that ships. If the
-# template's comparator changes shape, this test stops sourcing and fails loudly.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fail_count=0
@@ -18,8 +10,6 @@ trap 'rm -f "$HELPERS" "$MOD" "$TAGS"' EXIT INT TERM
 for fn in semver_of is_semver version_ge; do
     sed -n "/^${fn}() {/,/^}/p" "$TPL" >> "$HELPERS"
 done
-# Refuse to run against a template that no longer defines them, rather than
-# silently testing nothing.
 for fn in semver_of is_semver version_ge; do
     grep -q "^${fn}() {" "$HELPERS" || { echo "FAIL: ${fn} not found in bootstrap.template.sh"; exit 1; }
 done
@@ -58,10 +48,7 @@ check "beta winner by shape"   "$(latest_tag_matching "$BETA_RE" "$TAGS")"   "um
 check "stable winner by shape" "$(latest_tag_matching "$STABLE_RE" "$TAGS")" "umbree/v0.3.10.2026.09.05.cafebabe"
 check "no match is empty"      "$(latest_tag_matching "^nothing/" "$TAGS")"    ""
 
-# The catalog answers per channel, so graduating needs its stable answer too.
-# Shape-checking is what keeps a channel from leaking; assert the stable answer
-# is held to STABLE_TAG_RE and the beta answer to TAG_RE, never interchanged.
-catalog_pick() { # <beta_answer> <stable_answer> — mirrors version-resolve's logic
+catalog_pick() {
     _cb="$1"; _cs="$2"
     printf '%s\n' "$_cb" | grep -Eq "$BETA_RE"   || _cb=""
     printf '%s\n' "$_cs" | grep -Eq "$STABLE_RE" || _cs=""

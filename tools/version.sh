@@ -1,41 +1,46 @@
 #!/usr/bin/env bash
-# version.sh — per-component version + deploy stamp for the Umbree release repo.
-#
-# Each component (umbree|umbreed) has its own one-line MAJOR.MINOR.PATCH file
-# under versions/<comp> — the single source of truth for that component's semver
-# segment. This composes the full stamp used in ldflags, git tags, and marker
-# commits:
-#
-#   v<X.Y.Z>.<YYYY>.<MM>.<DD>.<sha8>
-#
-# where <sha8> = the HEAD short hash of the COMPONENT SOURCE worktree
-# (pass its path via SRC_DIR), and the date is today (UTC).
-#
-# A second channel, beta, tracks its own semver in versions/<comp>.beta —
-# that file's PRESENCE is the open-beta-cycle marker (beta.md §1) — and its
-# stamp carries an extra .beta. segment between the semver and the date:
-#
-#   v<X.Y.Z>.beta.<YYYY>.<MM>.<DD>.<sha8>
-#
-# so a whole-string `sort -V` still orders by semver first, and one anchored
-# regex tells the two channels apart. (Copied from burrowee-git/release
-# tools/version.sh; --seed is umbree's.)
-#
-# Usage:
-#   tools/version.sh <comp> [--channel stable|beta] --semver       # just X.Y.Z
-#   tools/version.sh <comp> [--channel stable|beta] --stamp        # full stamp (needs SRC_DIR)
-#   tools/version.sh <comp> [--channel stable|beta] --bump-patch   # X.Y.(Z+1)  + git add versions/<comp>[.beta]
-#   tools/version.sh <comp> [--channel stable|beta] --bump-minor   # X.(Y+1).0  + git add versions/<comp>[.beta] (gated)
-#   tools/version.sh <comp> [--channel stable|beta] --bump-major   # (X+1).0.0  + git add versions/<comp>[.beta] (gated)
-#   tools/version.sh <comp> --channel beta --seed
-#                       # OPEN a cycle: write versions/<comp>.beta = <stable-major>.<stable-minor+1>.0
-#                       # (0.1.8 → 0.2.0). Refuses (exit 1) while the file exists — a cycle is
-#                       # open; close it (remove the file) first. Operator step, never run by a cut.
-#   tools/version.sh <comp> --channel beta --assert-beta-above-stable
-#                       # refuses (exit 1) unless versions/<comp>.beta > versions/<comp>
-#
-# --channel defaults to stable. Minor/major prompt unless UMBREE_RELEASE_YES=1
-# (or non-TTY → refuse).
+usage() {
+  cat <<'USAGE_EOF'
+version.sh — per-component version + deploy stamp for the Umbree release repo.
+
+Each component (umbree|umbreed) has its own one-line MAJOR.MINOR.PATCH file
+under versions/<comp> — the single source of truth for that component's semver
+segment. This composes the full stamp used in ldflags, git tags, and marker
+commits:
+
+  v<X.Y.Z>.<YYYY>.<MM>.<DD>.<sha8>
+
+where <sha8> = the HEAD short hash of the COMPONENT SOURCE worktree
+(pass its path via SRC_DIR), and the date is today (UTC).
+
+A second channel, beta, tracks its own semver in versions/<comp>.beta —
+that file's PRESENCE is the open-beta-cycle marker (beta.md §1) — and its
+stamp carries an extra .beta. segment between the semver and the date:
+
+  v<X.Y.Z>.beta.<YYYY>.<MM>.<DD>.<sha8>
+
+so a whole-string `sort -V` still orders by semver first, and one anchored
+regex tells the two channels apart. (Copied from burrowee-git/release
+tools/version.sh; --seed is umbree's.)
+
+Usage:
+  tools/version.sh <comp> [--channel stable|beta] --semver       # just X.Y.Z
+  tools/version.sh <comp> [--channel stable|beta] --stamp        # full stamp (needs SRC_DIR)
+  tools/version.sh <comp> [--channel stable|beta] --bump-patch   # X.Y.(Z+1)  + git add versions/<comp>[.beta]
+  tools/version.sh <comp> [--channel stable|beta] --bump-minor   # X.(Y+1).0  + git add versions/<comp>[.beta] (gated)
+  tools/version.sh <comp> [--channel stable|beta] --bump-major   # (X+1).0.0  + git add versions/<comp>[.beta] (gated)
+  tools/version.sh <comp> --channel beta --seed
+                      # OPEN a cycle: write versions/<comp>.beta = <stable-major>.<stable-minor+1>.0
+                      # (0.1.8 → 0.2.0). Refuses (exit 1) while the file exists — a cycle is
+                      # open; close it (remove the file) first. Operator step, never run by a cut.
+  tools/version.sh <comp> --channel beta --assert-beta-above-stable
+                      # refuses (exit 1) unless versions/<comp>.beta > versions/<comp>
+
+--channel defaults to stable. Minor/major prompt unless UMBREE_RELEASE_YES=1
+(or non-TTY → refuse).
+USAGE_EOF
+}
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,10 +65,6 @@ VERSION_FILE="${REPO_ROOT}/versions/${COMP}"
 [ "${CHANNEL}" = beta ] && VERSION_FILE="${REPO_ROOT}/versions/${COMP}.beta"
 VERSION_REL="${VERSION_FILE#"${REPO_ROOT}"/}"
 
-# require_version_file — every action except --seed reads VERSION_FILE, so
-# its absence is that action's failure; --seed is the one action that CREATES
-# it, so the guard is a function each action calls rather than a top-level
-# check that would refuse the seed too.
 require_version_file() {
     [ -f "${VERSION_FILE}" ] || {
         if [ "${CHANNEL}" = beta ]; then
@@ -75,13 +76,12 @@ require_version_file() {
     }
 }
 
-read_semver_file() { # <file> <rel> — the X.Y.Z in <file>, refused unless well-formed
+read_semver_file() {
     local raw; raw="$(tr -d '\r\n[:space:]' < "$1")"
     [[ "${raw}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "✗ $2 '${raw}' not MAJOR.MINOR.PATCH" >&2; exit 1; }
     printf '%s' "${raw}"
 }
 read_semver() { require_version_file; read_semver_file "${VERSION_FILE}" "${VERSION_REL}"; }
-# Side-effect: stages versions/<comp>[.beta] so the caller (rkit build / release.sh) can commit/revert it as one unit.
 write_semver() { printf '%s\n' "$1" > "${VERSION_FILE}"; ( cd "${REPO_ROOT}" && git add "${VERSION_REL}" ); }
 
 src_sha() {
@@ -116,10 +116,6 @@ bump() {
     write_semver "${new}"; printf '%s\n' "${new}"
 }
 
-# seed — open a beta cycle: versions/<comp>.beta = stable minor + 1, patch 0
-# (beta.md §8: every participating component is seeded at the same X.Y.0).
-# Reads ONLY versions/<comp>: the release repo is the version authority; an
-# embedded floor in a component tree (daemon/VERSION) does not participate.
 seed() {
     [ "${CHANNEL}" = beta ] || { echo "✗ --seed needs --channel beta" >&2; exit 2; }
     if [ -e "${VERSION_FILE}" ]; then
@@ -154,9 +150,7 @@ case "${2:-}" in
     --bump-major)  bump major ;;
     --seed)        seed ;;
     --assert-beta-above-stable) assert_beta_above_stable ;;
-    # Print the whole header comment (line 2 → the first non-# line), so added
-    # doc lines are never silently truncated by a hardcoded range.
-    -h|--help)     awk 'NR==1{next} !/^#/{exit} {sub(/^# ?/,""); print}' "$0" ;;
+    -h|--help)     usage ;;
     "")            echo "✗ usage: version.sh ${COMP} [--channel stable|beta] <--semver|--stamp|--bump-patch|--bump-minor|--bump-major|--seed|--assert-beta-above-stable>" >&2; exit 2 ;;
     *)             echo "✗ unknown action: ${2}" >&2; exit 2 ;;
 esac

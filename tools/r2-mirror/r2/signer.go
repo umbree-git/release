@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// signV4 adds AWS Signature Version 4 auth headers to req (S3-compatible).
-// now is injected so the signature is deterministic under test.
 func signV4(req *http.Request, accessKey, secret, region, service string, body []byte, now time.Time) {
 	now = now.UTC()
 	date := now.Format("20060102")

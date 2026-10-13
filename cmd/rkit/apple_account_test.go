@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// writeAppleConfig creates repoDir/config/<name> holding body.
 func writeAppleConfig(t *testing.T, repoDir, name, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(repoDir, "config"), 0o755); err != nil {
@@ -18,7 +17,6 @@ func writeAppleConfig(t *testing.T, repoDir, name, body string) {
 	}
 }
 
-// clearAppleEnv unsets every variable the resolution reads, restoring after.
 func clearAppleEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"APPLE_ACCOUNT", "APPLE_ACCOUNT_DIR", "APPLE_HOME", "HOME"} {
@@ -27,7 +25,6 @@ func clearAppleEnv(t *testing.T) {
 	}
 }
 
-// appleHome makes a plugin root holding one folder per account name.
 func appleHome(t *testing.T, accounts ...string) string {
 	t.Helper()
 	home := t.TempDir()
@@ -39,9 +36,6 @@ func appleHome(t *testing.T, accounts ...string) string {
 	return home
 }
 
-// TestLoadAppleAccountResolvesFromConfig is the happy path: both values come
-// from the repo's own config, so a cut needs nothing exported, and every
-// variable the signer reads is set.
 func TestLoadAppleAccountResolvesFromConfig(t *testing.T) {
 	clearAppleEnv(t)
 	repo := t.TempDir()
@@ -63,9 +57,6 @@ func TestLoadAppleAccountResolvesFromConfig(t *testing.T) {
 	}
 }
 
-// TestLoadAppleAccountEnvBeatsConfig: an operator cutting under a second
-// account, or against a second plugin root, exports the variable — and that
-// must win over the repo's file for BOTH values.
 func TestLoadAppleAccountEnvBeatsConfig(t *testing.T) {
 	clearAppleEnv(t)
 	repo := t.TempDir()
@@ -86,12 +77,9 @@ func TestLoadAppleAccountEnvBeatsConfig(t *testing.T) {
 	}
 }
 
-// TestLoadAppleAccountDirSettlesBoth: APPLE_ACCOUNT_DIR names the plugin folder
-// itself, so neither config file is consulted — but a stale one pointing at a
-// folder that no longer exists must abort rather than fail later in the signer.
 func TestLoadAppleAccountDirSettlesBoth(t *testing.T) {
 	clearAppleEnv(t)
-	repo := t.TempDir() // deliberately no config files at all
+	repo := t.TempDir()
 	dir := filepath.Join(appleHome(t, "AcmeCorp"), "AcmeCorp")
 	t.Setenv("APPLE_ACCOUNT_DIR", dir)
 
@@ -105,14 +93,11 @@ func TestLoadAppleAccountDirSettlesBoth(t *testing.T) {
 	}
 }
 
-// TestLoadAppleAccountFailsClosed covers every mode that used to return
-// silently, leaving the Developer-ID path running with no account plugin — an
-// ad-hoc signed build the operator believes is Developer-ID signed.
 func TestLoadAppleAccountFailsClosed(t *testing.T) {
 	cases := []struct {
 		name        string
-		account     string // "" = write no config/apple-account
-		appleHomeIn string // "" = no config/apple-home; "SET" = a real one; else literal
+		account     string
+		appleHomeIn string
 		wantErrSub  string
 	}{
 		{
@@ -169,26 +154,22 @@ func TestLoadAppleAccountFailsClosed(t *testing.T) {
 	}
 }
 
-// TestAppleErrorsNameTheFix: every failure has to be self-sufficient. An
-// operator reading only the error should learn what was requested, why it
-// refused, and each of the three ways to supply the missing value — otherwise
-// the message costs a runbook lookup at exactly the wrong moment.
 func TestAppleErrorsNameTheFix(t *testing.T) {
 	clearAppleEnv(t)
 	repo := t.TempDir()
-	writeAppleConfig(t, repo, "apple-account", "AcmeCorp\n") // account fine, home missing
+	writeAppleConfig(t, repo, "apple-account", "AcmeCorp\n")
 
 	err := loadAppleAccount(repo)
 	if err == nil {
 		t.Fatal("want an error when APPLE_HOME is unresolved")
 	}
 	for _, want := range []string{
-		"--apple/--public",             // what was requested
-		"AD-HOC",                       // what refusing protects
-		"config/apple-home",            // the file to create
-		"$APPLE_HOME",                  // the variable to export
-		"$APPLE_ACCOUNT_DIR",           // the way that settles both
-		"one folder per Apple account", // what the value holds
+		"--apple/--public",
+		"AD-HOC",
+		"config/apple-home",
+		"$APPLE_HOME",
+		"$APPLE_ACCOUNT_DIR",
+		"one folder per Apple account",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error is missing %q — it must stand alone in a build log.\ngot: %v", want, err)
@@ -196,9 +177,6 @@ func TestAppleErrorsNameTheFix(t *testing.T) {
 	}
 }
 
-// TestLoadAppleAccountCarriesNoOperatorLayout: this repo is PUBLIC. No
-// operator's personal directory tree may be baked into its source as a default.
-// Scans every non-test source file so the guard survives the code moving files.
 func TestLoadAppleAccountCarriesNoOperatorLayout(t *testing.T) {
 	sources, err := filepath.Glob("*.go")
 	if err != nil {

@@ -1,25 +1,4 @@
 #!/bin/sh
-# tools/test-modules.sh — the module gates.
-#
-# (1) LOCK      — every module's recorded sha256 matches its bytes, and every
-#                 module on disk is listed. An edit without a version bump is
-#                 what makes "which copy is newer" unanswerable across products.
-# (2) DEPS      — every `# needs:` dependency is included EARLIER in each
-#                 generated bootstrap that includes the dependent module. An
-#                 undeclared order bug surfaces on an operator's machine as
-#                 "command not found", after the download and before the gate.
-#                 Also: any module (other than helpers itself) that CALLS
-#                 fail/info/ok must declare `# needs: helpers` even if no
-#                 bootstrap yet exposes the gap — the DEPS ordering check above
-#                 only believes what a module declares about itself, so an
-#                 under-declared dependency passes it clean today and dies on
-#                 an operator's machine the day some other template composition
-#                 splices this module without helpers ahead of it.
-# (3) INCLUDED  — every module in MODULES.lock is @INCLUDEd by some generated
-#                 bootstrap, or is recorded in MODULES.exclude as one this
-#                 product deliberately does not carry. A locked-but-unused
-#                 module syncs clean forever for code that does not ship.
-# (4) GENERATOR — regenerating leaves every committed bootstrap byte-identical.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -54,23 +33,8 @@ for f in "$MODDIR"/*.sh; do
 done
 printf '  OK\n'
 
-# The generator's OWN generated locations, anchored explicitly — NOT a git
-# pathspec glob. tools/gen-bootstraps.sh writes exactly one <comp>/install.sh
-# per component in internal/relconfig.Components, and only one mode (install
-# — no upgrade.sh, no updater, no preflight). Derived from rkit rather than
-# hardcoded here, same as gen-bootstraps.sh itself: a second literal list is
-# the drift this whole task exists to remove, and it would silently stop
-# covering a component's bootstrap in the GENERATOR staleness check below.
-# NOT built via a pipeline (`go run ... | sed ...`) — under plain `sh -eu` a
-# pipeline's left-hand failure is invisible (see the GENERATOR-FAILS-CLOSED
-# case lower in this file for the same gotcha), so a broken `go run` here
-# would silently yield an empty or partial list instead of aborting.
-# Shared by the DEPS loop and the GENERATOR diff below.
 COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || die "could not read the component list from rkit"
 [ -n "$COMPONENTS" ] || die "rkit returned no components"
-# The beta twin <comp>/beta.install.sh exists only while a beta cycle is open
-# AND cut (versions/<comp>.beta.stamp present — tools/gen-bootstraps.sh) and
-# is swept otherwise, so it joins the generated set on exactly that condition.
 GENERATED_REL=""
 for c in $COMPONENTS; do
     GENERATED_REL="$GENERATED_REL $c/install.sh"
@@ -98,15 +62,6 @@ done
 printf '  OK\n'
 
 printf '\n=== DEPS: modules calling fail/info/ok declare needs: helpers ===\n'
-# A module's own `# needs:` line is the only thing the ordering check above
-# trusts — it never looks at what the module's BODY actually calls. Catch the
-# mismatch directly: search each module (other than helpers itself) for an
-# invocation — not merely the word — of fail/info/ok, and require `helpers` in
-# its needs line if found. The pattern requires a non-identifier character (or
-# start of line) before the name and the start of a quoted/variable argument
-# right after it, so `check_ok(`, a comment mentioning "ok", or the word "ok"
-# inside a message string do not trip it — only an actual `fail "..."` /
-# `info "..."` / `ok "..."`-shaped call does.
 for f in "$MODDIR"/*.sh; do
     n="$(basename "$f" .sh)"
     [ "$n" = "helpers" ] && continue
@@ -128,15 +83,6 @@ done
 printf '  OK\n'
 
 printf '\n=== INCLUDED: every locked module is spliced into some generated bootstrap ===\n'
-# A module locked here but @INCLUDEd by nothing does not ship, and every other
-# gate is content: LOCK matches its bytes, DEPS never looks at it, and the
-# GENERATOR diff is clean because regenerating cannot change a file the module
-# was never in. tools/sync-modules.sh then reports it "v1 == v1  ok". Upstream
-# fixes a real defect in that module and bumps to v2, an operator here takes the
-# "v1 -> v2 UPDATED" copy, all the gates pass — and the shipped bootstrap is
-# byte-for-byte the old one, bug and all. The only two honest states are
-# "included somewhere" and "recorded in MODULES.exclude as deliberately not
-# carried", so require one of them.
 EXCLUDE="$MODDIR/MODULES.exclude"
 [ -f "$EXCLUDE" ] || die "missing $EXCLUDE — the record of which modules this product deliberately does not carry"
 included=""
@@ -156,9 +102,6 @@ while read -r name version want; do
     Splice it into a template, or record it in $EXCLUDE with the reason." ;;
     esac
 done < "$LOCK"
-# And the other direction: a row claiming a module is not carried, for one that
-# demonstrably is. Left uncaught, the row would silence sync-modules.sh about a
-# module this product really does ship.
 for name in $excluded; do
     case " $included " in
         *" $name "*) die "$EXCLUDE says '$name' is not carried, but a generated bootstrap @INCLUDEs it" ;;
@@ -167,12 +110,6 @@ done
 printf '  OK\n'
 
 printf '\n=== GENERATOR-FAILS-CLOSED: a missing module aborts before any destination file is written ===\n'
-# Regression cover for the bug where expand_includes ran on the LEFT of a
-# pipeline: `set -eu` cannot see a pipeline's left-hand exit status, so a
-# missing module made awk print to stderr and exit 1 while the pipeline's sed
-# stage still ran to completion on the truncated input, wrote a decapitated
-# bootstrap, and gen-bootstraps.sh exited 0. Proven here against a throwaway
-# scratch tree (never the real repo) so it fires on every run, not just once.
 SCRATCH="$(mktemp -d)"
 mkdir -p "$SCRATCH/tools" "$SCRATCH/bin"
 cp "$ROOT/tools/gen-bootstraps.sh" "$SCRATCH/tools/gen-bootstraps.sh"
@@ -181,15 +118,6 @@ cp "$ROOT/tools/gen-bootstraps.sh" "$SCRATCH/tools/gen-bootstraps.sh"
     echo '@INCLUDE:does-not-exist@'
     echo 'echo hi'
 } > "$SCRATCH/tools/bootstrap.template.sh"
-# Stub `go` on PATH: gen-bootstraps.sh's only use of `go` is
-# `go run ./cmd/rkit components`, and the scratch tree deliberately has no
-# go.mod/cmd/rkit. Left unstubbed, a REAL `go` aborts there with "go.mod file
-# not found" before gen-bootstraps.sh ever reaches expand_includes — the exact
-# code path this check exists to exercise — so the check below passed
-# vacuously (both assertions satisfied by the go failure, never by the
-# reintroduced pipeline bug) until this stub was added. Answering with one
-# real component name lets the run reach expand_includes and the pipeline bug
-# it's testing for.
 cat > "$SCRATCH/bin/go" <<'STUBGO'
 #!/bin/sh
 if [ "$1" = run ] && [ "$3" = components ]; then

@@ -10,14 +10,6 @@ import (
 	"time"
 )
 
-// TestStamp proves Stamp() wraps version.Stamp with DateVersionScheme,
-// producing "v<semver>.<dateUTC>.<sha8>" over a throwaway git repo.
-//
-// Unlike clawee's release repo, umbree's has no tools/version.sh oracle to
-// shell out to (release-kit's `rkit build` is the only builder here — see
-// the repo README); Task 4 adds tools/version.sh for the *distribute-only*
-// path, not the stamp computation itself. So this asserts the stamp's shape
-// directly instead of diffing against a shell script.
 func TestStamp(t *testing.T) {
 	src := t.TempDir()
 	git := func(args ...string) {
@@ -60,9 +52,6 @@ func TestStampMissingSemverFile(t *testing.T) {
 	}
 }
 
-// TestStampFor pins the two channel stamps: beta carries the dotted ".beta."
-// infix between semver and date, stable is exactly Stamp(), and an unknown
-// channel is an error rather than a guessed shape.
 func TestStampFor(t *testing.T) {
 	src := t.TempDir()
 	git := func(args ...string) {
@@ -109,8 +98,6 @@ func TestStampFor(t *testing.T) {
 		t.Fatal("unknown channel accepted")
 	}
 
-	// Byte parity with the shell: tools/version.sh --channel beta --stamp
-	// over the same files must equal StampFor (relconfig's contract).
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "tools"), 0o755); err != nil {
 		t.Fatal(err)

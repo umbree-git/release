@@ -13,12 +13,6 @@ import (
 	"github.com/burrowee-git/release-kit/pack"
 )
 
-// stageMigrations lists <srcDir>/install/migrations/ as zip contents under
-// migrations/<name>: every *.sh plus ledger and component.conf — the layout
-// burrowee's tools/payload.sh stages and the shared runner expects. A missing
-// directory stages NOTHING and is not an error: that is what lets this land
-// before the features that add a ladder (02 for umbree, 03 for umbreed).
-// Anything else under install/ (README.md, tail_test.sh) never ships.
 func stageMigrations(srcDir string) ([]pack.Content, error) {
 	dir := filepath.Join(srcDir, "install", "migrations")
 	entries, err := os.ReadDir(dir)
@@ -41,10 +35,6 @@ func stageMigrations(srcDir string) ([]pack.Content, error) {
 	return out, nil
 }
 
-// assemble builds one zip per target: the component bin + install.sh + the
-// migration ladder (migrations/…, when the tree carries one). Zips land at
-// outRoot/stamp/<comp>-<os>-<arch>.zip in sorted-target order. Umbree has no
-// dispatcher and no updater — the built bin is the only binary payload.
 func assemble(comp, stamp, outRoot, installSh string, migrations []pack.Content, compArts []build.Artifact) ([]string, error) {
 	byTarget := map[string][]pack.Content{}
 	for _, a := range compArts {

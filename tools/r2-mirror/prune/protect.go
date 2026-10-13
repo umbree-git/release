@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// Protected reports whether stamp is pinned against retention: listed either
-// as the bare stamp or as <comp>/<stamp>. Permanent pins are kept IN ADDITION
-// to the newest keep-N.
 func Protected(protect map[string]struct{}, comp, stamp string) bool {
 	if len(protect) == 0 {
 		return false
@@ -24,8 +21,6 @@ func Protected(protect map[string]struct{}, comp, stamp string) bool {
 	return false
 }
 
-// ParseProtect reads a retain-permanent file: one tag or stamp per line,
-// `#` comments and blank lines ignored.
 func ParseProtect(r io.Reader) map[string]struct{} {
 	out := make(map[string]struct{})
 	sc := bufio.NewScanner(r)
@@ -39,7 +34,6 @@ func ParseProtect(r io.Reader) map[string]struct{} {
 	return out
 }
 
-// LoadProtectFile reads path. A missing file is an empty set, not an error.
 func LoadProtectFile(path string) (map[string]struct{}, error) {
 	f, err := os.Open(path)
 	if err != nil {

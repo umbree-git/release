@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# gen-version-jsonp.test.sh — the beta twin of version.js: beta.version.js is
-# rendered ONLY while versions/<comp>.beta.stamp exists (from the beta catalog,
-# with the local beta files as the offline fallback), is removed when it goes,
-# and a stable run never writes or removes it. Runs against a scratch copy;
-# curl is stubbed on PATH so no network is reached.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fail=0
@@ -13,7 +8,6 @@ check_contains() { case "$2" in *"$3"*) echo "ok: $1";; *) echo "FAIL: $1 — mi
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/repo/tools" "$W/repo/versions" "$W/bin"
 cp "$HERE/gen-version-jsonp.sh" "$W/repo/tools/"
-# curl stub: answers the beta catalog with a fixed manifest, 404s everything else.
 cat > "$W/bin/curl" <<'EOF'
 #!/bin/sh
 for a in "$@"; do case "$a" in
