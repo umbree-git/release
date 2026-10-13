@@ -17,9 +17,8 @@ import (
 )
 
 func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
-	// Minimal module fixture: one main package printing a version var.
 	repo := t.TempDir()
-	writeFixtureModule(t, repo) // helper below: go.mod + cmd/umbree/main.go + versions/umbree
+	writeFixtureModule(t, repo)
 	out := t.TempDir()
 	ctx := context.Background()
 	res, err := orchestrate(ctx, Options{
@@ -32,7 +31,6 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 	if res.Stamp == "" {
 		t.Fatal("empty stamp")
 	}
-	// binaries for every target must exist.
 	for _, tgt := range relconfig.Targets() {
 		for _, b := range []string{"umbree"} {
 			p := filepath.Join(out, res.Stamp, tgt.OS+"-"+tgt.Arch, b)
@@ -41,9 +39,6 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 			}
 		}
 	}
-	// one assembled zip per target, containing exactly the umbree bin and
-	// install.sh — nothing else (umbree has no dispatcher, no updater, and
-	// the fixture tree carries no install/migrations/).
 	if len(res.Zips) != len(relconfig.Targets()) {
 		t.Fatalf("got %d zips, want %d: %v", len(res.Zips), len(relconfig.Targets()), res.Zips)
 	}
@@ -92,12 +87,6 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 	}
 }
 
-// writeFixtureModule creates a self-contained module (no external deps) with a
-// trivial main package (a stampable `var version string`), a versions/umbree
-// semver file, a verbatim inner/umbree/install.sh, and the real
-// tools/verify-no-env.sh + tools/version.sh (both location-relative, so a copy
-// works unmodified inside the fixture repo), then commits it so
-// relconfig.Stamp's `git rev-parse` has a HEAD to read.
 func writeFixtureModule(t *testing.T, repo string) {
 	t.Helper()
 	write := func(rel, content string) {
@@ -115,9 +104,6 @@ func writeFixtureModule(t *testing.T, repo string) {
 	write("versions/umbree", "0.1.0\n")
 	write("inner/umbree/install.sh", "#!/bin/sh\necho fixture-install\n")
 
-	// tools/verify-no-env.sh and tools/version.sh both resolve REPO_ROOT from
-	// their own script location (dirname $0), so a verbatim copy works inside
-	// the fixture repo unmodified.
 	copyReal := func(rel string) {
 		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
@@ -153,10 +139,6 @@ func writeFixtureModule(t *testing.T, repo string) {
 	git("commit", "-q", "-m", "fixture")
 }
 
-// testMinisignKey generates a password-less minisign secret key in a temp dir
-// and returns its path. If minisign isn't installed, it returns "" — the
-// os.Stat guard in orchestrate() then skips signing rather than failing the
-// whole test on a missing binary.
 func testMinisignKey(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("minisign"); err != nil {
@@ -172,13 +154,6 @@ func testMinisignKey(t *testing.T) string {
 	return sec
 }
 
-// TestOrchestrateSkipGateBypassesCVEGate proves Options.SkipGate short-circuits
-// the mandatory vulncheck.Gate. To make a real gate call deterministically fail
-// regardless of host state, GOPATH is repointed at an empty dir: govulncheck is
-// installed under the real GOPATH/bin (and is NOT on PATH), so
-// resolveGovulncheck can't find it and Gate returns "govulncheck not found".
-// The fixture module is stdlib-only, so the empty GOPATH doesn't affect the
-// build itself.
 func TestOrchestrateSkipGateBypassesCVEGate(t *testing.T) {
 	t.Setenv("GOPATH", t.TempDir())
 	repo := t.TempDir()
@@ -186,14 +161,12 @@ func TestOrchestrateSkipGateBypassesCVEGate(t *testing.T) {
 	ctx := context.Background()
 	key := testMinisignKey(t)
 
-	// Gate ON (SkipGate zero value): orchestrate must abort at the CVE gate.
 	if _, err := orchestrate(ctx, Options{
 		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, MinisignKey: key,
 	}); err == nil || !strings.Contains(err.Error(), "cve gate") {
 		t.Fatalf("gate ON: want a cve gate error, got %v", err)
 	}
 
-	// Gate SKIPPED: the same build now succeeds past the gate.
 	if _, err := orchestrate(ctx, Options{
 		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, MinisignKey: key, SkipGate: true,
 	}); err != nil {
@@ -201,12 +174,6 @@ func TestOrchestrateSkipGateBypassesCVEGate(t *testing.T) {
 	}
 }
 
-// TestOrchestrateFailsClosedOnMissingExplicitMinisignKey proves that when a
-// NON-EMPTY Options.MinisignKey is supplied but doesn't resolve to a real
-// file, orchestrate returns an error instead of silently skipping the sign
-// step (leaving Result.Minisig empty and reporting success). The
-// o.MinisignKey=="" fixture fallback (testMinisignKey unavailable) must
-// still tolerate a missing key — see TestOrchestrateBuildsMatrixIntoScratch.
 func TestOrchestrateFailsClosedOnMissingExplicitMinisignKey(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
@@ -226,13 +193,11 @@ func TestOrchestrateFailsClosedOnMissingExplicitMinisignKey(t *testing.T) {
 func TestBuildWritesToDistStamp(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
-	// build with default gate SKIPPED for the fixture host: pass --no-vulncheck.
 	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
 		NoVulncheck: true, SignKey: testMinisignKey(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// artifacts land under repo/dist/<stamp>/, NOT an arbitrary --out.
 	stamp := mustStamp(t, repo, "umbree")
 	if _, err := os.Stat(filepath.Join(repo, "dist", stamp, "umbree-linux-amd64.zip")); err != nil {
 		t.Errorf("missing zip under dist/<stamp>: %v", err)
@@ -242,10 +207,6 @@ func TestBuildWritesToDistStamp(t *testing.T) {
 	}
 }
 
-// TestBuildRunFailsFastOnMissingSignKeyFile proves a real cut (DryRun:false)
-// with a --sign-key path that doesn't exist on disk fails IMMEDIATELY, before
-// any build work runs — never silently skipping the sign step and reporting
-// success.
 func TestBuildRunFailsFastOnMissingSignKeyFile(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
@@ -261,19 +222,14 @@ func TestBuildRunFailsFastOnMissingSignKeyFile(t *testing.T) {
 	if !strings.Contains(err.Error(), "sign-key") || !strings.Contains(err.Error(), "no such file") {
 		t.Fatalf("error = %q, want it to mention sign-key and no such file", err.Error())
 	}
-	// Fail-fast means no build work happened: no dist/<stamp> zips.
 	if _, statErr := os.Stat(filepath.Join(repo, "dist", stamp)); !os.IsNotExist(statErr) {
 		t.Fatalf("dist/%s should not exist (fail-fast before build), stat err = %v", stamp, statErr)
 	}
 }
 
-// TestBuildRunBumpDryRunReverts exercises the bump+revert path end-to-end: a
-// --bump-patch --dry-run build must run the revert (registered before the
-// bump block) and leave versions/umbree exactly as it was committed, with no
-// staged or worktree diff left behind.
 func TestBuildRunBumpDryRunReverts(t *testing.T) {
 	repo := t.TempDir()
-	writeFixtureModule(t, repo) // versions/umbree = "0.1.0\n", committed
+	writeFixtureModule(t, repo)
 	if err := buildRun(buildOpts{
 		Component: "umbree", RepoDir: repo, SrcDir: repo,
 		Bump: "patch", DryRun: true, NoVulncheck: true, SignKey: testMinisignKey(t),
@@ -296,16 +252,6 @@ func TestBuildRunBumpDryRunReverts(t *testing.T) {
 	}
 }
 
-// TestBuildRunAbsolutizesRelativeRepoDir is the end-to-end regression test
-// for the misplacement bug: a RELATIVE --repo (the "." default a real
-// invocation from the release-repo root uses) must not make build.Compile's
-// `-o` resolve inside the COMPONENT SOURCE worktree (cmd.Dir for `go build`
-// is SrcDir, not RepoDir). RepoDir and SrcDir are deliberately two distinct
-// temp dirs, and buildRun runs from a THIRD cwd (RepoDir's parent), passing
-// RepoDir as a relative path (its basename) — exactly how `rkit build
-// --repo=.` behaves when invoked from the release-repo root. It asserts the
-// zip lands under the absolute RepoDir's dist/<stamp>/ AND that no dist/ was
-// created inside SrcDir (the bug this guards against).
 func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "reporoot")
@@ -314,8 +260,6 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	}
 	writeFixtureModule(t, repo)
 
-	// A component source worktree distinct from RepoDir, with its own git
-	// history — relconfig.Stamp reads the HEAD sha from SrcDir.
 	src := filepath.Join(parent, "srcroot")
 	if err := os.Mkdir(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -337,8 +281,6 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	gitSrc("add", "-A")
 	gitSrc("commit", "-q", "-m", "fixture src")
 
-	// cwd is parent — NEITHER repo nor src — so "reporoot" only resolves
-	// correctly if buildRun absolutizes it against this cwd.
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -366,22 +308,15 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "dist", stamp, "umbree-linux-amd64.zip")); err != nil {
 		t.Errorf("artifacts not under the absolute repo's dist/<stamp>: %v", err)
 	}
-	// The component SOURCE worktree must stay untouched by the build — no
-	// dist/ misplaced inside it. This is the exact failure mode the bug
-	// produced: `go build -o dist/<stamp>/...` resolved relative to SrcDir
-	// (cmd.Dir), writing the binary into the source tree instead of the
-	// release repo.
 	if _, err := os.Stat(filepath.Join(src, "dist")); !os.IsNotExist(err) {
 		t.Fatalf("dist/ leaked into SrcDir %s (relative --repo misplacement bug), stat err = %v", src, err)
 	}
 }
 
 func TestBuildGateOnByDefaultCanBeSkipped(t *testing.T) {
-	// With NoVulncheck=false and no govulncheck resolvable, the gate must RUN
-	// (and here fail) — proving default-on. Then NoVulncheck=true bypasses.
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
-	t.Setenv("GOPATH", t.TempDir()) // make govulncheck unresolvable → gate errors
+	t.Setenv("GOPATH", t.TempDir())
 	if err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
 		NoVulncheck: false, SignKey: testMinisignKey(t)}); err == nil {
 		t.Fatal("expected default-on gate to run and fail")
@@ -392,9 +327,6 @@ func TestBuildGateOnByDefaultCanBeSkipped(t *testing.T) {
 	}
 }
 
-// mustStamp computes the expected dist/<stamp> directory name the same way
-// buildRun/orchestrate do, so tests can assert on artifact paths without
-// duplicating the stamp scheme.
 func mustStamp(t *testing.T, repo, comp string) string {
 	t.Helper()
 	stamp, err := relconfig.Stamp(context.Background(), filepath.Join(repo, "versions", comp), repo)
@@ -405,9 +337,6 @@ func mustStamp(t *testing.T, repo, comp string) string {
 }
 
 func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
-	// Unit-level: assert selectSigner(apple=true) returns AppleSigner{ToolPath:"modernech-sign"}
-	// and notarizerFor(apple=true) returns Notarizer{ToolPath:"modernech-sign"};
-	// apple=false returns AdHocSigner and a nil/skip notarizer.
 	s := selectSigner(true)
 	if _, ok := s.(sign.AppleSigner); !ok {
 		t.Fatalf("apple signer type = %T", s)
@@ -430,18 +359,7 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 	}
 }
 
-// TestRenderInstall covers install.sh rendering directly (no compile). Two
-// modes, pinned separately, because they are NOT the same code path:
-//
-//   - umbree (client) is a byte-verbatim copy of the repo-committed
-//     inner/umbree/install.sh.
-//   - umbreed (daemon) is the daemon repo's OWN install/install.sh.in,
-//     substituting __UMBREED_VERSION__ for the stamp — read from srcDir, not
-//     from this repo's inner/, and inner/umbreed/install.sh does not exist
-//     (deleted; see the comment in renderInstall's "umbreed" case).
 func TestRenderInstall(t *testing.T) {
-	// The tree copy wins whenever the cli source carries install/install.sh —
-	// on either channel — and the repo's inner/ copy is then never read.
 	t.Run("umbree prefers the component tree's install/install.sh", func(t *testing.T) {
 		repoDir := t.TempDir()
 		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
@@ -463,9 +381,6 @@ func TestRenderInstall(t *testing.T) {
 		}
 	})
 
-	// Beta never falls back to the release repo's copy: that would be the
-	// burrowee split all over again. The error names the feature that moves
-	// the installer into the tree.
 	t.Run("umbree beta refuses the inner/ fallback", func(t *testing.T) {
 		repoDir := t.TempDir()
 		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
@@ -482,7 +397,6 @@ func TestRenderInstall(t *testing.T) {
 		}
 	})
 
-	// Stable keeps the fallback (unchanged by this feature) and says so.
 	t.Run("umbree stable falls back to inner/ with a warning", func(t *testing.T) {
 		repoDir := t.TempDir()
 		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
@@ -532,13 +446,8 @@ func TestRenderInstall(t *testing.T) {
 		}
 	})
 
-	// Proves the daemon arm substitutes the stamp for the placeholder, read
-	// from srcDir/install/install.sh.in — NOT from this repo's inner/, which
-	// has no umbreed subdirectory at all. Breaks if renderInstall stops
-	// substituting (e.g. reverts to a verbatim copy) or reads from the wrong
-	// directory (e.g. repoDir instead of srcDir).
 	t.Run("umbreed substitutes the stamp from srcDir's canonical template", func(t *testing.T) {
-		repoDir := t.TempDir() // deliberately has no inner/umbreed — must be unused
+		repoDir := t.TempDir()
 		srcDir := t.TempDir()
 		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh.in"),
 			"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
@@ -579,12 +488,9 @@ func TestRenderInstall(t *testing.T) {
 		}
 	})
 
-	// The daemon arm's real failure mode: no daemon checkout resolved. The
-	// error must name both the missing template path AND the env var that
-	// would point at it — the operator has no other way to know what to set.
 	t.Run("umbreed missing template names the path and the env var", func(t *testing.T) {
 		repoDir := t.TempDir()
-		srcDir := t.TempDir() // no install/install.sh.in inside it
+		srcDir := t.TempDir()
 		dst := filepath.Join(t.TempDir(), "install.sh")
 		_, err := renderInstall("umbreed", "v0", srcDir, repoDir, dst, "stable")
 		if err == nil {
@@ -622,22 +528,10 @@ func mustWriteFile(t *testing.T, path, content string) {
 	}
 }
 
-// TestOrchestrateAbortsOnForbiddenEnvLiteral proves the env-literal guard
-// (parity with release.sh's step 2 verify-no-env.sh call) actually aborts
-// the cut when a built binary embeds a forbidden config-env literal — the
-// happy path (a clean fixture build) never exercises the abort branch.
-// Exercised THROUGH orchestrate (preferred over a standalone unit test on
-// the guard script) so the assertion covers the real wiring: guard runs
-// after compile, before install.sh/assemble/sign, and its failure surfaces
-// as an orchestrate error mentioning "verify-no-env".
 func TestOrchestrateAbortsOnForbiddenEnvLiteral(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 
-	// Inject one of tools/verify-no-env.sh's forbidden literals
-	// (UMBREE_DATA_DIR/UMBREE_SOCKET/UMBREE_SPAWN_HELPER/mustEnv) into the
-	// umbree main package's source so the compiled binary embeds it as a
-	// string constant `strings` can find.
 	forbidden := "package main\n\nimport \"fmt\"\n\nvar version string\n\nfunc main() { fmt.Println(version, \"UMBREE_DATA_DIR\") }\n"
 	mainGo := filepath.Join(repo, "cmd", "umbree", "main.go")
 	if err := os.WriteFile(mainGo, []byte(forbidden), 0o644); err != nil {
@@ -664,7 +558,6 @@ func TestOrchestrateAbortsOnForbiddenEnvLiteral(t *testing.T) {
 	}
 }
 
-// TestSrcDirFromEnv pins that a component's source comes from its env var.
 func TestSrcDirFromEnv(t *testing.T) {
 	t.Setenv("UMBREE_SRC_UMBREED", "/tmp/daemon")
 	got, err := srcDirFor("umbreed")
@@ -676,9 +569,6 @@ func TestSrcDirFromEnv(t *testing.T) {
 	}
 }
 
-// TestSrcDirRefusesWithoutEnv pins that there is NO compiled-in default. This
-// repo is public: a default would have to be an absolute path on one
-// machine, which is exactly what shipped before.
 func TestSrcDirRefusesWithoutEnv(t *testing.T) {
 	t.Setenv("UMBREE_SRC_UMBREE", "")
 	_, err := srcDirFor("umbree")
@@ -690,8 +580,6 @@ func TestSrcDirRefusesWithoutEnv(t *testing.T) {
 	}
 }
 
-// captureStderr runs fn with os.Stderr swapped for a pipe and returns what
-// was written.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -713,9 +601,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	return out
 }
 
-// TestBuildRunRefusesUnknownChannel: an unknown channel is refused by
-// runBuild's flag validation before srcDirFor, and by buildRun before any
-// file is touched.
 func TestBuildRunRefusesUnknownChannel(t *testing.T) {
 	t.Setenv("UMBREE_SRC_UMBREE", "")
 	err := runBuild([]string{"--component", "umbree", "--channel", "bogus"})
@@ -734,16 +619,11 @@ func TestBuildRunRefusesUnknownChannel(t *testing.T) {
 	}
 }
 
-// TestBuildRunBetaAssertsBeforeBump: with versions/umbree.beta not above
-// versions/umbree the build fails at the assert, BEFORE any bump, leaving
-// versions/umbree.beta untouched and no dist/.
 func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
 	repo := t.TempDir()
-	writeFixtureModule(t, repo) // versions/umbree = 0.1.0
+	writeFixtureModule(t, repo)
 	mustWriteFile(t, filepath.Join(repo, "versions", "umbree.beta"), "0.1.0\n")
 	commitAll(t, repo, "seed beta")
-	// Any existing file serves as the sign key: it is only stat'ed before
-	// the assert, and the build never gets far enough to use it.
 	key := filepath.Join(t.TempDir(), "key")
 	mustWriteFile(t, key, "not a key")
 	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "beta",
@@ -760,14 +640,9 @@ func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
 	}
 }
 
-// TestBuildRunRevertsBumpAfterFailedBuild: a REAL (non-dry-run) --bump-patch
-// build that fails after the bump — here at compile, on a tree whose main
-// package does not build — must restore versions/<comp> to its committed
-// value, on a fixture with NO versions/<comp>.beta (the normal state). The
-// dry-run revert test cannot catch this: a dry run never bumps.
 func TestBuildRunRevertsBumpAfterFailedBuild(t *testing.T) {
 	repo := t.TempDir()
-	writeFixtureModule(t, repo) // versions/umbree = 0.1.0, no .beta
+	writeFixtureModule(t, repo)
 	mustWriteFile(t, filepath.Join(repo, "cmd", "umbree", "main.go"), "package main\n\nfunc main() { this does not compile }\n")
 	commitAll(t, repo, "break the build")
 	key := filepath.Join(t.TempDir(), "key")
@@ -787,9 +662,6 @@ func TestBuildRunRevertsBumpAfterFailedBuild(t *testing.T) {
 	}
 }
 
-// TestBuildRunBetaStampsBetaScheme: a beta build lands under
-// dist/v<beta-semver>.beta.<date>.<sha>/ and, on --dry-run, restores BOTH
-// version files.
 func TestBuildRunBetaStampsBetaScheme(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
@@ -816,9 +688,6 @@ func TestBuildRunBetaStampsBetaScheme(t *testing.T) {
 	}
 }
 
-// TestOrchestrateBetaWarnsWithoutLadder: a beta build whose tree carries
-// install/install.sh but no install/migrations/ is NOT refused — it warns on
-// stderr naming the feature that adds the ladder, and returns nil.
 func TestOrchestrateBetaWarnsWithoutLadder(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
@@ -840,8 +709,6 @@ func TestOrchestrateBetaWarnsWithoutLadder(t *testing.T) {
 	}
 }
 
-// commitAll commits the fixture's working tree so a later `git status` is a
-// clean baseline and relconfig.Stamp has a HEAD.
 func commitAll(t *testing.T, repo, msg string) {
 	t.Helper()
 	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", msg}} {

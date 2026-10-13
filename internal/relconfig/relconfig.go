@@ -6,7 +6,6 @@ import (
 	"github.com/burrowee-git/release-kit/build"
 )
 
-// Components lists every releasable umbree component.
 var Components = []string{"umbree", "umbreed"}
 
 func Targets() []build.Target {
@@ -16,8 +15,6 @@ func Targets() []build.Target {
 	}
 }
 
-// Bins returns the build.BinSpec list for comp. GoWork is left empty
-// (release-kit build.Compile defaults it to "off" — module mode, pinned tags).
 func Bins(comp, stamp string) ([]build.BinSpec, error) {
 	v := "-X main.version=" + stamp
 	switch comp {

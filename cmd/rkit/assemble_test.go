@@ -13,7 +13,6 @@ import (
 
 func TestAssembleFlatZip(t *testing.T) {
 	root := t.TempDir()
-	// fake per-target artifact.
 	mk := func(p, data string) string {
 		full := filepath.Join(root, p)
 		os.MkdirAll(filepath.Dir(full), 0o755)
@@ -35,7 +34,6 @@ func TestAssembleFlatZip(t *testing.T) {
 	if base := filepath.Base(zips[0]); base != "umbree-linux-arm64.zip" {
 		t.Fatalf("zip name = %s", base)
 	}
-	// zip contains umbree, install.sh (flat).
 	r, err := zip.OpenReader(zips[0])
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +55,6 @@ func TestAssembleFlatZip(t *testing.T) {
 	}
 }
 
-// zipNames lists the entries of one zip, sorted.
 func zipNames(t *testing.T, zp string) []string {
 	t.Helper()
 	r, err := zip.OpenReader(zp)
@@ -73,11 +70,6 @@ func zipNames(t *testing.T, zp string) []string {
 	return names
 }
 
-// TestAssembleStagesMigrations pins the ladder rule: every *.sh plus ledger
-// and component.conf under <src>/install/migrations/ ride EVERY target's zip
-// under migrations/, nothing else under install/ ships, and a tree with no
-// migrations/ directory stages nothing and is not an error (that rule is
-// what lets feature 04 land before 02/03 add a ladder).
 func TestAssembleStagesMigrations(t *testing.T) {
 	root := t.TempDir()
 	mk := func(p, data string) string {
@@ -115,7 +107,6 @@ func TestAssembleStagesMigrations(t *testing.T) {
 		}
 	}
 
-	// Without the directory: bin + install.sh only, no error.
 	if err := os.RemoveAll(filepath.Join(src, "install", "migrations")); err != nil {
 		t.Fatal(err)
 	}
