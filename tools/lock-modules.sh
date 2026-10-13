@@ -1,7 +1,4 @@
 #!/bin/sh
-# tools/lock-modules.sh — rewrite tools/modules/MODULES.lock from the modules on
-# disk. Run after adding a module or bumping one's version; tools/test-modules.sh
-# fails while the lock and the files disagree.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODDIR="$ROOT/tools/modules"

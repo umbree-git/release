@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# verify-no-env.test.sh — proves tools/verify-no-env.sh fails on a binary that
-# embeds a forbidden config-env literal and passes on one built from umbree main.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="${HERE}/verify-no-env.sh"

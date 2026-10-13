@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# public-hygiene.test.sh — proves the gate actually catches each class it claims.
-#
-# A hygiene gate that passes everything is worse than none: it converts "nobody
-# checked" into "something checked and it was fine". So each pattern is proven
-# against a file that trips it, in a scratch repo — never by editing this one.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE="${HERE}/public-hygiene.sh"
@@ -13,15 +8,12 @@ GIT=/usr/bin/git
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 
-# A scratch repo, so a probe file is TRACKED (the gate scans tracked files only)
-# without touching the real one.
 mkdir -p "${TMP}/repo/tools"
 cp "${GATE}" "${TMP}/repo/tools/public-hygiene.sh"
 cd "${TMP}/repo" || exit 1
 $GIT init -q .
 $GIT config user.email t@t; $GIT config user.name t
 
-# probe <name> <file-content> <expect: catch|pass>
 probe() {
     local name="$1" body="$2" expect="$3" out rc
     printf '%s\n' "$body" > probe.md
