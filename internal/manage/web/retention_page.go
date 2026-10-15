@@ -68,7 +68,7 @@ func (s *Server) previewRetention(w http.ResponseWriter, r *http.Request, sess *
 		s.pageError(w, r, err)
 		return
 	}
-	page.pageData = s.consolePage(w, r, sess, "Clean "+string(win)+" · "+page.Component)
+	page.pageData = s.consolePage(w, r, sess, "Clean "+string(win)+" · "+page.Component, page.Channel, page.Component)
 	s.render(w, r, "retention", http.StatusOK, page)
 }
 
@@ -88,6 +88,6 @@ func (s *Server) confirmRetention(w http.ResponseWriter, r *http.Request, sess *
 	}
 	s.cfg.Log.Info("release retention", "actor", sess.Admin, "window", win, "component", page.Component,
 		"fingerprint", fingerprint, "result", rep.Summary(), "err", err)
-	page.pageData = s.consolePage(w, r, sess, "Clean "+string(win)+" · "+page.Component)
+	page.pageData = s.consolePage(w, r, sess, "Clean "+string(win)+" · "+page.Component, page.Channel, page.Component)
 	s.render(w, r, "retention", status, page)
 }

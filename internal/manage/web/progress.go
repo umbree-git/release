@@ -87,7 +87,7 @@ func (l *progressLog) result(action string) string {
 func (s *Server) progressHalves(w http.ResponseWriter, r *http.Request, sess *store.Session, action string, row *store.ReleaseVersion) (string, string, error) {
 	page := progressPage{Row: s.view(*row), Component: row.Component, Channel: row.Channel, Verb: action,
 		Back: pagePath(row.Channel, row.Component)}
-	page.pageData = s.consolePage(w, r, sess, action+" "+row.Component)
+	page.pageData = s.consolePage(w, r, sess, action+" "+row.Component, row.Channel, row.Component)
 	var buf bytes.Buffer
 	if err := s.pages["progress"].ExecuteTemplate(&buf, "layout", page); err != nil {
 		return "", "", fmt.Errorf("render progress: %w", err)
