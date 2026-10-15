@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/burrowee-git/release-kit/build"
+	"github.com/burrowee-git/release-kit/pack"
 )
 
 func TestAssembleFlatZip(t *testing.T) {
@@ -84,12 +85,14 @@ func TestAssembleStagesMigrations(t *testing.T) {
 	}
 	installSh := mk("install.sh", "#!/bin/sh\n")
 	src := filepath.Join(root, "src")
-	for _, f := range []string{"ledger", "component.conf", "run.sh", "v0_1_to_v0_2.sh", "README.md"} {
+	for _, f := range []string{"ledger", "component.conf", "run.sh", "v0_1_to_v0_2.sh", "README.md", "run.test.sh", "lib_test.sh"} {
 		mk("src/install/migrations/"+f, f)
 	}
 	mk("src/install/tail_test.sh", "never ships")
+	repo := filepath.Join(root, "repo")
+	mk("repo/inner/umbreed/migrations/fallback.sh", "never ships from a tree build")
 
-	migs, err := stageMigrations(src)
+	migs, err := stageMigrations("umbreed", src, repo, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +113,7 @@ func TestAssembleStagesMigrations(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(src, "install", "migrations")); err != nil {
 		t.Fatal(err)
 	}
-	migs, err = stageMigrations(src)
+	migs, err = stageMigrations("umbreed", src, repo, true)
 	if err != nil {
 		t.Fatalf("absent migrations/ must not be an error: %v", err)
 	}
@@ -125,5 +128,54 @@ func TestAssembleStagesMigrations(t *testing.T) {
 		if got := zipNames(t, zp); !reflect.DeepEqual(got, []string{"install.sh", "umbreed"}) {
 			t.Errorf("%s entries = %v, want bin + install.sh only", filepath.Base(zp), got)
 		}
+	}
+}
+
+func TestStageMigrationsFollowsInstallerProvenance(t *testing.T) {
+	root := t.TempDir()
+	mk := func(p string) {
+		full := filepath.Join(root, p)
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(p), 0o755)
+	}
+	src := filepath.Join(root, "src")
+	repo := filepath.Join(root, "repo")
+	mk("src/install/migrations/run.sh")
+	mk("src/install/migrations/v0_1_to_v0_2.sh")
+	for _, f := range []string{"run.sh", "lib.sh", "upgrade.sh", "v0_1_to_v0_1_cache_block.sh", "run.test.sh", "lib.test.sh", "x_test.sh"} {
+		mk("repo/inner/umbree/migrations/" + f)
+	}
+	names := func(c []pack.Content) []string {
+		var out []string
+		for _, x := range c {
+			out = append(out, x.Name+"<"+filepath.Dir(x.Src))
+		}
+		sort.Strings(out)
+		return out
+	}
+	fallbackDir := filepath.Join(repo, "inner", "umbree", "migrations")
+	treeDir := filepath.Join(src, "install", "migrations")
+
+	got, err := stageMigrations("umbree", src, repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"migrations/lib.sh<" + fallbackDir,
+		"migrations/run.sh<" + fallbackDir,
+		"migrations/upgrade.sh<" + fallbackDir,
+		"migrations/v0_1_to_v0_1_cache_block.sh<" + fallbackDir,
+	}
+	if g := names(got); !reflect.DeepEqual(g, want) {
+		t.Errorf("fallback staged %v, want %v", g, want)
+	}
+
+	got, err = stageMigrations("umbree", src, repo, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"migrations/run.sh<" + treeDir, "migrations/v0_1_to_v0_2.sh<" + treeDir}
+	if g := names(got); !reflect.DeepEqual(g, want) {
+		t.Errorf("tree build staged %v, want %v", g, want)
 	}
 }
