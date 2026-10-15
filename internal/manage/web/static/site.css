@@ -74,9 +74,9 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 .confirm-inline form { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
 .inline-progress { margin-top: .75rem; background: var(--bg); }
 .inline-progress .panel.progress { margin: 0; border: 0; padding: 0; background: transparent; }
-.rail { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: 0 0 .75rem; padding: 0; }
-.rail .step { padding: 0 .5rem; border: 1px solid var(--line); border-radius: 3px; font-size: .8rem; font-weight: 600; background: var(--panel); }
-.rail .step[data-state="ok"] { border-color: var(--ok); color: var(--ok); }
-.rail .step[data-state="run"] { border-color: var(--accent); color: var(--accent); }
-.rail .step[data-state="fail"] { border-color: var(--danger); color: var(--danger); }
+.run-steps { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: 0 0 .75rem; padding: 0; }
+.run-steps .run-step { padding: 0 .5rem; border: 1px solid var(--line); border-radius: 3px; font-size: .8rem; font-weight: 600; background: var(--panel); }
+.run-steps .run-step[data-state="ok"] { border-color: var(--ok); color: var(--ok); }
+.run-steps .run-step[data-state="run"] { border-color: var(--accent); color: var(--accent); }
+.run-steps .run-step[data-state="fail"] { border-color: var(--danger); color: var(--danger); }
 .inline-note { margin: .5rem 0; }
