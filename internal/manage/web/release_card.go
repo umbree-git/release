@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"path"
 	"regexp"
@@ -14,7 +15,10 @@ import (
 	"github.com/umbree-git/release/internal/register"
 )
 
-const unknownPlatform = "—"
+const (
+	unknownPlatform = "—"
+	sizeUnits       = "KMGTPE"
+)
 
 var archiveName = regexp.MustCompile(`^umbreed?-([a-z0-9]+)-([a-z0-9_]+)\.zip$`)
 
@@ -31,12 +35,12 @@ func humanSize(n int64) string {
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
 	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
+	v, exp := float64(n)/unit, 0
+	for math.Round(v*10)/10 >= unit && exp < len(sizeUnits)-1 {
+		v /= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %ciB", v, sizeUnits[exp])
 }
 
 func platformOf(name string) string {
