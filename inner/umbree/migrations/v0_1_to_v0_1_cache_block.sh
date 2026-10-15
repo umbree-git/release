@@ -40,6 +40,9 @@ fi
 [ "$(field cache_dir_count)" = 0 ] && exit 0
 [ "$(field cache_dir_count)" = 1 ] || fail "${NAME}: ${CFG} has $(field cache_dir_count) top-level cache_dir members — not rewritten"
 [ "$(field cache_dir_type)" = string ] || fail "${NAME}: ${CFG}: cache_dir is a $(field cache_dir_type), not a string — not rewritten"
+if [ -L "${CFG}" ]; then
+    fail "${NAME}: ${CFG} is a symlink to $(readlink "${CFG}") — not rewritten; edit the target, or replace the link with the file, then re-run"
+fi
 VALUE="$(field cache_dir_value)"
 CACHE_COUNT="$(field cache_count)"
 [ "${CACHE_COUNT}" -le 1 ] || fail "${NAME}: ${CFG} has ${CACHE_COUNT} top-level cache members — not rewritten"

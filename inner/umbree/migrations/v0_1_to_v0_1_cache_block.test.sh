@@ -203,4 +203,39 @@ check "injected mv failure: no temp left" eq "$(temps)" 0
 check "injected mv failure: says left as found" contains "${ERR}" "left as found"
 rm -f "${SHIM}/mv"
 
+fresh link
+mkdir -p "$H/real"
+printf '{"cache_dir": "/c"}\n' > "$H/real/config.json"
+cp "$H/real/config.json" "${TK_ROOT}/orig"
+ln -s "$H/real/config.json" "${CFG}"
+BEFORE="$(listing)"
+rung
+check "symlinked config: exit 1" eq "$RC" 1
+check "symlinked config: still a symlink" test -L "${CFG}"
+check "symlinked config: target unchanged" same_file "$H/real/config.json" "${TK_ROOT}/orig"
+check "symlinked config: directory unchanged" eq "$(listing)" "${BEFORE}"
+check "symlinked config: names link and target" contains "${ERR}" "${CFG} is a symlink to $H/real/config.json"
+check "symlinked config: tells the operator what to do" contains "${ERR}" "edit the target, or replace the link with the file"
+
+fixture() {
+    fresh fixture
+    printf '%b' "$2" > "${CFG}"
+    printf '%b' "$3" > "${TK_ROOT}/expected"
+    rung
+    check "$1: exit 0" eq "$RC" 0
+    check "$1: exact edit" same_file "${CFG}" "${TK_ROOT}/expected"
+}
+fixture "CRLF" '{\r\n  "a": 1,\r\n  "cache_dir": "/c",\r\n  "b": 2\r\n}\r\n' '{\r\n  "a": 1,\r\n  "cache": {"dir": "/c"},\r\n  "b": 2\r\n}\r\n'
+fixture "CRLF removal" '{\r\n  "cache": {"dir": "/c"},\r\n  "cache_dir": "/c",\r\n  "b": 2\r\n}\r\n' '{\r\n  "cache": {"dir": "/c"},\r\n  "b": 2\r\n}\r\n'
+fixture "no final newline" '{"cache_dir": "/c"}' '{"cache": {"dir": "/c"}}'
+fixture "comment markers and quotes inside strings" '{"u": "a//b /* c \\" d", "cache_dir": "/x\\"y//z/*"}\n' '{"u": "a//b /* c \\" d", "cache": {"dir": "/x\\"y//z/*"}}\n'
+fresh bom
+printf '\357\273\277{"cache_dir": "/c"}\n' > "${CFG}"
+cp "${CFG}" "${TK_ROOT}/orig"
+rung
+check "BOM: refused" eq "$RC" 1
+check "BOM: file unchanged" same_file "${CFG}" "${TK_ROOT}/orig"
+check "BOM: reason at byte 0" contains "${ERR}" "unexpected character at byte 0"
+refuse "trailing comma" '{"cache_dir": "/c",}' "trailing comma"
+
 tk_end
