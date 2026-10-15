@@ -80,7 +80,8 @@ func (s *Server) Handler() http.Handler {
 		s.cfg.Intake.Routes(mux)
 	}
 	mux.HandleFunc("GET /healthz", handleHealth)
-	mux.HandleFunc("GET /manage/static/site.css", handleStylesheet)
+	mux.HandleFunc("GET /manage/static/site.css", staticFile("static/site.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("GET /manage/static/console.js", staticFile("static/console.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /manage/login", s.handleLoginPage)
 	mux.HandleFunc("POST /manage/login", s.handleLoginSubmit)
 	mux.HandleFunc("GET /manage/login/totp", s.handleTOTPPage)
@@ -135,7 +136,7 @@ func (s *Server) writeGuard(h guarded) http.HandlerFunc {
 func secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -149,9 +150,11 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
-func handleStylesheet(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	http.ServeFileFS(w, r, assets, "static/site.css")
+func staticFile(name, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		http.ServeFileFS(w, r, assets, name)
+	}
 }
 
 func handleNoPage(w http.ResponseWriter, r *http.Request, _ *store.Session) {

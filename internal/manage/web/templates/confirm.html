@@ -2,13 +2,15 @@
 <h1>Confirm {{.Verb}} <span class="dim">· {{.Component}} · {{.Channel}}</span></h1>
 <section class="panel{{if .Danger}} danger{{end}}">
   <table>{{template "rowhead"}}<tbody>{{template "rowcells" .Row}}</tbody></table>
+  <div id="confirm-strip" data-verb="{{.Verb}}">
   <p>{{.Verb}} <code>{{.Row.Version}}</code> <span class="stamp">{{.Row.Stamp}}</span>: {{.Note}}.</p>
   <form method="post" action="{{.Action}}">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <input type="hidden" name="confirm" value="{{.Token}}">
     <button class="btn{{if .Danger}} danger{{else}} primary{{end}}" type="submit">Confirm {{.Verb}}</button>
-    <a class="btn" href="{{.Back}}">Cancel</a>
+    <a class="btn" href="{{.Back}}" data-cancel>Cancel</a>
   </form>
   <p class="dim">This confirmation is single-use and expires in ten minutes.</p>
+  </div>
 </section>
 {{end}}

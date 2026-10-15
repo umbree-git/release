@@ -2,6 +2,7 @@
 <h1>Clean {{.Window}} <span class="dim">· {{.Component}} · {{.Channel}}</span></h1>
 {{if .Failure}}<p class="flash error">{{.Failure}}</p>{{end}}
 {{with .Plan}}
+<div id="confirm-strip" data-verb="clean">
 <section class="panel danger">
   <h2>Kept</h2>
   {{if .Kept}}<ul>{{range .Kept}}<li class="stamp">{{.}}</li>{{end}}</ul>{{else}}<p class="dim">Nothing.</p>{{end}}
@@ -16,10 +17,11 @@
     <input type="hidden" name="confirm" value="{{$.Token}}">
     <input type="hidden" name="fingerprint" value="{{$.Fingerprint}}">
     <button class="btn danger" type="submit">Confirm: delete exactly these keys</button>
-    <a class="btn" href="{{$.Back}}">Cancel</a>
+    <a class="btn" href="{{$.Back}}" data-cancel>Cancel</a>
   </form>
   <p class="dim">The confirm deletes nothing if the plan changed since this preview. It is single-use and expires in ten minutes.</p>
 </section>
+</div>
 {{end}}
 {{with .Report}}
 <section class="panel">

@@ -29,7 +29,7 @@
   <section class="panel muted danger">
     <h3>Retention</h3>
     <p class="dim">Each control previews the keys it would delete; a second confirmation deletes exactly those.</p>
-    <div class="inline">{{range .Retention}}<form class="act" method="post" action="{{.Path}}">
+    <div class="inline">{{range .Retention}}<form class="act" data-confirm-slot="retention" method="post" action="{{.Path}}">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn" type="submit">Preview: clean {{.Name}}</button>
     </form>{{end}}</div>
@@ -37,7 +37,7 @@
   {{with .Republish}}<section class="panel muted danger">
     <h3>Static surface</h3>
     <p class="dim">Promote and yank republish the installer, <code>version.js</code>, the public key and the site page. If that step failed, republish them here from the live manifest.</p>
-    <form class="act" method="post" action="{{.}}">
+    <form class="act" data-confirm-slot="republish" method="post" action="{{.}}">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn" type="submit">Republish static</button>
     </form>
