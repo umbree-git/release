@@ -25,7 +25,8 @@ HOST="${W}/host"
 mkdir -p "${HOST}/bin" "${HOST}/vhosts" "${HOST}/units" "${HOST}/stage" "${HOST}/etc" "${HOST}/data" "${HOST}/static"
 SHIMS="${W}/shims"; HOSTSHIMS="${W}/hostshims"; mkdir -p "${SHIMS}" "${HOSTSHIMS}"
 LOG="${W}/calls.log"; : > "${LOG}"
-export SANDBOX_LOG="${LOG}" SANDBOX_HOSTSHIMS="${HOSTSHIMS}"
+PRIVLOG="${W}/priv.log"; : > "${PRIVLOG}"
+export SANDBOX_LOG="${LOG}" SANDBOX_HOSTSHIMS="${HOSTSHIMS}" SANDBOX_PRIVLOG="${PRIVLOG}" SANDBOX_STAGE="${HOST}/stage"
 
 cat > "${SHIMS}/go" <<'EOF'
 #!/bin/sh
@@ -40,12 +41,13 @@ EOF
 cat > "${SHIMS}/scp" <<'EOF'
 #!/bin/sh
 src=""; dst=""
-for a in "$@"; do case "$a" in -q) ;; *:*) dst="${a#*:}" ;; *) src="$a" ;; esac; done
+for a in "$@"; do case "$a" in -q) ;; *:*) echo "scp-dest ${a%%:*}" >> "$SANDBOX_LOG"; dst="${a#*:}" ;; *) src="$a" ;; esac; done
 cp "$src" "$dst"; echo "scp $src -> $dst" >> "$SANDBOX_LOG"
 EOF
 cat > "${SHIMS}/ssh" <<'EOF'
 #!/bin/sh
-script=""; for a in "$@"; do script="$a"; done
+script=""; dest=""; for a in "$@"; do dest="$script"; script="$a"; done
+echo "ssh-dest ${dest}" >> "$SANDBOX_LOG"
 echo "ssh: $(printf '%s' "$script" | head -c 40 | tr '\n' ' ')" >> "$SANDBOX_LOG"
 PATH="$SANDBOX_HOSTSHIMS:$PATH" sh -c "$script"
 EOF
@@ -55,8 +57,13 @@ echo "curl $*" >> "$SANDBOX_LOG"
 exit 0
 EOF
 cp "${SHIMS}/curl" "${HOSTSHIMS}/curl"
+cat > "${HOSTSHIMS}/privcheck" <<'EOF'
+need_sudo() { [ "${SANDBOX_IN_SUDO:-0}" = 1 ] || echo "UNSUDOED $*" >> "$SANDBOX_PRIVLOG"; }
+no_sudo() { [ "${SANDBOX_IN_SUDO:-0}" = 1 ] && echo "OVERSUDO $*" >> "$SANDBOX_PRIVLOG"; return 0; }
+EOF
 cat > "${HOSTSHIMS}/curl" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"; no_sudo curl "$@"
 echo "curl $*" >> "$SANDBOX_LOG"
 case "$*" in
     *http_code*/manage/login*) [ "${SANDBOX_LOGIN_FAIL:-0}" = 1 ] && printf '502' || printf '200' ;;
@@ -65,6 +72,8 @@ esac
 EOF
 cat > "${HOSTSHIMS}/systemctl" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"
+case "$1" in --version|is-active|show) no_sudo systemctl "$@" ;; *) need_sudo systemctl "$@" ;; esac
 echo "systemctl $*" >> "$SANDBOX_LOG"
 case "$1" in
     --version) echo "systemd ${SANDBOX_SYSTEMD:-255} (${SANDBOX_SYSTEMD:-255})"; echo "+PAM +AUDIT" ;;
@@ -77,18 +86,23 @@ EOF
 cat > "${HOSTSHIMS}/sudo" <<'EOF'
 #!/bin/sh
 echo "sudo $*" >> "$SANDBOX_LOG"
+[ "$1" = -n ] || echo "NO-N sudo $*" >> "$SANDBOX_PRIVLOG"
+[ "$1" = -n ] && shift
 [ "$1" = -u ] && shift 2
+case "${SANDBOX_SUDO_DENY:-}" in all|"$1") echo "sudo: a password is required" >&2; exit 1 ;; esac
 [ "${SANDBOX_STATIC_RO:-0}" = 1 ] && [ "$1" = test ] && exit 1
-exec "$@"
+SANDBOX_IN_SUDO=1 exec "$@"
 EOF
 cat > "${HOSTSHIMS}/nginx" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"; need_sudo nginx "$@"
 echo "nginx $*" >> "$SANDBOX_LOG"
 [ "${SANDBOX_NGINX_FAIL:-0}" = 1 ] && { echo "nginx: [emerg] bad directive" >&2; exit 1; }
 exit 0
 EOF
 cat > "${HOSTSHIMS}/ss" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"; need_sudo ss "$@"
 echo "ss $*" >> "$SANDBOX_LOG"
 echo "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process"
 [ -n "${SANDBOX_PORT_HOLDER:-}" ] && echo "LISTEN 0 4096 127.0.0.1:8788 0.0.0.0:* users:((\"$(printf '%s' "${SANDBOX_PORT_HOLDER}" | cut -c1-15)\",pid=${SANDBOX_PORT_PID:-42},fd=3))"
@@ -96,23 +110,41 @@ exit 0
 EOF
 cat > "${HOSTSHIMS}/sha256sum" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"; no_sudo sha256sum "$@"
 if [ "$1" = -c ]; then shasum -a 256 -c -; else shasum -a 256 "$@"; fi
 EOF
 cat > "${HOSTSHIMS}/install" <<'EOF'
 #!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"
+if [ "$1" = -d ]; then no_sudo install "$@"; for d in "$@"; do last="$d"; done; mkdir -p "$last"; exit 0; fi
 mode=0755; src=""; dst=""
 while [ $# -gt 0 ]; do case "$1" in -m) mode="$2"; shift ;; -o|-g) shift ;; *) [ -z "$src" ] && src="$1" || dst="$1" ;; esac; shift; done
+case "$dst" in "$SANDBOX_STAGE"/*) no_sudo install "$dst" ;; *) need_sudo install "$dst" ;; esac
 cp "$src" "$dst" && chmod "$mode" "$dst"; echo "install $src -> $dst" >> "$SANDBOX_LOG"
+EOF
+cat > "${HOSTSHIMS}/rm" <<'EOF'
+#!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"
+for a in "$@"; do case "$a" in -*) ;; "$SANDBOX_STAGE"/*) no_sudo rm "$a" ;; *) need_sudo rm "$a" ;; esac; done
+exec /bin/rm "$@"
+EOF
+cat > "${HOSTSHIMS}/cat" <<'EOF'
+#!/bin/sh
+. "$SANDBOX_HOSTSHIMS/privcheck"
+for a in "$@"; do [ "$a" = "$SANDBOX_ENVF" ] && need_sudo cat "$a"; done
+exec /bin/cat "$@"
 EOF
 chmod 0755 "${SHIMS}"/* "${HOSTSHIMS}"/*
 
 ENVF="${HOST}/etc/manage.env"
+export SANDBOX_ENVF="${ENVF}"
 printf 'UMBREE_MANAGE_LISTEN=127.0.0.1:8788\nUMBREE_MANAGE_DATA_DIR=%s\n' "${HOST}/data" > "${ENVF}"
 
 CFG="${W}/manage-deploy.env"
 write_cfg() {
     {
         echo "RELEASE_HOST=sandbox-host"
+        echo "SSH_USER=deployer"
         echo "MANAGE_DATA_DIR=${HOST}/data"
         echo "STATIC_DIR=${HOST}/static"
         echo "MANAGE_ENV_FILE=${ENVF}"
@@ -133,7 +165,8 @@ run() {
     set -e
 }
 calls() { cat "${LOG}"; }
-reset_log() { : > "${LOG}"; }
+: > "${W}/all.log"
+reset_log() { cat "${LOG}" >> "${W}/all.log"; : > "${LOG}"; }
 remote_calls() { grep -E '^(ssh|scp|curl)' "${LOG}" || true; }
 
 say "help on stdout, exit 0"
@@ -219,6 +252,20 @@ for key in RELEASE_HOST MANAGE_DATA_DIR; do
     [ -z "$(calls)" ] || die "missing ${key} still ran tools: $(calls)"
     write_cfg
 done
+grep -v '^SSH_USER=' "${CFG}" > "${CFG}.tmp"; mv "${CFG}.tmp" "${CFG}"
+ARGS=(--dry-run); run
+[ "${RC}" -eq 2 ] || die "missing SSH_USER: exit ${RC}"
+has "SSH_USER" "${OUT}" || die "missing SSH_USER not named: ${OUT}"
+write_cfg
+for v in root "" "de ployer"; do
+    echo "SSH_USER=${v}" >> "${CFG}"
+    reset_log
+    ARGS=(--dry-run); run
+    [ "${RC}" -eq 2 ] || die "SSH_USER='${v}': exit ${RC}: ${OUT}"
+    has "SSH_USER" "${OUT}" || die "SSH_USER='${v}' refusal not named: ${OUT}"
+    [ -z "$(calls)" ] || die "SSH_USER='${v}' still ran tools"
+    write_cfg
+done
 for key in SERVICE_USER MANAGE_ENV_FILE MANAGE_BIN_DIR MANAGE_LISTEN; do
     echo "${key}=" >> "${CFG}"
     ARGS=(--dry-run); run
@@ -289,6 +336,16 @@ ARGS=(); run SANDBOX_PORT_HOLDER=python3
 [ "${RC}" -ne 0 ] || die "a port held by python3 was accepted"
 has "python3" "${OUT}" || die "port refusal did not name the holder: ${OUT}"
 ! grep -q '^scp' "${LOG}" || die "port refusal copied files"
+
+say "a refused sudo -n fails fast, names the step, and copies nothing"
+for deny in all cat ss; do
+    reset_log
+    ARGS=(); run SANDBOX_SUDO_DENY="${deny}"
+    [ "${RC}" -ne 0 ] || die "sudo denied (${deny}) was accepted"
+    has "step" "${OUT}" || die "sudo refusal (${deny}) did not name the step: ${OUT}"
+    has "sudo -n" "${OUT}" || die "sudo refusal (${deny}) did not say sudo -n: ${OUT}"
+    ! grep -q '^scp ' "${LOG}" || die "sudo refusal (${deny}) copied files"
+done
 
 say "an unwritable static dir refuses before any copy"
 printf 'old vhost\n' > "${HOST}/vhosts/release.umbree.org.conf"
@@ -397,6 +454,16 @@ reset_log
 ARGS=(--skip-vhost); run SANDBOX_BUILD_TAG=6
 [ "${RC}" -eq 0 ] || die "--skip-vhost exit ${RC}: ${OUT}"
 ! grep -q 'release.umbree.org.conf' "${LOG}" || die "--skip-vhost touched the vhost"
+
+say "every connection is <SSH_USER>@host, never root@"
+reset_log
+grep -q '^ssh-dest deployer@sandbox-host$' "${W}/all.log" || die "ssh did not connect as deployer@sandbox-host: $(grep ssh-dest "${W}/all.log" | sort -u)"
+! grep -E '^(ssh|scp)-dest' "${W}/all.log" | grep -qv 'deployer@sandbox-host$' || die "a connection used another destination: $(grep -E '^(ssh|scp)-dest' "${W}/all.log" | sort -u)"
+grep -q '^scp-dest deployer@sandbox-host$' "${W}/all.log" || die "scp did not target deployer@sandbox-host"
+
+say "privileged commands carry sudo -n and unprivileged ones do not, across every run"
+[ ! -s "${PRIVLOG}" ] || die "privilege split broken: $(sort -u "${PRIVLOG}" | head -n 20)"
+grep -q '^sudo -n ' "${W}/all.log" || die "no sudo -n call was ever made"
 
 say "the committed vhost: three proxied paths, no forwarded-for, no real_ip, / still try_files"
 ! grep -qE 'X-Forwarded-For|real_ip|set_real_ip_from' "${VHOST}" || die "the vhost carries X-Forwarded-For or real_ip"

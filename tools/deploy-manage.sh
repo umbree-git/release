@@ -102,6 +102,8 @@ check_paths() {
 load_config() {
     [ -f "${CONFIG}" ] || refuse_config "no deploy config at ${CONFIG} — create it (RELEASE_HOST, MANAGE_DATA_DIR, STATIC_DIR, …) or set \$UMBREE_MANAGE_DEPLOY_CONFIG"
     RELEASE_HOST="$(cfg_value RELEASE_HOST '')"
+    SSH_USER="$(cfg_value SSH_USER '')"
+    case "${SSH_USER}" in root|0) refuse_config "SSH_USER must not be root — the deploy elevates per step with sudo -n" ;; esac
     MANAGE_DATA_DIR="$(cfg_value MANAGE_DATA_DIR '')"
     STATIC_DIR="$(cfg_value STATIC_DIR '')"
     SERVICE_USER="$(cfg_value SERVICE_USER umbree-release)"
@@ -113,7 +115,7 @@ load_config() {
     check_url MANAGE_URL "${MANAGE_URL}"
     UNIT_DIR="$(cfg_value UNIT_DIR /etc/systemd/system)"
     VHOST_DIR="$(cfg_value VHOST_DIR /etc/nginx/sites-enabled)"
-    STAGE_DIR="$(cfg_value STAGE_DIR "/root/${NAME}-deploy")"
+    STAGE_DIR="$(cfg_value STAGE_DIR "/home/${SSH_USER}/${NAME}-deploy")"
     check_paths
     PORT="${MANAGE_LISTEN##*:}"
 }
@@ -174,7 +176,7 @@ build() {
 
 print_plan() {
     rev="$(git -C "${ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')@$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo '?')"
-    say "plan for ${RELEASE_HOST} from ${rev}:"
+    say "plan for ${SSH_USER}@${RELEASE_HOST} (sudo -n per step) from ${rev}:"
     printf '    preflight  %s free or held by %s MainPID; %s agrees; no UMBREE_MANAGE_TRUSTED_PROXY; %s writable by %s\n' "${PORT}" "${UNIT}" "${MANAGE_ENV_FILE}" "${STATIC_DIR}" "${SERVICE_USER}"
     printf '    binary     %s/%s  (previous kept in %s as .prev)\n' "${MANAGE_BIN_DIR}" "${NAME}" "${STAGE_DIR}"
     printf '    units      %s/{%s}  (daemon-reload, enable and restart %s; the retain timer is not enabled)\n' "${UNIT_DIR}" "$(printf '%s' "${UNITS}" | tr ' ' ',')" "${UNIT}"
@@ -184,18 +186,19 @@ print_plan() {
     for u in ${UNITS}; do diff -u -L /dev/null -L "${UNIT_DIR}/${u}" /dev/null "${OUT}/${u}" || true; done
 }
 
-remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "${RELEASE_HOST}" "$1"; }
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_USER}@${RELEASE_HOST}" "$1"; }
 
 preflight_body() {
     cat <<'BODY'
-[ -f "$env" ] || { echo "refuse: no env file $env on the host"; exit 1; }
-l=$(grep -E '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_LISTEN=' "$env" | tail -n1 | sed -e 's/^.*UMBREE_MANAGE_LISTEN=//' -e 's/["[:space:]]//g' | tr -d "'")
+envc=$(sudo -n cat "$env") || { echo "refuse: step 'read env file': sudo -n cat $env failed — no such file, or no sudoers rule for it"; exit 1; }
+l=$(printf '%s\n' "$envc" | grep -E '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_LISTEN=' | tail -n1 | sed -e 's/^.*UMBREE_MANAGE_LISTEN=//' -e 's/["[:space:]]//g' | tr -d "'")
 [ "$l" = "$listen" ] || { echo "refuse: UMBREE_MANAGE_LISTEN in $env is '$l', the deploy and the vhost use $listen"; exit 1; }
-if grep -qE '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_TRUSTED_PROXY=' "$env"; then
+if printf '%s\n' "$envc" | grep -qE '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_TRUSTED_PROXY='; then
   echo "refuse: $env sets UMBREE_MANAGE_TRUSTED_PROXY, and this edge sends no X-Forwarded-For"; exit 1
 fi
-sudo -u "$user" test -w "$static" || { echo "refuse: $static is not writable by $user — promote could not republish"; exit 1; }
-held=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -v '^State' || true)
+sudo -n -u "$user" test -w "$static" || { echo "refuse: step 'static dir check': sudo -n -u $user test -w $static failed — not writable by $user (promote could not republish), or no sudoers rule"; exit 1; }
+ssout=$(sudo -n ss -ltnpH "sport = :$port") || { echo "refuse: step 'port check': sudo -n ss -ltnpH failed — no sudoers rule for it"; exit 1; }
+held=$(printf '%s\n' "$ssout" | grep -v '^State' | grep . || true)
 if [ -n "$held" ]; then
   main=$(systemctl show -p MainPID --value "$unit" 2>/dev/null || echo 0)
   pids=$(printf '%s\n' "$held" | grep -oE 'pid=[0-9]+' | sort -u)
@@ -223,11 +226,11 @@ $(preflight_body)" || fail "preflight refused on ${RELEASE_HOST} — nothing was
 }
 
 stage() {
-    say "copying to ${RELEASE_HOST}:${STAGE_DIR}/"
-    remote "install -d -m 0700 '${STAGE_DIR}'" || fail "could not create ${STAGE_DIR} on ${RELEASE_HOST}"
-    scp -q "${OUT}/${NAME}" "${RELEASE_HOST}:${STAGE_DIR}/${NAME}.new" || fail "scp of the binary failed"
-    for u in ${UNITS}; do scp -q "${OUT}/${u}" "${RELEASE_HOST}:${STAGE_DIR}/${u}.new" || fail "scp of ${u} failed"; done
-    [ "${SKIP_VHOST}" = 1 ] || scp -q "${OUT}/${VHOST_NAME}" "${RELEASE_HOST}:${STAGE_DIR}/${VHOST_NAME}.new" || fail "scp of the vhost failed"
+    say "copying to ${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/"
+    remote "install -d -m 0700 '${STAGE_DIR}'" || fail "could not create ${STAGE_DIR} on ${RELEASE_HOST} as ${SSH_USER}"
+    scp -q "${OUT}/${NAME}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${NAME}.new" || fail "scp of the binary failed"
+    for u in ${UNITS}; do scp -q "${OUT}/${u}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${u}.new" || fail "scp of ${u} failed"; done
+    [ "${SKIP_VHOST}" = 1 ] || scp -q "${OUT}/${VHOST_NAME}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${VHOST_NAME}.new" || fail "scp of the vhost failed"
 }
 
 pairs() {
@@ -239,14 +242,16 @@ pairs() {
 restore_script() {
     printf 'restore() {\n'
     pairs | while read -r f dst mode; do
-        printf "  if [ -f '%s/%s.prev' ]; then install -m %s -o root -g root '%s/%s.prev' '%s' || true\n" "${STAGE_DIR}" "${f}" "${mode}" "${STAGE_DIR}" "${f}" "${dst}"
-        printf "  elif [ -f '%s/%s.absent' ]; then rm -f '%s'; fi\n" "${STAGE_DIR}" "${f}" "${dst}"
+        printf "  if [ -f '%s/%s.prev' ]; then sudo -n install -m %s -o root -g root '%s/%s.prev' '%s' || true\n" "${STAGE_DIR}" "${f}" "${mode}" "${STAGE_DIR}" "${f}" "${dst}"
+        printf "  elif [ -f '%s/%s.absent' ]; then sudo -n rm -f '%s' || true; fi\n" "${STAGE_DIR}" "${f}" "${dst}"
     done
-    printf "  [ -f '%s/%s.absent' ] && { systemctl stop %s; systemctl disable %s; } >/dev/null 2>&1\n" "${STAGE_DIR}" "${UNIT}" "${UNIT}" "${UNIT}"
-    printf '  systemctl daemon-reload || true\n'
-    printf "  [ -f '%s/%s' ] && systemctl restart %s || true\n" "${MANAGE_BIN_DIR}" "${NAME}" "${UNIT}"
-    printf '  nginx -t >/dev/null 2>&1 && systemctl reload nginx || true\n}\n'
+    printf "  [ -f '%s/%s.absent' ] && { sudo -n systemctl stop %s; sudo -n systemctl disable %s; } >/dev/null 2>&1\n" "${STAGE_DIR}" "${UNIT}" "${UNIT}" "${UNIT}"
+    printf '  sudo -n systemctl daemon-reload || true\n'
+    printf "  [ -f '%s/%s' ] && sudo -n systemctl restart %s || true\n" "${MANAGE_BIN_DIR}" "${NAME}" "${UNIT}"
+    printf '  sudo -n nginx -t >/dev/null 2>&1 && sudo -n systemctl reload nginx || true\n}\n'
 }
+
+step() { printf "  %s || { echo \"step '%s': %s failed\"; return 1; }\n" "$2" "$1" "$2"; }
 
 install_script() {
     printf "echo '%s  %s/%s.new' | sha256sum -c - >/dev/null || { echo 'checksum mismatch after copy'; exit 1; }\n" "${SUM}" "${STAGE_DIR}" "${NAME}"
@@ -256,13 +261,14 @@ install_script() {
     done
     printf 'apply() {\n'
     pairs | while read -r f dst mode; do
-        printf "  install -m %s -o root -g root '%s/%s.new' '%s' || return 1\n" "${mode}" "${STAGE_DIR}" "${f}" "${dst}"
+        step "install ${f}" "sudo -n install -m ${mode} -o root -g root '${STAGE_DIR}/${f}.new' '${dst}'"
     done
-    printf '  nginx -t >/dev/null 2>&1 || { nginx -t 2>&1 | tail -n 3; echo "nginx -t rejected the new config"; return 1; }\n'
-    printf '  systemctl daemon-reload || return 1\n'
-    printf '  systemctl enable %s || return 1\n' "${UNIT}"
-    printf '  systemctl restart %s || return 1\n' "${UNIT}"
-    printf '  systemctl reload nginx || return 1\n}\n'
+    printf '  sudo -n nginx -t >/dev/null 2>&1 || { sudo -n nginx -t 2>&1 | tail -n 3; echo "step '"'"'nginx -t'"'"': sudo -n nginx -t rejected the new config"; return 1; }\n'
+    step daemon-reload "sudo -n systemctl daemon-reload"
+    step enable "sudo -n systemctl enable ${UNIT}"
+    step restart "sudo -n systemctl restart ${UNIT}"
+    step "nginx reload" "sudo -n systemctl reload nginx"
+    printf '}\n'
     printf "apply || { restore; echo 'install failed — previous copies restored, new-only files removed'; exit 1; }\n"
 }
 
@@ -287,7 +293,7 @@ verify || { restore; echo 'verify failed — previous copies restored, new-only 
 }
 
 rollback() {
-    say "rolling back on ${RELEASE_HOST} from the .prev copies in ${STAGE_DIR}"
+    say "rolling back on ${SSH_USER}@${RELEASE_HOST} from the .prev copies in ${STAGE_DIR}"
     remote "set -e
 [ -f '${STAGE_DIR}/${NAME}.prev' ] || { echo 'no ${STAGE_DIR}/${NAME}.prev to roll back to'; exit 1; }
 $(restore_script)
