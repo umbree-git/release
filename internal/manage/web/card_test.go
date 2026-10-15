@@ -26,15 +26,19 @@ var (
 
 func card(t *testing.T, body string, id int64) (string, string) {
 	t.Helper()
-	m := regexp.MustCompile(fmt.Sprintf(`(?s)<section class="([^"]*)" id="row-%d">(.*?)</section>`, id)).FindStringSubmatch(body)
+	m := cardRe(id).FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("no card for row %d", id)
 	}
 	return m[1], m[2]
 }
 
+func cardRe(id int64) *regexp.Regexp {
+	return regexp.MustCompile(fmt.Sprintf(`(?s)<section class="([^"]*)" id="row-%d">(.*?)</section>`, id))
+}
+
 func hasCard(body string, id int64) bool {
-	return strings.Contains(body, fmt.Sprintf(`" id="row-%d">`, id)) && strings.Contains(body, `<section class="card`)
+	return cardRe(id).MatchString(body)
 }
 
 func artifactsOf(t *testing.T, rv *store.ReleaseVersion) []register.Artifact {
@@ -204,7 +208,7 @@ func TestCardFormsUnchanged(t *testing.T) {
 	b := c.signedIn("ops")
 	body := b.get("/manage/production/umbree").body
 	forms := map[int64]string{
-		c.rows["new"]: fmt.Sprintf("<form class=\"act\" method=\"post\" action=\"/manage/releases/%d/promote\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"%s\">\n      <button class=\"btn primary\" type=\"submit\">Promote 4.4.4</button>\n    </form>", c.rows["new"], b.csrf()),
+		c.rows["new"]:     fmt.Sprintf("<form class=\"act\" method=\"post\" action=\"/manage/releases/%d/promote\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"%s\">\n      <button class=\"btn primary\" type=\"submit\">Promote 4.4.4</button>\n    </form>", c.rows["new"], b.csrf()),
 		c.rows["current"]: fmt.Sprintf("<form class=\"act\" method=\"post\" action=\"/manage/releases/%d/yank\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"%s\">\n      <button class=\"btn danger outline\" type=\"submit\">Yank 3.3.3</button>\n    </form>", c.rows["current"], b.csrf()),
 	}
 	for id, form := range forms {
