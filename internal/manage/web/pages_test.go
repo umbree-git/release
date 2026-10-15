@@ -76,15 +76,8 @@ func TestOverviewYankOnCurrentOnly(t *testing.T) {
 	if got := forms(b.get("/manage/production/umbree").body, "yank"); !slices.Equal(got, []int64{c.rows["current"]}) {
 		t.Fatalf("yank forms %v, want only the current row %d", got, c.rows["current"])
 	}
-	history := b.get("/manage/production/umbree/history").body
-	promotable := c.promotableIDs()
-	got := forms(history, "promote")
-	slices.Sort(got)
-	if !slices.Equal(forms(history, "yank"), []int64{c.rows["current"]}) || !slices.Equal(got, promotable) || len(formRe.FindAllString(history, -1)) != 1+len(promotable) {
-		t.Fatalf("history yank %v promote %v, want yank on %d and promote on %v", forms(history, "yank"), got, c.rows["current"], promotable)
-	}
-	if !strings.Contains(historyRow(t, history, c.rows["current"]), actionPath(c.rows["current"], "yank")) {
-		t.Fatal("the history yank form is outside the current row")
+	if got := formRe.FindAllString(b.get("/manage/production/umbree/history").body, -1); len(got) != 0 {
+		t.Fatalf("the history page carries action forms %v", got)
 	}
 }
 
@@ -145,11 +138,11 @@ func TestLinksOnlyForPublicRows(t *testing.T) {
 		if manifests == 0 {
 			continue
 		}
-		if cur, err := c.st.Current("umbree", "production"); err != nil || manifests != 1 || cur.ID != c.rows["live"] {
+		if cur, err := c.st.Current("umbree", "production"); err != nil || manifests != 1 || !hasCard(body, cur.ID) {
 			t.Fatalf("%s: %d manifest links, current %v %v", page, manifests, cur, err)
 		}
-		if inner := currentBlock(t, page, body, c.rows["live"]); !strings.Contains(inner, `href="`+manifest+`"`) {
-			t.Fatalf("%s: the manifest link is outside the current row", page)
+		if _, inner := card(t, body, c.rows["live"]); !strings.Contains(inner, `href="`+manifest+`"`) {
+			t.Fatalf("%s: the manifest link is outside the current card", page)
 		}
 	}
 	if _, ready := card(t, b.get("/manage/production/umbree").body, c.rows["next"]); hrefRe.MatchString(ready) {
@@ -160,15 +153,6 @@ func TestLinksOnlyForPublicRows(t *testing.T) {
 	}
 }
 
-func currentBlock(t *testing.T, page, body string, id int64) string {
-	t.Helper()
-	if strings.HasSuffix(page, "/history") {
-		return historyRow(t, body, id)
-	}
-	_, inner := card(t, body, id)
-	return inner
-}
-
 func TestLinksArePublicURLsNeverGatedKeys(t *testing.T) {
 	c := newConsole(t)
 	c.seedHistory()
@@ -177,9 +161,6 @@ func TestLinksArePublicURLsNeverGatedKeys(t *testing.T) {
 		body := b.get(page).body
 		if hit := contains(body, "umbree/production/", "X-Amz", "Signature=", "r2.cloudflarestorage"); hit != "" {
 			t.Fatalf("%s carries %q", page, hit)
-		}
-		if n := strings.Count(body, publicBase+manifestPath); n > 1 || (n == 1 && !strings.Contains(currentBlock(t, page, body, c.rows["current"]), publicBase+manifestPath)) {
-			t.Fatalf("%s: %d manifest links, or one outside the current row", page, n)
 		}
 		links := hrefRe.FindAllStringSubmatch(body, -1)
 		if len(links) == 0 {

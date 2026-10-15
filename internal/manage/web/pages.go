@@ -112,27 +112,11 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, sess *sto
 	}
 	page := historyPage{Channel: channel, Component: comp}
 	for _, rv := range rows {
-		v, err := s.historyRow(rv)
-		if err != nil {
-			s.pageError(w, r, err)
-			return
-		}
-		page.Rows = append(page.Rows, v)
+		page.Rows = append(page.Rows, s.view(rv))
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" history · "+channel, channel, comp)
 	page.Tabs = pageTabs(channel, comp, true)
 	s.render(w, r, "history", http.StatusOK, page)
-}
-
-func (s *Server) historyRow(rv store.ReleaseVersion) (rowView, error) {
-	v := s.view(rv)
-	v.CanYank = rv.State == catalog.StatePublic && rv.IsCurrent
-	if rv.State != catalog.StateStaged {
-		return v, nil
-	}
-	ok, err := s.cfg.Store.IsPromotable(rv)
-	v.CanPromote = ok
-	return v, err
 }
 
 func (s *Server) pageError(w http.ResponseWriter, r *http.Request, err error) {
