@@ -103,11 +103,16 @@ func (p *Publisher) render(component string, m manifest.Manifest) ([]file, error
 	if err != nil {
 		return nil, err
 	}
+	icon, err := fs.ReadFile(p.Assets, FaviconPath)
+	if err != nil {
+		return nil, err
+	}
 	return []file{
 		{rel: component + "/install.sh", body: install, mode: 0o755},
 		{rel: component + "/version.js", body: js, mode: 0o644},
 		{rel: "umbree-release.pub", body: pub, mode: 0o644},
 		{rel: "index.html", body: site, mode: 0o644},
+		{rel: "favicon.svg", body: icon, mode: 0o644},
 	}, nil
 }
 

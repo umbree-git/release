@@ -85,6 +85,7 @@ again on a by-hand republish:
 ```
 <STATIC_DIR>/
 ├── index.html            # site/index.html
+├── favicon.svg           # site/favicon.svg
 ├── umbree-release.pub    # signing public key
 ├── umbree/
 │   ├── install.sh         # the bootstrap, with the promoted stamp as its floor

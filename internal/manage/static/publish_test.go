@@ -230,7 +230,7 @@ func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	if lastPut < 0 || lastPut > firstRename {
 		t.Fatalf("a rename precedes an upload, so a failed upload could follow a replaced file: %+v", batch)
 	}
-	want := []string{"/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh", "/srv/static/umbree/version.js"}
+	want := []string{"/srv/static/favicon.svg", "/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh", "/srv/static/umbree/version.js"}
 	keys := slices.Sorted(maps.Keys(final))
 	if !slices.Equal(keys, want) {
 		t.Fatalf("renamed into place %v, want %v", keys, want)

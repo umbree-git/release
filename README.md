@@ -316,7 +316,8 @@ That prints the admin's TOTP enrolment once. `admin list`, `admin remove` and
 reference.
 
 Promote and yank end by republishing the static surface to the service's
-`--static-dest`. A failure there is streamed and logged and never undoes the
+`--static-dest` (`index.html`, `favicon.svg`, `umbree-release.pub` and each
+component's `install.sh` and `version.js`). A failure there is streamed and logged and never undoes the
 promote or yank, whose manifest is already live; the overview's **Republish
 static** control (session, CSRF and a confirm, like the others) or
 `umbree-release-manage publish-static <comp>` on the host does it again from

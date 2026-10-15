@@ -1,16 +1,18 @@
 package web_test
 
 import (
+	"io/fs"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/umbree-git/release"
 	"github.com/umbree-git/release/internal/manage/auth"
 )
 
-const wantCSP = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+const wantCSP = "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 var (
 	headerRe = regexp.MustCompile(`(?s)<header class="top">(.*?)</header>`)
@@ -110,6 +112,38 @@ func TestSiteCSSMonoStackAndWrap(t *testing.T) {
 		i := strings.Index(r.body, sel)
 		if i < 0 || !strings.Contains(r.body[i:i+strings.Index(r.body[i:], "}")], mono) {
 			t.Fatalf("%s lacks the mono stack", sel)
+		}
+	}
+}
+
+func TestConsoleServesFavicon(t *testing.T) {
+	c := newConsole(t)
+	r := c.browser().get("/manage/static/favicon.svg")
+	if r.status != http.StatusOK {
+		t.Fatalf("HTTP %d", r.status)
+	}
+	if ct := r.header.Get("Content-Type"); ct != "image/svg+xml" {
+		t.Fatalf("Content-Type %q", ct)
+	}
+	if r.header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers %v", r.header)
+	}
+	want, err := fs.ReadFile(release.Assets, "site/favicon.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.body != string(want) {
+		t.Fatal("the served favicon is not site/favicon.svg")
+	}
+}
+
+func TestLayoutLinksFavicon(t *testing.T) {
+	c := newConsole(t)
+	b := c.signedIn("ops")
+	const link = `<link rel="icon" type="image/svg+xml" href="/manage/static/favicon.svg">`
+	for name, r := range map[string]reply{"login": c.browser().get("/manage/login"), "index": b.get("/manage/production/umbree")} {
+		if !strings.Contains(r.body, link) {
+			t.Errorf("%s page does not link the favicon", name)
 		}
 	}
 }

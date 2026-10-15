@@ -2,6 +2,8 @@ package release_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -52,5 +54,28 @@ func TestAssetsEmbedTemplateModulesPubkeySite(t *testing.T) {
 	}
 	if !slices.Equal(onDisk, embedded) {
 		t.Fatalf("embedded modules %v, the tree has %v", embedded, onDisk)
+	}
+}
+
+const faviconSHA256 = "55182d80a7f65f4593f2ba10dbce607b4a6501e1b20b361edf2bfae59997fbf1"
+
+func TestFaviconMatchesWebCopy(t *testing.T) {
+	assertEmbeddedAsOnDisk(t, "site/favicon.svg")
+	body, err := fs.ReadFile(release.Assets, "site/favicon.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(body)); got != faviconSHA256 {
+		t.Fatalf("site/favicon.svg sha256 %s, want %s", got, faviconSHA256)
+	}
+}
+
+func TestSiteLinksFavicon(t *testing.T) {
+	body, err := os.ReadFile("site/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`<link rel="icon" type="image/svg+xml" href="/favicon.svg">`)) {
+		t.Fatal("site/index.html does not link /favicon.svg")
 	}
 }
