@@ -129,3 +129,24 @@ func TestRenderedVhostProxiesVersionJS(t *testing.T) {
 		t.Fatalf("%d version.js locations, want 2", n)
 	}
 }
+
+func TestRenderedVhostProxiesVersionJSON(t *testing.T) {
+	f := newFixture(t)
+	f.mustRun("install-binary")
+	f.mustRun("render")
+	vhost := f.read(filepath.Join(f.h.vhostDir, vhostName))
+	for _, comp := range []string{"umbree", "umbreed"} {
+		head := "location = /" + comp + "/version.json {"
+		at := strings.Index(vhost, head)
+		if at < 0 || strings.Count(vhost, head) != 1 {
+			t.Fatalf("%s: at %d", head, at)
+		}
+		block := vhost[at : at+strings.Index(vhost[at:], "}")]
+		if !strings.Contains(block, "proxy_pass         http://umbree_manage;") || !strings.Contains(block, "proxy_set_header   Host $host;") {
+			t.Fatalf("%s does not proxy to the service:\n%s", head, block)
+		}
+	}
+	if n := strings.Count(vhost, "/version.json {"); n != 2 {
+		t.Fatalf("%d version.json locations, want 2", n)
+	}
+}

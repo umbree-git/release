@@ -93,9 +93,11 @@ again on a by-hand republish:
     └── install.sh
 ```
 
-`<comp>/version.js` is not in this tree: the vhost proxies
-`/umbree/version.js` and `/umbreed/version.js` to the manage service, which
-answers from the catalog. A `version.js` left here by an older publisher is
+`<comp>/version.js` and `<comp>/version.json` are not in this tree: the vhost
+proxies `/umbree/version.js`, `/umbreed/version.js`, `/umbree/version.json` and
+`/umbreed/version.json` to the manage service, which answers from the catalog.
+`version.json` is the JSONP's inner object as plain JSON, read by the cli's
+`update` and the web server. A `version.js` left here by an older publisher is
 never served.
 
 Nothing else runs on the host as part of publishing: no build and no
@@ -112,6 +114,8 @@ curl -fsSI https://release.umbree.org/                              # 200, text/
 curl -fsSI https://release.umbree.org/umbree/install.sh             # 200, text/x-shellscript
 curl -fsS  https://release.umbree.org/umbree/version.js              # live JSONP, "channel":"production"
 curl -fsSI https://release.umbree.org/umbreed/version.js            # 200, application/javascript, max-age=300
+curl -fsS  https://release.umbree.org/umbree/version.json            # live JSON, "channel":"production"
+curl -fsSI https://release.umbree.org/umbreed/version.json          # 200, application/json, no-store, cf-cache-status DYNAMIC or BYPASS
 curl -fsSI https://release.umbree.org/umbree-release.pub            # 200, text/plain
 ```
 
@@ -126,18 +130,22 @@ curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.
 `umbree-release-manage serve` runs the catalog intake and the operator console.
 It runs on `<RELEASE_HOST>`, beside the static surface, and binds loopback
 `127.0.0.1:8788`. The vhost proxies exactly these to it — `/manage/`,
-`/api/v1/releases/`, `/healthz`, `/umbree/version.js` and `/umbreed/version.js`
-— and serves everything else from `<STATIC_DIR>`. The two `version.js`
+`/api/v1/releases/`, `/healthz`, `/umbree/version.js`, `/umbreed/version.js`,
+`/umbree/version.json` and `/umbreed/version.json` — seven proxied paths — and
+serves everything else from `<STATIC_DIR>`. The two `version.js`
 locations are exact matches ahead of the `.js` regex; the service sends
 `Cache-Control: public, max-age=300`. Cloudflare's Browser Cache TTL for the
 zone must be "Respect existing headers", or the edge overrides that with its
-own TTL (the page's hourly cache-buster still bounds the staleness). Its public address reaches the cut only as the sealed
+own TTL (the page's hourly cache-buster still bounds the staleness). The two
+`version.json` locations send `Cache-Control: no-store`, which Cloudflare treats
+as uncacheable, so `version.json` is never edge-cached; `version.js` still
+depends on the zone setting above. Its public address reaches the cut only as the sealed
 `UMBREE_MANAGE_URL`, the origin `https://release.umbree.org` (the client appends
 `/api/v1/releases/…`; a value ending in `/manage` registers at a 404).
 
 The session cookies are `Secure` and scoped to `/manage`, so the console works
 only over HTTPS. The only unauthenticated routes are `/healthz`, the intake
-under `/api/v1/releases/` and the two read-only `version.js` badges, which name
+under `/api/v1/releases/` and the four read-only `version.js` and `version.json` badges, which name
 only the current public release. There are no public pages: the public
 manifest is the only machine pointer for installers. The vhost sends no `X-Forwarded-For` and
 has no `real_ip`; the service is run without `--trusted-proxy`, so every client
@@ -219,8 +227,10 @@ the pinned Go and print its sha256; lint the units and vhost on the workstation
 anything is copied with the verb named; `sudo -n <HELPER> preflight`; copy the
 binary — the only file sent — to `STAGE_DIR/umbree-release-manage.new`; then
 `sudo -n <HELPER> install-binary`, `render`, `activate`; verify `is-active`,
-`/healthz` and `/manage/login` 200 as `<SSH_USER>`. A failed `render`,
-`activate` or verify runs `sudo -n <HELPER> restore`; a refused `install-binary`
+`/healthz` and `/manage/login` 200 as `<SSH_USER>`, then `/umbree/version.json`
+200 naming `umbree` (deploy only; `--rollback` skips this probe, since a rollback
+may restore a build without the route). A failed `render`, `activate` or verify
+runs `sudo -n <HELPER> restore`; a refused `install-binary`
 has changed nothing.
 
 **When the vhost template changes, the order is fixed:** rebuild the helper
@@ -230,7 +240,8 @@ reinstalled on the host with its sums verified, and only then run
 template copy, so a deploy run first installs the new service against the old
 vhost: `/<comp>/version.js` is still served from the frozen static file, and
 since promotes no longer write it, the badge goes stale after the next promote
-with no warning anywhere.
+with no warning anywhere. `/<comp>/version.json` 404s against the old vhost; the
+deploy's `version.json` probe catches that and restores.
 
 ### The host helper
 

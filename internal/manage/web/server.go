@@ -84,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", handleHealth)
 	for _, comp := range catalog.Components {
 		mux.HandleFunc("GET /"+comp+"/version.js", s.versionJS(comp))
+		mux.HandleFunc("GET /"+comp+"/version.json", s.versionJSON(comp))
 	}
 	mux.HandleFunc("GET /manage/static/site.css", staticFile("static/site.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /manage/static/console.js", staticFile("static/console.js", "application/javascript; charset=utf-8"))

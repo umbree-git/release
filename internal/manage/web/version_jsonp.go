@@ -18,19 +18,21 @@ type versionPayload struct {
 	Stamp     *string `json:"stamp"`
 }
 
+func (s *Server) currentVersion(component string) ([]byte, error) {
+	payload := versionPayload{Component: component, Channel: catalog.ChannelProduction}
+	current, err := s.cfg.Store.Current(component, catalog.ChannelProduction)
+	switch {
+	case err == nil:
+		payload.Version, payload.Stamp = &current.Version, &current.Stamp
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, err
+	}
+	return json.Marshal(payload)
+}
+
 func (s *Server) versionJS(component string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		payload := versionPayload{Component: component, Channel: catalog.ChannelProduction}
-		current, err := s.cfg.Store.Current(component, catalog.ChannelProduction)
-		switch {
-		case err == nil:
-			payload.Version, payload.Stamp = &current.Version, &current.Stamp
-		case !errors.Is(err, store.ErrNotFound):
-			s.cfg.Log.Error("version.js", "err", err, "component", component)
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		body, err := json.Marshal(payload)
+		body, err := s.currentVersion(component)
 		if err != nil {
 			s.cfg.Log.Error("version.js", "err", err, "component", component)
 			w.WriteHeader(http.StatusServiceUnavailable)

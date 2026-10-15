@@ -137,7 +137,13 @@ reinstalled on the host with its sums verified, and only then run
 template copy, so a deploy run first installs the new service against the old
 vhost: `/<comp>/version.js` is still served from the frozen static file, and
 since promotes no longer write it, the badge goes stale after the next promote
-with no warning anywhere.
+with no warning anywhere. `/<comp>/version.json` 404s against the old vhost;
+the deploy's `version.json` probe now catches that and restores, so a deploy
+against a stale vhost fails loudly.
+
+**After the cli cut that reads `version.json`, never roll the manage service
+back past the build that added the route** (`--rollback` does not probe it): a
+service without `version.json` makes `umbree update` fail on every new cli.
 
 ## After a promote: record the floor
 

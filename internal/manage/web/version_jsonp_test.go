@@ -36,7 +36,7 @@ func TestVersionJSLive(t *testing.T) {
 			t.Fatalf("a staged row %s is named: %s", rv.Stamp, r.body)
 		}
 	}
-	for _, p := range []string{"/nope/version.js", "/beta/version.js", "/umbree/version.json"} {
+	for _, p := range []string{"/nope/version.js", "/beta/version.js", "/umbree/version.jsonp"} {
 		if r := c.browser().get(p); r.status != http.StatusNotFound {
 			t.Fatalf("%s: HTTP %d", p, r.status)
 		}
