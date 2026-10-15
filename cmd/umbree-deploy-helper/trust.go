@@ -33,17 +33,28 @@ func (h *host) checkTrusted(p string) error {
 	return nil
 }
 
+func within(base, p string) bool {
+	rel, err := filepath.Rel(filepath.Clean(base), p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+func (h *host) checkInTree(p string) error {
+	if !within(h.root, p) {
+		return fmt.Errorf("%s is outside %s", p, h.root)
+	}
+	return h.checkChain(p)
+}
+
 func (h *host) checkChain(p string) error {
-	root := filepath.Clean(h.root)
-	rel, err := filepath.Rel(root, p)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
-		return fmt.Errorf("%s is outside %s", p, root)
+	top := filepath.Clean(h.top)
+	if !within(top, p) {
+		return fmt.Errorf("%s is outside %s", p, top)
 	}
 	for cur := p; ; cur = filepath.Dir(cur) {
 		if err := h.checkTrusted(cur); err != nil {
 			return err
 		}
-		if cur == root {
+		if cur == top || cur == filepath.Dir(cur) {
 			return nil
 		}
 	}
@@ -51,7 +62,7 @@ func (h *host) checkChain(p string) error {
 
 func (h *host) loadTrusted() (*config, error) {
 	for _, rel := range []string{helperRel, confRel, templateRel, varRel} {
-		if err := h.checkChain(h.path(rel)); err != nil {
+		if err := h.checkInTree(h.path(rel)); err != nil {
 			return nil, err
 		}
 	}
@@ -64,5 +75,14 @@ func (h *host) loadTrusted() (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseConfig(data)
+	cfg, err := parseConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	for k, p := range cfg.tools {
+		if err := h.checkChain(p); err != nil {
+			return nil, fmt.Errorf("%s: %w", k, err)
+		}
+	}
+	return cfg, nil
 }

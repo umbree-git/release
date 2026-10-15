@@ -9,20 +9,53 @@ import (
 	"strings"
 )
 
-var unitKeys = map[string]bool{
-	"After": true, "CapabilityBoundingSet": true, "Description": true, "EnvironmentFile": true,
-	"ExecStart": true, "Group": true, "LockPersonality": true, "MemoryDenyWriteExecute": true,
-	"NoNewPrivileges": true, "OnCalendar": true, "Persistent": true, "PrivateDevices": true,
-	"PrivateTmp": true, "ProtectControlGroups": true, "ProtectHome": true,
-	"ProtectKernelModules": true, "ProtectKernelTunables": true, "ProtectSystem": true,
-	"RandomizedDelaySec": true, "ReadWritePaths": true, "Restart": true, "RestartSec": true,
-	"RestrictAddressFamilies": true, "RestrictNamespaces": true, "SystemCallArchitectures": true,
-	"Type": true, "UMask": true, "User": true, "WantedBy": true, "Wants": true,
+func keySet(keys ...string) map[string]bool {
+	out := map[string]bool{}
+	for _, k := range keys {
+		out[k] = true
+	}
+	return out
+}
+
+var serviceKeys = []string{
+	"CapabilityBoundingSet", "Description", "EnvironmentFile", "ExecStart", "Group", "LockPersonality",
+	"MemoryDenyWriteExecute", "NoNewPrivileges", "PrivateDevices", "PrivateTmp", "ProtectControlGroups",
+	"ProtectHome", "ProtectKernelModules", "ProtectKernelTunables", "ProtectSystem", "ReadWritePaths",
+	"RestrictAddressFamilies", "RestrictNamespaces", "SystemCallArchitectures", "Type", "UMask", "User",
+	"After", "Wants",
+}
+
+var unitKeys = map[string]map[string]bool{
+	serviceUnit:                            keySet(append(serviceKeys, "Restart", "RestartSec", "WantedBy")...),
+	"umbree-release-manage-retain.service": keySet(serviceKeys...),
+	"umbree-release-manage-retain.timer":   keySet("Description", "OnCalendar", "RandomizedDelaySec", "Persistent", "WantedBy"),
+}
+
+func templateKeys(text string) map[string]bool {
+	out := map[string]bool{}
+	sc := bufio.NewScanner(strings.NewReader(text))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if k, _, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, ";") {
+			out[strings.TrimSpace(k)] = true
+		}
+	}
+	return out
+}
+
+func allowedKeys(name, template string) map[string]bool {
+	out := map[string]bool{}
+	for k := range templateKeys(template) {
+		if unitKeys[name][k] {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 var placeholder = regexp.MustCompile(`<[A-Za-z_]+>`)
 
-func checkUnit(name, text, serviceUser string) error {
+func checkUnit(name, text string, allowed map[string]bool, serviceUser string) error {
 	hasUser := false
 	sc := bufio.NewScanner(strings.NewReader(text))
 	for sc.Scan() {
@@ -32,7 +65,7 @@ func checkUnit(name, text, serviceUser string) error {
 		}
 		key, value, _ := strings.Cut(line, "=")
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		if err := checkDirective(name, key, value, serviceUser); err != nil {
+		if err := checkDirective(name, key, value, allowed, serviceUser); err != nil {
 			return err
 		}
 		hasUser = hasUser || key == "User"
@@ -46,12 +79,12 @@ func checkUnit(name, text, serviceUser string) error {
 	return nil
 }
 
-func checkDirective(name, key, value, serviceUser string) error {
+func checkDirective(name, key, value string, allowed map[string]bool, serviceUser string) error {
 	if key == "PermissionsStartOnly" {
 		return fmt.Errorf("%s sets PermissionsStartOnly", name)
 	}
-	if !unitKeys[key] {
-		return fmt.Errorf("%s sets %s=, which the templates do not use", name, key)
+	if !allowed[key] {
+		return fmt.Errorf("%s sets %s=, which its template set does not allow", name, key)
 	}
 	if (key == "User" || key == "Group") && (value != serviceUser || value == "" || value == "root" || value == "0") {
 		return fmt.Errorf("%s renders %s=%s, want %s", name, key, value, serviceUser)

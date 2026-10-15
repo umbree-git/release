@@ -19,16 +19,16 @@ func (h *host) template(name string) (string, error) {
 }
 
 func (h *host) renderUnit(name string, cfg *config) (string, error) {
-	text, err := h.template(name)
+	tpl, err := h.template(name)
 	if err != nil {
 		return "", err
 	}
-	text = strings.NewReplacer(
+	text := strings.NewReplacer(
 		"<SERVICE_USER>", cfg.serviceUser, "<MANAGE_ENV_FILE>", cfg.envFile,
 		"<MANAGE_BIN_DIR>", h.binDir(), "<MANAGE_DATA_DIR>", cfg.dataDir,
 		"<STATIC_DIR>", cfg.staticDir,
-	).Replace(text)
-	return text, checkUnit(name, text, cfg.serviceUser)
+	).Replace(tpl)
+	return text, checkUnit(name, text, allowedKeys(name, tpl), cfg.serviceUser)
 }
 
 func (h *host) renderVhost(cfg *config) (string, error) {
@@ -68,28 +68,54 @@ func (h *host) renderAll(cfg *config) (map[string]string, error) {
 	return out, nil
 }
 
+func (h *host) writeChanged(rendered map[string]string) ([]artefact, error) {
+	var replaced []artefact
+	for _, a := range h.renderedArtefacts() {
+		if cur, err := os.ReadFile(a.dest()); err == nil && string(cur) == rendered[a.name] {
+			for _, kind := range []string{"prev", "absent"} {
+				if err := os.Remove(h.marker(a, kind)); err != nil && !os.IsNotExist(err) {
+					return replaced, err
+				}
+			}
+			h.say("%s unchanged", a.dest())
+			continue
+		}
+		replaced = append(replaced, a)
+		if err := writeAtomic(a.dir, a.name, []byte(rendered[a.name]), a.mode); err != nil {
+			return replaced, fmt.Errorf("write %s: %w", a.dest(), err)
+		}
+		h.say("%s replaced", a.dest())
+	}
+	return replaced, nil
+}
+
 func render(h *host, cfg *config) error {
 	rendered, err := h.renderAll(cfg)
 	if err != nil {
 		return err
 	}
-	arts := h.renderedArtefacts()
-	for _, a := range arts {
-		if err := writeAtomic(a.dir, a.name, []byte(rendered[a.name]), a.mode); err != nil {
-			return h.renderFailed(arts, fmt.Errorf("write %s: %w", a.dest(), err))
-		}
+	replaced, err := h.writeChanged(rendered)
+	if err == nil {
+		err = h.recordChanges(replaced)
 	}
-	if out, err := h.run("nginx", "-t"); err != nil {
-		return h.renderFailed(arts, fmt.Errorf("nginx -t: %v: %s", err, tail(out)))
+	if err != nil {
+		return h.renderFailed(replaced, err)
+	}
+	if len(replaced) == 0 {
+		h.ok("rendered output matches the installed units and vhost; nothing written")
+		return nil
+	}
+	if out, err := h.exec("NGINX", "-t"); err != nil {
+		return h.renderFailed(replaced, fmt.Errorf("nginx -t: %v: %s", err, tail(out)))
 	}
 	verify := []string{"verify"}
 	for _, u := range unitNames {
 		verify = append(verify, filepath.Join(h.unitDir, u))
 	}
-	if out, err := h.run("systemd-analyze", verify...); err != nil {
-		return h.renderFailed(arts, fmt.Errorf("systemd-analyze verify: %v: %s", err, tail(out)))
+	if out, err := h.exec("SYSTEMD_ANALYZE", verify...); err != nil {
+		return h.renderFailed(replaced, fmt.Errorf("systemd-analyze verify: %v: %s", err, tail(out)))
 	}
-	h.ok("rendered %s and %s", strings.Join(unitNames, ", "), vhostName)
+	h.ok("rendered %d changed file(s)", len(replaced))
 	return nil
 }
 

@@ -83,7 +83,7 @@ func checkStaticWritable(h *host, cfg *config) error {
 }
 
 func checkPort(h *host, cfg *config) error {
-	out, err := h.run("ss", "-ltnpH", "sport = :"+cfg.port)
+	out, err := h.exec("SS", "-ltnpH", "sport = :"+cfg.port)
 	if err != nil {
 		return fmt.Errorf("ss: %v: %s", err, tail(out))
 	}
@@ -95,7 +95,7 @@ func checkPort(h *host, cfg *config) error {
 		return nil
 	}
 	sort.Strings(pids)
-	mainOut, _ := h.run("systemctl", "show", "-p", "MainPID", "--value", serviceUnit)
+	mainOut, _ := h.exec("SYSTEMCTL", "show", "-p", "MainPID", "--value", serviceUnit)
 	main := strings.TrimSpace(string(mainOut))
 	if main != "" && main != "0" && pids[0] == main && pids[len(pids)-1] == main {
 		h.ok("port %s held by %s (MainPID %s, a redeploy)", cfg.port, serviceUnit, main)
@@ -105,7 +105,7 @@ func checkPort(h *host, cfg *config) error {
 }
 
 func warnOldSystemd(h *host) {
-	out, err := h.run("systemctl", "--version")
+	out, err := h.exec("SYSTEMCTL", "--version")
 	m := systemdVer.FindSubmatch(out)
 	if err != nil || m == nil {
 		h.warn("could not read the systemd version; ProtectSystem=strict and ReadWritePaths= may be ignored")

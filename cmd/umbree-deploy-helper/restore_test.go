@@ -45,6 +45,9 @@ func TestRestorePutsPreviousCopiesBack(t *testing.T) {
 
 func TestActivateRunsReloadEnableRestartNginxReload(t *testing.T) {
 	f := newFixture(t)
+	f.mustRun("install-binary")
+	f.mustRun("render")
+	f.calls = nil
 	f.mustRun("activate")
 	want := []string{"systemctl daemon-reload", "systemctl enable " + serviceUnit, "systemctl restart " + serviceUnit, "systemctl reload nginx"}
 	if len(f.calls) != len(want) {

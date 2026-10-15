@@ -30,6 +30,9 @@ func checkSource(st *syscall.Stat_t, deployUID int) error {
 	if int(st.Uid) != deployUID {
 		return fmt.Errorf("%s is owned by uid %d, not the deploy user (uid %d)", stagedName, st.Uid, deployUID)
 	}
+	if st.Size > maxBinarySize {
+		return fmt.Errorf("%s is %d bytes, larger than the %d-byte cap", stagedName, st.Size, maxBinarySize)
+	}
 	if st.Nlink != 1 {
 		return fmt.Errorf("%s has %d links, want 1", stagedName, st.Nlink)
 	}

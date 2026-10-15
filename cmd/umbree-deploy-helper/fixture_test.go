@@ -26,6 +26,9 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	base := t.TempDir()
+	if err := os.Chmod(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	f := &fixture{t: t, root: filepath.Join(base, "root"), stage: filepath.Join(base, "stage"), failOn: map[string]bool{}}
 	for _, d := range []string{"bin", "etc/manage/templates", "var/manage-deploy"} {
 		f.mkdir(filepath.Join(f.root, d), 0o755)
@@ -36,6 +39,10 @@ func newFixture(t *testing.T) *fixture {
 	f.mkdir(f.stage, 0o750)
 	f.mkdir(filepath.Join(base, "static"), 0o775)
 	f.write(filepath.Join(f.root, helperRel), "helper", 0o755)
+	f.mkdir(filepath.Join(base, "tools"), 0o755)
+	for _, t := range []string{"systemctl", "nginx", "ss", "systemd-analyze"} {
+		f.write(f.tool(base, t), "#!/bin/sh\necho \"$0 $*\" >> "+filepath.Join(base, "tools.log")+"\n", 0o755)
+	}
 	f.write(filepath.Join(base, "etc", "manage.env"), "UMBREE_MANAGE_LISTEN=127.0.0.1:8788\n", 0o640)
 	f.write(filepath.Join(f.root, confRel), f.conf(base), 0o644)
 	f.copyTemplates()
@@ -50,7 +57,7 @@ func newFixture(t *testing.T) *fixture {
 			}
 			return account{}, errors.New("no such user")
 		},
-		run: f.record, stdout: &f.out, stderr: &f.errOut,
+		run: f.record, stdout: &f.out, stderr: &f.errOut, top: base,
 	}
 	return f
 }
@@ -60,9 +67,15 @@ func (f *fixture) conf(base string) string {
 		"SERVICE_USER=umbree-release", "DEPLOY_USER=deployer",
 		"STAGE_DIR=" + f.stage, "MANAGE_DATA_DIR=" + filepath.Join(base, "data"),
 		"MANAGE_ENV_FILE=" + filepath.Join(base, "etc", "manage.env"),
-		"STATIC_DIR=" + filepath.Join(base, "static"), "MANAGE_LISTEN=127.0.0.1:8788", "",
+		"STATIC_DIR=" + filepath.Join(base, "static"), "MANAGE_LISTEN=127.0.0.1:8788",
+		"SYSTEMCTL=" + f.tool(base, "systemctl"), "NGINX=" + f.tool(base, "nginx"),
+		"SS=" + f.tool(base, "ss"), "SYSTEMD_ANALYZE=" + f.tool(base, "systemd-analyze"), "",
 	}, "\n")
 }
+
+func (f *fixture) tool(base, name string) string { return filepath.Join(base, "tools", name) }
+
+func (f *fixture) base() string { return filepath.Dir(f.root) }
 
 func (f *fixture) copyTemplates() {
 	src := map[string]string{vhostName: "../../ops/nginx/" + vhostName}
@@ -79,7 +92,7 @@ func (f *fixture) copyTemplates() {
 }
 
 func (f *fixture) record(name string, args ...string) ([]byte, error) {
-	call := strings.TrimSpace(name + " " + strings.Join(args, " "))
+	call := strings.TrimSpace(filepath.Base(name) + " " + strings.Join(args, " "))
 	f.calls = append(f.calls, call)
 	for key := range f.failOn {
 		if strings.HasPrefix(call, key) {

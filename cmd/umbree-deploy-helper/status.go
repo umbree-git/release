@@ -11,7 +11,7 @@ func status(h *host, _ *config) error {
 	} else {
 		h.say("%s absent", bin)
 	}
-	out, _ := h.run("systemctl", "is-active", serviceUnit)
+	out, _ := h.exec("SYSTEMCTL", "is-active", serviceUnit)
 	h.say("%s is %s", serviceUnit, strings.TrimSpace(string(out)))
 	for _, a := range h.allArtefacts() {
 		state := "no snapshot"

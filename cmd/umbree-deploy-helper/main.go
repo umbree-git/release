@@ -58,6 +58,7 @@ func run(h *host, args []string) int {
 	}
 	cfg, err := h.loadTrusted()
 	if err == nil {
+		h.tools = cfg.tools
 		err = verb(h, cfg)
 	}
 	if err != nil {

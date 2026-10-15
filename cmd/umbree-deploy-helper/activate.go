@@ -5,34 +5,37 @@ package main
 import "fmt"
 
 func activate(h *host, _ *config) error {
-	steps := [][]string{
-		{"systemctl", "daemon-reload"},
-		{"systemctl", "enable", serviceUnit},
-		{"systemctl", "restart", serviceUnit},
-		{"systemctl", "reload", "nginx"},
+	changed := h.renderChanges()
+	var steps [][]string
+	if changed["units"] {
+		steps = append(steps, []string{"SYSTEMCTL", "daemon-reload"})
+	}
+	steps = append(steps, []string{"SYSTEMCTL", "enable", serviceUnit}, []string{"SYSTEMCTL", "restart", serviceUnit})
+	if changed["vhost"] {
+		steps = append(steps, []string{"SYSTEMCTL", "reload", "nginx"})
 	}
 	for _, s := range steps {
-		if out, err := h.run(s[0], s[1:]...); err != nil {
+		if out, err := h.exec(s[0], s[1:]...); err != nil {
 			return fmt.Errorf("%v: %v: %s", s, err, tail(out))
 		}
 	}
-	h.ok("%s enabled and restarted, nginx reloaded", serviceUnit)
+	h.ok("%s enabled and restarted; units changed: %t, nginx reloaded: %t", serviceUnit, changed["units"], changed["vhost"])
 	return nil
 }
 
 func restore(h *host, _ *config) error {
 	service := artefact{dir: h.unitDir, name: serviceUnit}
 	if exists(h.marker(service, "absent")) {
-		_, _ = h.run("systemctl", "stop", serviceUnit)
-		_, _ = h.run("systemctl", "disable", serviceUnit)
+		_, _ = h.exec("SYSTEMCTL", "stop", serviceUnit)
+		_, _ = h.exec("SYSTEMCTL", "disable", serviceUnit)
 	}
 	err := h.restoreFiles(h.allArtefacts())
-	_, _ = h.run("systemctl", "daemon-reload")
+	_, _ = h.exec("SYSTEMCTL", "daemon-reload")
 	if exists(h.binaryArtefact().dest()) {
-		_, _ = h.run("systemctl", "restart", serviceUnit)
+		_, _ = h.exec("SYSTEMCTL", "restart", serviceUnit)
 	}
-	if _, nerr := h.run("nginx", "-t"); nerr == nil {
-		_, _ = h.run("systemctl", "reload", "nginx")
+	if _, nerr := h.exec("NGINX", "-t"); nerr == nil {
+		_, _ = h.exec("SYSTEMCTL", "reload", "nginx")
 	}
 	if err != nil {
 		return err

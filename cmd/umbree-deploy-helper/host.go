@@ -23,7 +23,6 @@ const (
 	binaryName  = "umbree-release-manage"
 	serviceUnit = "umbree-release-manage.service"
 	vhostName   = "release.umbree.org.conf"
-	execPath    = "/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
 var unitNames = []string{serviceUnit, "umbree-release-manage-retain.service", "umbree-release-manage-retain.timer"}
@@ -35,12 +34,14 @@ type account struct {
 
 type host struct {
 	root             string
+	top              string
 	unitDir          string
 	vhostDir         string
 	rootUID          int
 	euid             func() int
 	lookup           func(name string) (account, error)
 	run              func(name string, args ...string) ([]byte, error)
+	tools            map[string]string
 	afterSourceCheck func()
 	stdout           io.Writer
 	stderr           io.Writer
@@ -49,6 +50,7 @@ type host struct {
 func realHost() *host {
 	return &host{
 		root:     rootDir,
+		top:      "/",
 		unitDir:  "/etc/systemd/system",
 		vhostDir: "/etc/nginx/sites-enabled",
 		rootUID:  0,
@@ -76,9 +78,20 @@ func lookupAccount(name string) (account, error) {
 	return account{uid: uid, gid: gid}, nil
 }
 
+func (h *host) exec(tool string, args ...string) ([]byte, error) {
+	p, ok := h.tools[tool]
+	if !ok {
+		return nil, fmt.Errorf("no trusted path for %s", tool)
+	}
+	return h.run(p, args...)
+}
+
 func runCommand(name string, args ...string) ([]byte, error) {
+	if !filepath.IsAbs(name) {
+		return nil, fmt.Errorf("refusing to run %q: not an absolute path", name)
+	}
 	cmd := exec.Command(name, args...)
-	cmd.Env = []string{"PATH=" + execPath, "LC_ALL=C"}
+	cmd.Env = []string{"LC_ALL=C"}
 	cmd.Dir = "/"
 	return cmd.CombinedOutput()
 }

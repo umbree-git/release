@@ -21,6 +21,12 @@ type config struct {
 	staticDir   string
 	listen      string
 	port        string
+	tools       map[string]string
+}
+
+var toolDefaults = map[string]string{
+	"SYSTEMCTL": "/usr/bin/systemctl", "NGINX": "/usr/sbin/nginx",
+	"SS": "/usr/bin/ss", "SYSTEMD_ANALYZE": "/usr/bin/systemd-analyze",
 }
 
 var (
@@ -59,6 +65,14 @@ func configFrom(values map[string]string) (*config, error) {
 		"MANAGE_ENV_FILE": &cfg.envFile, "STATIC_DIR": &cfg.staticDir,
 		"MANAGE_LISTEN": &cfg.listen,
 	}
+	cfg.tools = map[string]string{}
+	for k, def := range toolDefaults {
+		cfg.tools[k] = def
+		if v, set := values[k]; set {
+			cfg.tools[k] = v
+			delete(values, k)
+		}
+	}
 	for k := range values {
 		if _, known := fields[k]; !known {
 			return nil, fmt.Errorf("helper.conf: unknown key %s", k)
@@ -86,6 +100,11 @@ func (c *config) validate() error {
 	paths := map[string]string{"STAGE_DIR": c.stageDir, "MANAGE_DATA_DIR": c.dataDir, "MANAGE_ENV_FILE": c.envFile, "STATIC_DIR": c.staticDir}
 	for k, v := range paths {
 		if !filepath.IsAbs(v) || filepath.Clean(v) != v || v == "/" {
+			return fmt.Errorf("helper.conf: %s %q is not a clean absolute path", k, v)
+		}
+	}
+	for k, v := range c.tools {
+		if !filepath.IsAbs(v) || filepath.Clean(v) != v {
 			return fmt.Errorf("helper.conf: %s %q is not a clean absolute path", k, v)
 		}
 	}

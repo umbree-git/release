@@ -76,7 +76,7 @@ func TestRenderRefusesDirectiveOutsideTemplateSet(t *testing.T) {
 	for _, d := range []string{"RootDirectory=/", "BindPaths=/etc", "ExecStartPre=/bin/true", "AmbientCapabilities=CAP_SYS_ADMIN"} {
 		f := newFixture(t)
 		f.badTemplate("Restart=on-failure", "Restart=on-failure\n"+d)
-		f.renderRefuses("which the templates do not use")
+		f.renderRefuses("which its template set does not allow")
 	}
 }
 

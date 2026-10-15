@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 )
 
+const maxBinarySize = 256 << 20
+
 func installBinary(h *host, cfg *config) error {
 	deploy, err := h.lookup(cfg.deployUser)
 	if err != nil {
@@ -27,7 +29,14 @@ func installBinary(h *host, cfg *config) error {
 	if err := h.snapshot(); err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}
-	sum, err := copyHeld(src, h.binaryArtefact())
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxBinarySize {
+		return fmt.Errorf("%s grew past the %d-byte cap", stagedName, maxBinarySize)
+	}
+	sum, err := copyHeld(src, info.Size(), h.binaryArtefact())
 	if err != nil {
 		return err
 	}
@@ -35,13 +44,13 @@ func installBinary(h *host, cfg *config) error {
 	return nil
 }
 
-func copyHeld(src *os.File, a artefact) (string, error) {
+func copyHeld(src *os.File, size int64, a artefact) (string, error) {
 	f, tmp, err := createTemp(a.dir, a.name, a.mode)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, sum), src)
+	n, err := io.CopyN(io.MultiWriter(f, sum), src, size)
 	if err != nil {
 		f.Close()
 		os.Remove(tmp)
