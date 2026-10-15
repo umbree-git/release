@@ -127,3 +127,14 @@ func pageTabs(channel, comp string, history bool) []navItem {
 		{Name: "History", Path: historyPath(channel, comp), Active: history},
 	}
 }
+
+func channelSwitch(channel, comp string, history bool) []navItem {
+	at := pagePath
+	if history {
+		at = historyPath
+	}
+	return []navItem{
+		{Name: "Production", Path: at(catalog.ChannelProduction, comp), Active: channel == catalog.ChannelProduction},
+		{Name: "Beta", Path: at(channelBeta, comp), Active: channel == channelBeta},
+	}
+}

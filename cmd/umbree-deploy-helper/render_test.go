@@ -104,3 +104,28 @@ func TestRenderSystemdAnalyzeFailureRestoresPreviousFiles(t *testing.T) {
 		t.Fatalf("unit after systemd-analyze failure: %q", got)
 	}
 }
+
+func TestRenderedVhostProxiesVersionJS(t *testing.T) {
+	f := newFixture(t)
+	f.mustRun("install-binary")
+	f.mustRun("render")
+	vhost := f.read(filepath.Join(f.h.vhostDir, vhostName))
+	regex := strings.Index(vhost, `location ~ \.js$`)
+	if regex < 0 {
+		t.Fatal("the rendered vhost lost the .js location")
+	}
+	for _, comp := range []string{"umbree", "umbreed"} {
+		head := "location = /" + comp + "/version.js {"
+		at := strings.Index(vhost, head)
+		if at < 0 || strings.Count(vhost, head) != 1 || at > regex {
+			t.Fatalf("%s: at %d, the .js regex at %d", head, at, regex)
+		}
+		block := vhost[at : at+strings.Index(vhost[at:], "}")]
+		if !strings.Contains(block, "proxy_pass         http://umbree_manage;") || !strings.Contains(block, "proxy_set_header   Host $host;") {
+			t.Fatalf("%s does not proxy to the service:\n%s", head, block)
+		}
+	}
+	if n := strings.Count(vhost, "/version.js {"); n != 2 {
+		t.Fatalf("%d version.js locations, want 2", n)
+	}
+}

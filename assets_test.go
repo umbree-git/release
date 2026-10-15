@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	release "github.com/umbree-git/release"
@@ -77,5 +78,33 @@ func TestSiteLinksFavicon(t *testing.T) {
 	}
 	if !bytes.Contains(body, []byte(`<link rel="icon" type="image/svg+xml" href="/favicon.svg">`)) {
 		t.Fatal("site/index.html does not link /favicon.svg")
+	}
+}
+
+func TestSiteLoadsBothVersionScripts(t *testing.T) {
+	body, err := os.ReadFile("site/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(body)
+	for _, want := range []string{
+		`<span id="version-umbree" class="pill">latest</span>`,
+		`<span id="version-umbreed" class="pill">latest</span>`,
+		`var components = ["umbree", "umbreed"];`,
+		`var semver = /^[0-9]+\.[0-9]+\.[0-9]+$/;`,
+		`components.indexOf(data.component) < 0`,
+		`!semver.test(data.version)`,
+		`Math.floor(Date.now() / 3600000)`,
+		`s.src = "/" + components[i] + "/version.js?" + hour;`,
+		`s.referrerPolicy = "no-referrer";`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("site/index.html lacks %s", want)
+		}
+	}
+	for _, gone := range []string{`<script src="umbree/version.js">`, "gen-version-jsonp", `id="version-badge"`} {
+		if strings.Contains(page, gone) {
+			t.Errorf("site/index.html still has %s", gone)
+		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/umbree-git/release"
 	"github.com/umbree-git/release/internal/manage/auth"
+	"github.com/umbree-git/release/internal/manage/catalog"
 	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/retention"
 	"github.com/umbree-git/release/internal/manage/store"
@@ -20,7 +21,7 @@ import (
 //go:embed templates static
 var assets embed.FS
 
-var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention", "republish"}
+var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention", "republish", "beta_empty"}
 
 type Routes interface {
 	Routes(mux *http.ServeMux)
@@ -81,6 +82,9 @@ func (s *Server) Handler() http.Handler {
 		s.cfg.Intake.Routes(mux)
 	}
 	mux.HandleFunc("GET /healthz", handleHealth)
+	for _, comp := range catalog.Components {
+		mux.HandleFunc("GET /"+comp+"/version.js", s.versionJS(comp))
+	}
 	mux.HandleFunc("GET /manage/static/site.css", staticFile("static/site.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /manage/static/console.js", staticFile("static/console.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /manage/static/favicon.svg", faviconFile)
@@ -91,6 +95,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /manage/logout", s.handleLogout)
 	mux.HandleFunc("GET /manage", s.guard(s.handleRoot))
 	mux.HandleFunc("GET /manage/{$}", s.guard(s.handleRoot))
+	beta := s.guard(betaPage(s.consolePage, s.render))
+	mux.HandleFunc("GET /manage/beta/{component}", beta)
+	mux.HandleFunc("GET /manage/beta/{component}/history", beta)
 	mux.HandleFunc("GET /manage/{channel}/{component}", s.guard(s.handleOverview))
 	mux.HandleFunc("GET /manage/{channel}/{component}/history", s.guard(s.handleHistory))
 	for _, action := range []string{actionPromote, actionYank} {

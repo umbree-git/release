@@ -75,9 +75,8 @@ func TestPromoteEndRepublishesStatic(t *testing.T) {
 	if got := servedFloor(t, dir, "umbree"); got != stamp {
 		t.Fatalf("the served floor is %q, want the promoted %q", got, stamp)
 	}
-	js, err := os.ReadFile(filepath.Join(dir, "umbree", "version.js"))
-	if err != nil || !bytes.Contains(js, []byte(`"version":"0.2.0","stamp":"`+stamp+`"`)) {
-		t.Fatalf("version.js %q, %v", js, err)
+	if _, err := os.Stat(filepath.Join(dir, "umbree", "version.js")); !os.IsNotExist(err) {
+		t.Fatalf("a static version.js was published: %v", err)
 	}
 	for _, f := range []string{"umbree-release.pub", "index.html"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {

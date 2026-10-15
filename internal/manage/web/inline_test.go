@@ -88,7 +88,7 @@ func TestInlineProgressRendersPanelOnly(t *testing.T) {
 	}
 }
 
-func TestHeaderShowsLocalPartOnly(t *testing.T) {
+func TestHeaderShowsNoAdminName(t *testing.T) {
 	c := newConsole(t)
 	c.addAdmin("a@b.example")
 	b := c.signedIn("a@b.example")
@@ -97,8 +97,15 @@ func TestHeaderShowsLocalPartOnly(t *testing.T) {
 	if m == nil {
 		t.Fatalf("no header in %s", r.body)
 	}
-	if strings.Contains(m[1], "@") || !strings.Contains(m[1], `<span class="dim">a</span>`) {
-		t.Fatalf("header %s", m[1])
+	if strings.Contains(m[1], "a@b.example") || strings.Contains(m[1], "@") || regexp.MustCompile(`<span[^>]*>a</span>`).MatchString(m[1]) {
+		t.Fatalf("header names the admin: %s", m[1])
+	}
+	if !navRe.MatchString(m[1]) {
+		t.Fatalf("header lost the component nav: %s", m[1])
+	}
+	out := signoutRe.FindStringSubmatch(m[1])
+	if out == nil || !strings.Contains(out[1], `name="csrf_token"`) || !strings.Contains(out[1], "Sign out") {
+		t.Fatalf("header lost the Sign out form: %s", m[1])
 	}
 }
 
