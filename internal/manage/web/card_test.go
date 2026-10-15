@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/register"
@@ -19,7 +20,8 @@ const (
 
 var (
 	fileRowRe  = regexp.MustCompile(`<tr><td class="file">(<a href="[^"]*">)?([^<]*)(?:</a>)?</td><td class="platform">([^<]*)</td><td class="size">([^<]*)</td><td class="sha">(.*?)</td></tr>`)
-	dateCellRe = regexp.MustCompile(`<td class="date">([^<]*)</td>`)
+	dateCellRe = regexp.MustCompile(`<td class="date">(.*?)</td>`)
+	timeRe     = regexp.MustCompile(`^<time datetime="([^"]+)" title="([^"]+)">([^<]+)</time>$`)
 	dateSpanRe = regexp.MustCompile(`<span class="dim date">(?:cut|promoted) ([^<]*)</span>`)
 	dateValRe  = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d UTC$`)
 )
@@ -177,9 +179,13 @@ func TestManifestLinkOnlyOnCurrent(t *testing.T) {
 	if strings.Contains(body, "/check") {
 		t.Fatal("the overview links a check route")
 	}
-	for _, page := range []string{"/manage/production/umbree/history", "/manage/production/umbreed"} {
+	history := b.get("/manage/production/umbree/history").body
+	if strings.Count(history, "latest.json") != 1 || !strings.Contains(historyRow(t, history, rv.ID), manifest) {
+		t.Fatal("history: the manifest link is not exactly once, inside the current row")
+	}
+	for _, page := range []string{"/manage/production/umbreed", "/manage/production/umbreed/history"} {
 		if strings.Contains(b.get(page).body, "latest.json") {
-			t.Fatalf("%s carries a manifest link", page)
+			t.Fatalf("%s carries a manifest link with no current row", page)
 		}
 	}
 }
@@ -218,6 +224,30 @@ func TestCardFormsUnchanged(t *testing.T) {
 	}
 }
 
+func historyDates(t *testing.T, label, row string) int {
+	t.Helper()
+	cells := dateCellRe.FindAllStringSubmatch(row, -1)
+	if len(cells) != 3 {
+		t.Fatalf("%s: %d date cells, want 3", label, len(cells))
+	}
+	filled := 0
+	for _, m := range cells {
+		if m[1] == "—" {
+			continue
+		}
+		tm := timeRe.FindStringSubmatch(m[1])
+		if tm == nil || !dateValRe.MatchString(tm[2]) {
+			t.Fatalf("%s: date cell %q", label, m[1])
+		}
+		at, err := time.Parse(time.RFC3339, tm[1])
+		if err != nil || at.UTC().Format("2006-01-02 15:04 UTC") != tm[2] || at.UTC().Format("2006-01-02") != tm[3] {
+			t.Fatalf("%s: date cell %q names different instants", label, m[1])
+		}
+		filled++
+	}
+	return filled
+}
+
 func TestDateFormatNoWrap(t *testing.T) {
 	c := newConsole(t)
 	c.seedHistory()
@@ -225,19 +255,22 @@ func TestDateFormatNoWrap(t *testing.T) {
 	overview := b.get("/manage/production/umbree").body
 	history := b.get("/manage/production/umbree/history").body
 	spans := dateSpanRe.FindAllStringSubmatch(overview, -1)
-	cells := dateCellRe.FindAllStringSubmatch(history, -1)
-	if len(spans) != 2 || len(cells) != 4*len(c.rows) {
-		t.Fatalf("overview date spans %d, history date cells %d", len(spans), len(cells))
+	if len(spans) != 2 {
+		t.Fatalf("overview date spans %d", len(spans))
 	}
 	filled := 0
-	for _, m := range append(spans, cells...) {
-		if m[1] == "" {
-			continue
-		}
-		filled++
+	for _, m := range spans {
 		if !dateValRe.MatchString(m[1]) {
 			t.Fatalf("date %q is not the one format", m[1])
 		}
+		filled++
+	}
+	for label, id := range c.rows {
+		filled += historyDates(t, label, historyRow(t, history, id))
+	}
+	expired := `<span class="state state-expired"><time datetime="2026-10-09T12:00:00Z" title="expired ` + seededDate + `">expired</time></span>`
+	if !strings.Contains(historyRow(t, history, c.rows["expired"]), expired) {
+		t.Fatalf("the expired badge lacks its dated title:\n%s", historyRow(t, history, c.rows["expired"]))
 	}
 	if filled < len(c.rows)+2 || strings.Contains(overview+history, "12:00Z") {
 		t.Fatalf("filled dates %d, or the old format remains", filled)

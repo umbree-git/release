@@ -15,20 +15,27 @@ type link struct {
 }
 
 type rowView struct {
-	ID        int64
-	Version   string
-	Stamp     string
-	State     string
-	IsCurrent bool
-	Created   string
-	Promoted  string
-	Yanked    string
-	Expired   string
-	Links     []link
-	Files     []fileRow
-	SumsURL   string
-	SigURL    string
-	Manifest  string
+	ID         int64
+	Version    string
+	Stamp      string
+	State      string
+	IsCurrent  bool
+	Created    string
+	Promoted   string
+	Yanked     string
+	Expired    string
+	CutAt      *when
+	PromotedAt *when
+	YankedAt   *when
+	ExpiredAt  *when
+	Artifacts  int
+	CanPromote bool
+	CanYank    bool
+	Links      []link
+	Files      []fileRow
+	SumsURL    string
+	SigURL     string
+	Manifest   string
 }
 
 type navItem struct {
@@ -44,16 +51,42 @@ func stamp(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
+type when struct {
+	ISO  string
+	Full string
+	Day  string
+}
+
+type actionForm struct {
+	ID      int64
+	Version string
+	CSRF    string
+}
+
+func (v rowView) Form(csrf string) actionForm {
+	return actionForm{ID: v.ID, Version: v.Version, CSRF: csrf}
+}
+
+func whenOf(t time.Time) *when {
+	if t.IsZero() {
+		return nil
+	}
+	u := t.UTC()
+	return &when{ISO: u.Format(time.RFC3339), Full: stamp(u), Day: u.Format("2006-01-02")}
+}
+
 func (s *Server) view(rv store.ReleaseVersion) rowView {
 	v := rowView{
 		ID: rv.ID, Version: rv.Version, Stamp: rv.Stamp, State: rv.State, IsCurrent: rv.IsCurrent,
 		Created: stamp(rv.CreatedAt), Promoted: stamp(rv.PromotedAt), Yanked: stamp(rv.YankedAt), Expired: stamp(rv.ExpiredAt),
+		CutAt: whenOf(rv.CreatedAt), PromotedAt: whenOf(rv.PromotedAt), YankedAt: whenOf(rv.YankedAt), ExpiredAt: whenOf(rv.ExpiredAt),
 	}
 	var arts []register.Artifact
 	if err := json.Unmarshal([]byte(rv.ArtifactsJSON), &arts); err != nil {
 		s.cfg.Log.Warn("unreadable artifact list", "row", rv.ID, "err", err)
 		return v
 	}
+	v.Artifacts = len(arts)
 	linkable := isLinkable(rv)
 	v.Files = fileRows(arts, func(a register.Artifact) string {
 		if !linkable {
