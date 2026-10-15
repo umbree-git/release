@@ -98,3 +98,4 @@ table.files td.sha { white-space: nowrap; }
 table.files td.sha code { display: inline-block; max-width: 16rem; margin-right: .5rem; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn.copy { padding: 0 .5rem; font-size: .8rem; }
 .btn.copy.copied { border-color: var(--ok); color: var(--ok); }
+.card-head > .confirm-inline, .card-head > .inline-progress { flex-basis: 100%; }
