@@ -13,7 +13,10 @@ import (
 	"github.com/umbree-git/release/internal/manage/store"
 )
 
-const logMarker = `<ol id="log" class="log"></ol>`
+const (
+	logMarker      = `<ol id="log" class="log"></ol>`
+	inlineProgress = "X-Inline-Progress"
+)
 
 type progressPage struct {
 	pageData
@@ -58,7 +61,7 @@ func (l *progressLog) Write(p []byte) (int, error) {
 func (l *progressLog) line(raw []byte) {
 	var e publish.Event
 	if err := json.Unmarshal(raw, &e); err != nil || e.Step == "" {
-		fmt.Fprintf(l.w, `<li class="ev ev-text">%s</li>`, html.EscapeString(strings.TrimSpace(string(raw))))
+		fmt.Fprintf(l.w, `<li class="ev ev-text" data-step="text" data-status="">%s</li>`, html.EscapeString(strings.TrimSpace(string(raw))))
 		return
 	}
 	if (e.Step == "done" || e.Step == "error") && l.terminal == nil {
@@ -88,8 +91,12 @@ func (s *Server) progressHalves(w http.ResponseWriter, r *http.Request, sess *st
 	page := progressPage{Row: s.view(*row), Component: row.Component, Channel: row.Channel, Verb: action,
 		Back: pagePath(row.Channel, row.Component)}
 	page.pageData = s.consolePage(w, r, sess, action+" "+row.Component, row.Channel, row.Component)
+	name := "layout"
+	if r.Header.Get(inlineProgress) == "1" {
+		name = "panel"
+	}
 	var buf bytes.Buffer
-	if err := s.pages["progress"].ExecuteTemplate(&buf, "layout", page); err != nil {
+	if err := s.pages["progress"].ExecuteTemplate(&buf, name, page); err != nil {
 		return "", "", fmt.Errorf("render progress: %w", err)
 	}
 	head, tail, found := strings.Cut(buf.String(), logMarker)
