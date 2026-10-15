@@ -128,6 +128,17 @@ git push origin HEAD:refs/heads/main      # then merge main into dev, as above
 Do not re-run `--distribute-only` for the same stamp: it would stage the bytes
 a second time.
 
+## A vhost template change: helper first, then deploy
+
+**When the vhost template changes, the order is fixed:** rebuild the helper
+bundle from `main` (`tools/deploy-manage.sh --build-helper`), have it
+reinstalled on the host with its sums verified, and only then run
+`tools/deploy-manage.sh`. The host renders the vhost from the helper's own
+template copy, so a deploy run first installs the new service against the old
+vhost: `/<comp>/version.js` is still served from the frozen static file, and
+since promotes no longer write it, the badge goes stale after the next promote
+with no warning anywhere.
+
 ## After a promote: record the floor
 
 The promote in the console writes `<comp>/latest.json` and republishes the

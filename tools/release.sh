@@ -30,7 +30,8 @@ existing local tag) it:
   5. reports the stamp, the row and its page in the manage console.
 Going public is the operator's promote in the manage console: it copies the
 bytes to the public surface, writes <comp>/latest.json last, and republishes
-the static surface (install.sh, version.js, the public key, the site page).
+the static surface (install.sh, the public key, the site page); <comp>/version.js
+is the manage service's live route, not a static file.
 versions/<comp>.stamp, the version floor the installers bake, follows the
 promote through tools/record-promoted.sh and is never written by a cut.
 

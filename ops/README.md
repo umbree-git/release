@@ -101,8 +101,9 @@ never served.
 Nothing else runs on the host as part of publishing: no build and no
 dispatcher. The manage service need not run on this host; when it does not,
 it uploads the files over sftp with a dedicated key (section 7). The renderer is
-held byte-identical to `tools/gen-bootstraps.sh` and `tools/gen-version-jsonp.sh`
-by a test.
+held byte-identical to `tools/gen-bootstraps.sh` by a test. `version.js` has no
+static renderer any more; `tools/gen-version-jsonp.sh` remains only for the
+dormant beta flow (`tools/release.sh --channel beta`).
 
 ## 6. Smoke test
 
@@ -221,6 +222,15 @@ binary — the only file sent — to `STAGE_DIR/umbree-release-manage.new`; then
 `/healthz` and `/manage/login` 200 as `<SSH_USER>`. A failed `render`,
 `activate` or verify runs `sudo -n <HELPER> restore`; a refused `install-binary`
 has changed nothing.
+
+**When the vhost template changes, the order is fixed:** rebuild the helper
+bundle from `main` (`tools/deploy-manage.sh --build-helper`), have it
+reinstalled on the host with its sums verified, and only then run
+`tools/deploy-manage.sh`. The host renders the vhost from the helper's own
+template copy, so a deploy run first installs the new service against the old
+vhost: `/<comp>/version.js` is still served from the frozen static file, and
+since promotes no longer write it, the badge goes stale after the next promote
+with no warning anywhere.
 
 ### The host helper
 
