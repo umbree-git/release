@@ -60,6 +60,7 @@ cat > "${HOSTSHIMS}/curl" <<'EOF'
 #!/bin/sh
 echo "curl $*" >> "$SANDBOX_LOG"
 case "$*" in
+    *http_code*/umbree/version.json*) [ "${SANDBOX_JSON_FAIL:-0}" = 1 ] && printf '\n404' || printf '{"component":"umbree","channel":"production","version":"1.0.0","stamp":"s"}\n200' ;;
     *http_code*/manage/login*) [ "${SANDBOX_LOGIN_FAIL:-0}" = 1 ] && printf '502' || printf '200' ;;
     *healthz*) printf 'ok\n' ;;
 esac
@@ -146,6 +147,7 @@ has "User=umbree-release" "${OUT}" || die "dry-run did not show the linted unit:
 has "ReadWritePaths=/var/lib/umbree-release-manage /srv/static" "${OUT}" || die "linted unit lacks the static dir: ${OUT}"
 has "ExecStart=/usr/local/umbree-release/bin/umbree-release-manage serve" "${OUT}" || die "linted unit does not use the helper root: ${OUT}"
 has "sudo -n -l ${HELPER}" "${OUT}" || die "the plan does not name the sudoers check: ${OUT}"
+has "/umbree/version.json" "${OUT}" || die "the plan does not name the version.json probe: ${OUT}"
 has "nothing copied" "${OUT}" || die "dry-run did not say it changed nothing: ${OUT}"
 diff -r "${W}/ops.committed" "${REPO}/ops" >/dev/null || die "a run changed the committed ops files"
 
@@ -250,6 +252,7 @@ grep -q "^scp .* -> ${HOST}/stage/umbree-release-manage.new$" "${LOG}" || die "t
 for v in ${VERBS}; do grep -q "^sudo -n -l ${HELPER} ${v}$" "${LOG}" || die "no sudo -n -l check for ${v}"; done
 grep -q 'healthz' "${LOG}" || die "no /healthz verify"
 grep -q '/manage/login' "${LOG}" || die "no /manage/login verify"
+grep -q '/umbree/version.json' "${LOG}" || die "no /umbree/version.json verify"
 
 failing() {
     reset_log
@@ -263,6 +266,8 @@ say "render, activate or verify failing calls restore"
 WANT="preflight install-binary render restore "; failing SANDBOX_HELPER_FAIL=render
 WANT="preflight install-binary render activate restore "; failing SANDBOX_HELPER_FAIL=activate
 WANT="preflight install-binary render activate restore "; failing SANDBOX_LOGIN_FAIL=1
+WANT="preflight install-binary render activate restore "; failing SANDBOX_JSON_FAIL=1
+has "/umbree/version.json -> 404" "${OUT}" || die "a failed version.json probe was not named: ${OUT}"
 
 say "--rollback checks its sudoers verbs, then the helper restore, then verify"
 reset_log
@@ -274,6 +279,10 @@ reset_log
 ARGS=(--rollback); run SANDBOX_NO_PREV=1
 [ "${RC}" -ne 0 ] || die "rollback with no previous binary succeeded"
 [ "$(helper_calls)" = "status " ] || die "rollback without a previous copy still restored: $(helper_calls)"
+reset_log
+ARGS=(--rollback); run SANDBOX_JSON_FAIL=1
+[ "${RC}" -eq 0 ] || die "rollback probed version.json: exit ${RC}: ${OUT}"
+! grep -q 'version.json' "${LOG}" || die "rollback curled version.json: $(grep version.json "${LOG}")"
 ARGS=(--rollback); run SANDBOX_SUDO_DENY=restore
 [ "${RC}" -ne 0 ] || die "rollback without a restore rule was accepted"
 
@@ -285,14 +294,17 @@ grep -q '^ssh-dest deployer@sandbox-host$' "${W}/all.log" || die "ssh did not co
     || die "a sudo call is not the helper with one verb: $(grep '^sudo ' "${W}/all.log" | grep -vE "^sudo -n (-l )?${HELPER} [a-z-]+$" | sort -u)"
 ! grep -qE '^install -m|^nginx|^ss ' "${W}/all.log" || die "a raw privileged command ran on the host"
 
-say "the committed vhost: five proxied paths to one upstream, no forwarded-for, no real_ip, / still try_files"
+say "the committed vhost: seven proxied paths to one upstream, no forwarded-for, no real_ip, / still try_files"
 ! grep -qE 'X-Forwarded-For|real_ip|set_real_ip_from' "${VHOST}" || die "the vhost carries X-Forwarded-For or real_ip"
-[ "$(grep -cE 'proxy_pass +http://umbree_manage;' "${VHOST}")" -eq 5 ] || die "the vhost does not proxy exactly five locations to the upstream"
+[ "$(grep -cE 'proxy_pass +http://umbree_manage;' "${VHOST}")" -eq 7 ] || die "the vhost does not proxy exactly seven locations to the upstream"
 [ "$(grep -c '8788' "${VHOST}")" -eq 1 ] || die "the port is not stated once"
 grep -qE '^upstream umbree_manage \{ *server 127.0.0.1:8788; *\}' "${VHOST}" || die "no upstream block"
 grep -q 'location ^~ /manage/ {' "${VHOST}" || die "no ^~ /manage/ location"
 grep -q 'location ^~ /api/v1/releases/ {' "${VHOST}" || die "no ^~ /api/v1/releases/ location"
 grep -q 'location = /healthz {' "${VHOST}" || die "no = /healthz location"
+for comp in umbree umbreed; do
+    grep -q "location = /${comp}/version.json {" "${VHOST}" || die "no = /${comp}/version.json location"
+done
 grep -qE 'location = /manage \{ *return 301 /manage/; *\}' "${VHOST}" || die "no /manage redirect"
 awk '/location \/ \{/{f=1} f&&/try_files \$uri \$uri\/ =404;/{print; exit}' "${VHOST}" | grep -q try_files || die "location / no longer try_files"
 

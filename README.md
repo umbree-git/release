@@ -283,10 +283,11 @@ It verifies the gated bytes against the signed sums, copies them to the public
 download surface under `<comp>/<stamp>/`, writes `<comp>/latest.json` last,
 flips the row to `public`, and then republishes the static surface on
 `release.umbree.org`: `<comp>/install.sh` rendered with the promoted stamp as
-its version floor, the public key and the site page. `<comp>/version.js` is
-not a static file: the manage service answers it live from the current
-production row (`Cache-Control: public, max-age=300`), and the site page loads
-it with an hourly cache-buster.
+its version floor, the public key and the site page. `<comp>/version.js` and
+`<comp>/version.json` are not static files: the manage service answers them live
+from the current production row (`version.js` with `Cache-Control: public,
+max-age=300`, loaded by the site page with an hourly cache-buster; `version.json`
+with `no-store`, read by the cli's `update` and the web server).
 After the promote, `tools/promote-check.sh <comp> stable --expect <stamp>`
 answers live, and `tools/record-promoted.sh <comp> <stamp>` records the floor
 in this repo (`versions/<comp>.stamp` and the committed bootstrap, one
@@ -320,7 +321,7 @@ reference.
 
 Promote and yank end by republishing the static surface to the service's
 `--static-dest` (`index.html`, `favicon.svg`, `umbree-release.pub` and each
-component's `install.sh`; `version.js` is the service's live route). A failure there is streamed and logged and never undoes the
+component's `install.sh`; `version.js` and `version.json` are the service's live routes). A failure there is streamed and logged and never undoes the
 promote or yank, whose manifest is already live; the overview's **Republish
 static** control (session, CSRF and a confirm, like the others) or
 `umbree-release-manage publish-static <comp>` on the host does it again from

@@ -25,6 +25,8 @@ usage: tools/deploy-manage.sh [--dry-run] [--rollback]
   host as the operator's non-root SSH_USER, and drives the root-owned host
   helper (${HELPER}) through sudo -n:
   preflight, install-binary, render, activate, and restore on any failure.
+  A deploy verifies /healthz, /manage/login and /umbree/version.json; a
+  rollback verifies /healthz and /manage/login only.
 
   --dry-run       build, lint the units and vhost, print the plan; contacts no host
   --rollback      helper restore of the previous binary, units and vhost, then verify
@@ -183,6 +185,7 @@ print_plan() {
     printf '    stage      %s/%s.new  (the only file copied)\n' "${STAGE_DIR}" "${NAME}"
     printf '    install    sudo -n %s install-binary, render, activate  (restore on failure)\n' "${HELPER}"
     printf '    verify     is-active %s; %s/healthz; %s/manage/login 200\n' "${UNIT}" "${MANAGE_URL}" "${MANAGE_URL}"
+    printf '    verify     %s/umbree/version.json 200 naming umbree  (deploy only, not --rollback)\n' "${MANAGE_URL}"
     for u in ${UNITS}; do diff -u -L /dev/null -L "lint: ${u}" /dev/null "${OUT}/${u}" || true; done
 }
 
@@ -214,8 +217,16 @@ verify_script() {
     printf "  c=\$(curl -sS -o /dev/null -w '%%{http_code}' '%s/manage/login'); [ \"\$c\" = 200 ] || { echo \"/manage/login -> \$c\"; return 1; }; echo '/manage/login -> 200'\n}\n" "${MANAGE_URL}"
 }
 
+verify_json_script() {
+    printf 'verify_json() {\n'
+    printf "  b=\$(curl -sS -w '\\n%%{http_code}' '%s/umbree/version.json'); c=\$(printf '%%s' \"\$b\" | tail -n 1)\n" "${MANAGE_URL}"
+    printf "  [ \"\$c\" = 200 ] || { echo \"/umbree/version.json -> \$c\"; return 1; }\n"
+    printf "  case \"\$b\" in *'\"component\":\"umbree\"'*) echo '/umbree/version.json -> 200' ;; *) echo '/umbree/version.json -> 200 without umbree'; return 1 ;; esac\n}\n"
+}
+
 deploy_script() {
     verify_script
+    verify_json_script
     printf "H='%s'\n" "${HELPER}"
     cat <<'REMOTE'
 sudo -n "$H" install-binary || { echo "install-binary refused; nothing was changed"; exit 1; }
@@ -223,6 +234,7 @@ for v in render activate; do
   sudo -n "$H" "$v" || { echo "$v failed; restoring"; sudo -n "$H" restore; exit 1; }
 done
 verify || { echo "verify failed; restoring"; sudo -n "$H" restore; exit 1; }
+verify_json || { echo "version.json verify failed; restoring"; sudo -n "$H" restore; exit 1; }
 REMOTE
 }
 
