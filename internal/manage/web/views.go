@@ -2,12 +2,9 @@ package web
 
 import (
 	"encoding/json"
-	"net/url"
-	"path"
 	"time"
 
 	"github.com/umbree-git/release/internal/manage/catalog"
-	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/store"
 	"github.com/umbree-git/release/internal/register"
 )
@@ -28,6 +25,10 @@ type rowView struct {
 	Yanked    string
 	Expired   string
 	Links     []link
+	Files     []fileRow
+	SumsURL   string
+	SigURL    string
+	Manifest  string
 }
 
 type navItem struct {
@@ -40,35 +41,43 @@ func stamp(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format("2006-01-02 15:04Z")
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func (s *Server) view(rv store.ReleaseVersion) rowView {
-	return rowView{
+	v := rowView{
 		ID: rv.ID, Version: rv.Version, Stamp: rv.Stamp, State: rv.State, IsCurrent: rv.IsCurrent,
 		Created: stamp(rv.CreatedAt), Promoted: stamp(rv.PromotedAt), Yanked: stamp(rv.YankedAt), Expired: stamp(rv.ExpiredAt),
-		Links: s.links(rv),
-	}
-}
-
-func (s *Server) links(rv store.ReleaseVersion) []link {
-	if rv.State != catalog.StatePublic || !rv.PublicPrunedAt.IsZero() || !rv.PublicPruningAt.IsZero() {
-		return nil
 	}
 	var arts []register.Artifact
 	if err := json.Unmarshal([]byte(rv.ArtifactsJSON), &arts); err != nil {
 		s.cfg.Log.Warn("unreadable artifact list", "row", rv.ID, "err", err)
-		return nil
+		return v
 	}
-	out := make([]link, 0, len(arts))
-	for _, a := range arts {
-		u, err := url.JoinPath(s.cfg.PublicBaseURL, publish.PublicKey(rv.Component, rv.Stamp, a.Key))
-		if err != nil {
-			continue
+	linkable := isLinkable(rv)
+	v.Files = fileRows(arts, func(a register.Artifact) string {
+		if !linkable {
+			return ""
 		}
-		out = append(out, link{Name: path.Base(a.Key), URL: u})
+		return s.publicURL(rv, a.Key)
+	})
+	if !linkable {
+		return v
 	}
-	return out
+	for _, f := range v.Files {
+		if f.URL != "" {
+			v.Links = append(v.Links, link{Name: f.Name, URL: f.URL})
+		}
+	}
+	v.SumsURL, v.SigURL = s.publicURL(rv, rv.SumsKey), s.publicURL(rv, rv.MinisigKey)
+	if rv.IsCurrent {
+		v.Manifest = s.manifestURL(rv)
+	}
+	return v
+}
+
+func isLinkable(rv store.ReleaseVersion) bool {
+	return rv.State == catalog.StatePublic && rv.PublicPrunedAt.IsZero() && rv.PublicPruningAt.IsZero()
 }
 
 func componentNav(channel, current string, at func(channel, component string) string) []navItem {

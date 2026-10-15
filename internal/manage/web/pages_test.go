@@ -120,13 +120,33 @@ func TestLinksOnlyForPublicRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.promoteDirect(c.stage("live", "6.6.6", 1))
+	c.stage("next", "7.7.7", 1)
 	b := c.signedIn("ops")
+	manifest := publicBase + "/umbree/latest.json"
 	for _, page := range []string{"/manage/production/umbree", "/manage/production/umbree/history"} {
-		for _, m := range hrefRe.FindAllStringSubmatch(b.get(page).body, -1) {
+		body := b.get(page).body
+		manifests := 0
+		for _, m := range hrefRe.FindAllStringSubmatch(body, -1) {
+			if m[1] == manifest {
+				manifests++
+				continue
+			}
 			if !strings.Contains(m[1], c.row("live").Stamp) && !strings.Contains(m[1], c.row("current").Stamp) {
 				t.Fatalf("%s links %s, which is not a public row", page, m[1])
 			}
 		}
+		if manifests == 0 {
+			continue
+		}
+		if cur, err := c.st.Current("umbree", "production"); err != nil || manifests != 1 || !hasCard(body, cur.ID) {
+			t.Fatalf("%s: %d manifest links, current %v %v", page, manifests, cur, err)
+		}
+		if _, inner := card(t, body, c.rows["live"]); !strings.Contains(inner, `href="`+manifest+`"`) {
+			t.Fatalf("%s: the manifest link is outside the current card", page)
+		}
+	}
+	if _, ready := card(t, b.get("/manage/production/umbree").body, c.rows["next"]); hrefRe.MatchString(ready) {
+		t.Fatalf("the ready card carries a link: %s", ready)
 	}
 	if !strings.Contains(b.get("/manage/production/umbree/history").body, publicBase+"/umbree/"+c.row("live").Stamp+"/") {
 		t.Fatal("control: the public row has no link")
@@ -148,8 +168,14 @@ func TestLinksArePublicURLsNeverGatedKeys(t *testing.T) {
 		}
 		for _, m := range links {
 			u, err := url.Parse(m[1])
-			if err != nil || !strings.HasPrefix(m[1], publicBase+"/umbree/v") || u.RawQuery != "" {
+			if err != nil || !(strings.HasPrefix(m[1], publicBase+"/umbree/v") || m[1] == publicBase+"/umbree/latest.json") || u.RawQuery != "" {
 				t.Fatalf("%s links %q", page, m[1])
+			}
+		}
+		staged := []string{c.row("new").Stamp, c.row("below").Stamp, c.row("equal").Stamp}
+		for _, m := range regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+			if hit := contains(m[1], append([]string{"X-Amz-", "?", "gated-console", "umbree/production/"}, staged...)...); hit != "" {
+				t.Fatalf("%s href %q carries %q", page, m[1], hit)
 			}
 		}
 	}
