@@ -146,7 +146,7 @@ stamp. It needs a clean tree on `main`.
 
 ## The static republish failed
 
-Promote and yank end by republishing `<comp>/install.sh`, `<comp>/version.js`,
+Promote and yank end by republishing `<comp>/install.sh`,
 the public key and the site page to the service's `--static-dest`. A failure
 is a `static` error event in the promote's stream and a warning in the
 service's log; the promote or yank itself stands, and installers keep
