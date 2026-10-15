@@ -38,7 +38,7 @@
 
 {{define "rowhead"}}<thead><tr><th>state</th><th>version</th><th>stamp</th><th>cut</th><th>promoted</th><th>yanked</th><th>expired</th><th>downloads</th></tr></thead>{{end}}
 
-{{define "tabs"}}<nav class="tabs">{{range .Tabs}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav>{{end}}
+{{define "tabs"}}<div class="tabrow"><nav class="tabs">{{range .Tabs}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav><nav class="channels" aria-label="Channel">{{range .Channels}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav></div>{{end}}
 
 {{define "cardtitle"}}<b class="version">{{.Version}}</b>
     <span class="stamp">{{.Stamp}}</span>

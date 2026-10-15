@@ -13,12 +13,13 @@ import (
 const refusalMessage = "Sign-in refused."
 
 type pageData struct {
-	Title string
-	Admin string
-	CSRF  string
-	Error string
-	Nav   []navItem
-	Tabs  []navItem
+	Title    string
+	Admin    string
+	CSRF     string
+	Error    string
+	Nav      []navItem
+	Tabs     []navItem
+	Channels []navItem
 }
 
 type overviewPage struct {
@@ -36,6 +37,13 @@ type historyPage struct {
 	Channel   string
 	Component string
 	Rows      []rowView
+}
+
+type betaPage struct {
+	pageData
+	Channel   string
+	Component string
+	History   bool
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, status int, data any) {
@@ -93,7 +101,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 		page.Republish = republishPath(channel, comp)
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel, channel, comp)
-	page.Tabs = pageTabs(channel, comp, false)
+	page.Tabs, page.Channels = pageTabs(channel, comp, false), channelSwitch(channel, comp, false)
 	s.render(w, r, "index", http.StatusOK, page)
 }
 
@@ -118,8 +126,26 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, sess *sto
 		page.Rows = append(page.Rows, v)
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" history · "+channel, channel, comp)
-	page.Tabs = pageTabs(channel, comp, true)
+	page.Tabs, page.Channels = pageTabs(channel, comp, true), channelSwitch(channel, comp, true)
 	s.render(w, r, "history", http.StatusOK, page)
+}
+
+func (s *Server) handleBeta(history bool) guarded {
+	return func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+		comp := r.PathValue("component")
+		if !catalog.ValidComponent(comp) {
+			http.NotFound(w, r)
+			return
+		}
+		title := comp + " · " + channelBeta
+		if history {
+			title = comp + " history · " + channelBeta
+		}
+		page := betaPage{Channel: channelBeta, Component: comp, History: history}
+		page.pageData = s.consolePage(w, r, sess, title, channelBeta, comp)
+		page.Tabs, page.Channels = pageTabs(channelBeta, comp, history), channelSwitch(channelBeta, comp, history)
+		s.render(w, r, "beta_empty", http.StatusOK, page)
+	}
 }
 
 func (s *Server) historyRow(rv store.ReleaseVersion) (rowView, error) {

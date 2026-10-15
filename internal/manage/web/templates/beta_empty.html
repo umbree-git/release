@@ -1,0 +1,7 @@
+{{define "content"}}
+<h1>{{.Component}}{{if .History}} history{{end}} <span class="dim">· {{.Channel}}</span></h1>
+{{template "tabs" .}}
+<section class="panel">
+  <p class="empty-bar">No beta cycle — Umbree publishes production only</p>
+</section>
+{{end}}

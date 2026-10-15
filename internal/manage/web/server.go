@@ -20,7 +20,7 @@ import (
 //go:embed templates static
 var assets embed.FS
 
-var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention", "republish"}
+var pageNames = []string{"login", "totp", "index", "history", "confirm", "progress", "retention", "republish", "beta_empty"}
 
 type Routes interface {
 	Routes(mux *http.ServeMux)
@@ -91,6 +91,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /manage/logout", s.handleLogout)
 	mux.HandleFunc("GET /manage", s.guard(s.handleRoot))
 	mux.HandleFunc("GET /manage/{$}", s.guard(s.handleRoot))
+	mux.HandleFunc("GET /manage/beta/{component}", s.guard(s.handleBeta(false)))
+	mux.HandleFunc("GET /manage/beta/{component}/history", s.guard(s.handleBeta(true)))
 	mux.HandleFunc("GET /manage/{channel}/{component}", s.guard(s.handleOverview))
 	mux.HandleFunc("GET /manage/{channel}/{component}/history", s.guard(s.handleHistory))
 	for _, action := range []string{actionPromote, actionYank} {
