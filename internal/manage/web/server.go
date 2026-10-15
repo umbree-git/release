@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/umbree-git/release"
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/publish"
 	"github.com/umbree-git/release/internal/manage/retention"
@@ -82,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", handleHealth)
 	mux.HandleFunc("GET /manage/static/site.css", staticFile("static/site.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /manage/static/console.js", staticFile("static/console.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /manage/static/favicon.svg", faviconFile)
 	mux.HandleFunc("GET /manage/login", s.handleLoginPage)
 	mux.HandleFunc("POST /manage/login", s.handleLoginSubmit)
 	mux.HandleFunc("GET /manage/login/totp", s.handleTOTPPage)
@@ -136,7 +138,7 @@ func (s *Server) writeGuard(h guarded) http.HandlerFunc {
 func secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -155,6 +157,11 @@ func staticFile(name, contentType string) http.HandlerFunc {
 		w.Header().Set("Content-Type", contentType)
 		http.ServeFileFS(w, r, assets, name)
 	}
+}
+
+func faviconFile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	http.ServeFileFS(w, r, release.Assets, "site/favicon.svg")
 }
 
 func handleNoPage(w http.ResponseWriter, r *http.Request, _ *store.Session) {
