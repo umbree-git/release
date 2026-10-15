@@ -1,12 +1,22 @@
 {{define "content"}}
 <h1>{{.Component}} history <span class="dim">· {{.Channel}}</span></h1>
 {{template "tabs" .}}
-<section class="panel">
+<section class="panel history">
 {{if .Rows}}
-<table>
-  {{template "rowhead"}}
+<table class="history">
+  {{template "historyhead"}}
   <tbody>
-  {{range .Rows}}{{template "rowcells" .}}{{end}}
+  {{range .Rows}}<tr class="row state-{{.State}}" id="row-{{.ID}}">
+  <td><span class="pills">{{if and .ExpiredAt (eq .State "expired")}}<span class="state state-{{.State}}"><time datetime="{{.ExpiredAt.ISO}}" title="expired {{.ExpiredAt.Full}}">{{.State}}</time></span>{{else}}<span class="state state-{{.State}}">{{.State}}</span>{{end}}{{if .IsCurrent}} <span class="state state-current">current</span>{{end}}</span></td>
+  <td>{{.Version}}</td>
+  <td class="stamp" title="{{.Stamp}}">{{.Stamp}}</td>
+  <td class="date">{{template "when" .CutAt}}</td>
+  <td class="date">{{template "when" .PromotedAt}}</td>
+  <td class="date">{{template "when" .YankedAt}}</td>
+  <td class="count">{{.Artifacts}}</td>
+  <td class="links">{{if .SumsURL}}<span class="row-links"><a href="{{.SumsURL}}">sums</a>{{with .SigURL}}<a href="{{.}}">sig</a>{{end}}{{with .Manifest}}<a href="{{.}}">manifest</a>{{end}}</span>{{else}}—{{end}}</td>
+  <td class="action">{{if .CanPromote}}{{template "promoteform" .Form $.CSRF}}{{else if .CanYank}}{{template "yankform" .Form $.CSRF}}{{end}}</td>
+</tr>{{end}}
   </tbody>
 </table>
 {{else}}<p class="dim">No rows yet.</p>{{end}}

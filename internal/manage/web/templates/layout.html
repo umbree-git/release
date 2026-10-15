@@ -49,3 +49,17 @@
     {{range .Files}}<tr><td class="file">{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td class="platform">{{.Platform}}</td><td class="size">{{.Size}}</td><td class="sha">{{with .SHA}}<code title="{{.}}">{{.}}</code><button class="btn copy" type="button" data-copy hidden>copy</button>{{end}}</td></tr>
     {{end}}</tbody>
     </table>{{end}}
+
+{{define "historyhead"}}<thead><tr><th>State</th><th>Version</th><th>Stamp</th><th>Cut</th><th>Promoted</th><th>Yanked</th><th>Artifacts</th><th>Links</th><th>Action</th></tr></thead>{{end}}
+
+{{define "when"}}{{if .}}<time datetime="{{.ISO}}" title="{{.Full}}">{{.Day}}</time>{{else}}—{{end}}{{end}}
+
+{{define "promoteform"}}<form class="act" method="post" action="/manage/releases/{{.ID}}/promote">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn primary" type="submit">Promote {{.Version}}</button>
+    </form>{{end}}
+
+{{define "yankform"}}<form class="act" method="post" action="/manage/releases/{{.ID}}/yank">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="btn danger outline" type="submit">Yank {{.Version}}</button>
+    </form>{{end}}

@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/umbree-git/release/internal/register"
 )
 
 const (
@@ -133,6 +136,127 @@ func yankForm(id int64, version, csrf string) string {
 	return fmt.Sprintf("<form class=\"act\" method=\"post\" action=\"/manage/releases/%d/yank\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"%s\">\n      <button class=\"btn danger outline\" type=\"submit\">Yank %s</button>\n    </form>", id, csrf, version)
 }
 
+func TestHistoryColumnLabels(t *testing.T) {
+	c := newConsole(t)
+	c.seedHistory()
+	body := c.signedIn("ops").get(historyPath).body
+	heads := theadRe.FindAllStringSubmatch(body, -1)
+	if len(heads) != 1 {
+		t.Fatalf("%d thead", len(heads))
+	}
+	var got []string
+	for _, m := range thRe.FindAllStringSubmatch(heads[0][1], -1) {
+		got = append(got, m[1])
+	}
+	if !slices.Equal(got, historyLabels) {
+		t.Fatalf("labels %v, want %v", got, historyLabels)
+	}
+	for _, id := range c.rows {
+		rowCells(t, body, id)
+	}
+}
+
+func TestHistoryBadgesSideBySide(t *testing.T) {
+	c := newConsole(t)
+	c.seedHistory()
+	body := c.signedIn("ops").get(historyPath).body
+	for label, id := range c.rows {
+		cells := rowCells(t, body, id)
+		want := 1
+		if label == "current" {
+			want = 2
+		}
+		if !strings.HasPrefix(cells[0].inner, `<span class="pills">`) || len(stateSpanRe.FindAllString(cells[0].inner, -1)) != want {
+			t.Fatalf("%s state cell %q", label, cells[0].inner)
+		}
+		if n := len(stateSpanRe.FindAllString(historyRow(t, body, id), -1)); n != want {
+			t.Fatalf("%s: %d badges in the row, %d in the state cell", label, n, want)
+		}
+	}
+	rules := cssRules(t, c)
+	requireDecl(t, rules, ".pills", "display: inline-flex")
+	requireDecl(t, rules, "table.history .pills", "flex-wrap: wrap")
+}
+
+func TestHistoryArtifactCount(t *testing.T) {
+	c := newConsole(t)
+	c.seedHistory()
+	body := c.signedIn("ops").get(historyPath).body
+	for label, id := range c.rows {
+		want := strconv.Itoa(len(artifactsOf(t, c.row(label))))
+		if got := rowCells(t, body, id)[6].inner; got != want || want == "0" {
+			t.Fatalf("%s artifacts %q, want %s", label, got, want)
+		}
+	}
+}
+
+func TestHistoryLinksPublicNotPruned(t *testing.T) {
+	c := newConsole(t)
+	c.seedHistory()
+	if _, err := c.st.RecordPruned(c.rows["public"], "public", nil, "test-operator", c.now); err != nil {
+		t.Fatal(err)
+	}
+	body := c.signedIn("ops").get(historyPath).body
+	for label, id := range c.rows {
+		cells := rowCells(t, body, id)
+		for i, cl := range cells {
+			if i != colLinks && hrefRe.MatchString(cl.inner) {
+				t.Fatalf("%s cell %d carries a link: %s", label, i, cl.inner)
+			}
+		}
+		links := cells[colLinks].inner
+		if label != "current" {
+			if links != noValue {
+				t.Fatalf("%s links %q, want %s", label, links, noValue)
+			}
+			continue
+		}
+		rv := c.row(label)
+		for _, want := range []string{rv.Stamp + "/" + register.SumsName, rv.Stamp + "/" + register.MinisigName, publicBase + manifestPath} {
+			if !strings.Contains(links, want) {
+				t.Fatalf("current links %q lack %s", links, want)
+			}
+		}
+	}
+	if n := strings.Count(body, publicBase+manifestPath); n != 1 {
+		t.Fatalf("%d manifest links on history", n)
+	}
+}
+
+func TestHistoryActionsMatchService(t *testing.T) {
+	c := newConsole(t)
+	actionFixture(c)
+	b := c.signedIn("ops")
+	body := b.get(historyPath).body
+	promotable := c.promotableIDs()
+	if !slices.Equal(promotable, []int64{c.rows["next"], c.rows["later"]}) {
+		t.Fatalf("control: promotable %v", promotable)
+	}
+	got := forms(body, "promote")
+	slices.Sort(got)
+	if !slices.Equal(got, promotable) || !slices.Equal(forms(body, "yank"), []int64{c.rows["live"]}) {
+		t.Fatalf("promote %v yank %v", got, forms(body, "yank"))
+	}
+	for label, id := range c.rows {
+		action := rowCells(t, body, id)[colAction].inner
+		rv := c.row(label)
+		switch {
+		case slices.Contains(promotable, id):
+			if action != promoteForm(id, rv.Version, b.csrf()) {
+				t.Fatalf("%s action %q", label, action)
+			}
+		case label == "live":
+			if action != yankForm(id, rv.Version, b.csrf()) {
+				t.Fatalf("%s action %q", label, action)
+			}
+		default:
+			if action != "" {
+				t.Fatalf("%s (%s) carries an action %q", label, rv.State, action)
+			}
+		}
+	}
+}
+
 func TestConsoleLinksNoUnderline(t *testing.T) {
 	c := newConsole(t)
 	rules := cssRules(t, c)
@@ -157,4 +281,41 @@ func TestCopyButtonRightAligned(t *testing.T) {
 	requireDecl(t, rules, "table.files td.sha", "display: flex", "align-items: center")
 	requireDecl(t, rules, "table.files td.sha code", "flex: 1 1 auto", "min-width: 0", "text-overflow: ellipsis")
 	requireDecl(t, rules, "table.files td.sha .btn.copy", "flex: none", "margin-left: auto")
+}
+
+func TestHistoryNoHorizontalScrollRules(t *testing.T) {
+	c := newConsole(t)
+	c.seedHistory()
+	body := c.signedIn("ops").get(historyPath).body
+	if !strings.Contains(body, `<section class="panel history">`) || !strings.Contains(body, `<table class="history">`) {
+		t.Fatal("history panel or table lacks the history class")
+	}
+	rules := cssRules(t, c)
+	requireDecl(t, rules, ".panel.history", "overflow-x: visible")
+	requireDecl(t, rules, "table.history", "table-layout: fixed", "width: 100%")
+	total := 0.0
+	for _, r := range rules {
+		if strings.Contains(r.selector, "history") && regexp.MustCompile(`overflow(-x)?:\s*(auto|scroll)`).MatchString(r.body) {
+			t.Fatalf("%s scrolls: %s", r.selector, r.body)
+		}
+		if m := minWidthRe.FindStringSubmatch(r.body); m != nil && strings.TrimSpace(m[1]) != "0" {
+			t.Fatalf("%s sets min-width %s", r.selector, m[1])
+		}
+		for _, m := range sizedWidthRe.FindAllStringSubmatch(r.body, -1) {
+			if n, _ := strconv.ParseFloat(m[1], 64); (m[2] == "rem" && n > 72) || (m[2] == "px" && n > 1152) {
+				t.Fatalf("%s width %s%s exceeds the container", r.selector, m[1], m[2])
+			}
+		}
+		if strings.HasPrefix(r.selector, "table.history th:nth-child(") {
+			m := percentRe.FindStringSubmatch(r.body)
+			if m == nil {
+				t.Fatalf("%s has no percentage width", r.selector)
+			}
+			n, _ := strconv.ParseFloat(m[1], 64)
+			total += n
+		}
+	}
+	if total != 100 {
+		t.Fatalf("history column widths sum to %v%%", total)
+	}
 }
