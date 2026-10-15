@@ -28,13 +28,24 @@
   <td><span class="state state-{{.State}}">{{.State}}</span>{{if .IsCurrent}} <span class="state state-current">current</span>{{end}}</td>
   <td>{{.Version}}</td>
   <td class="stamp">{{.Stamp}}</td>
-  <td>{{.Created}}</td>
-  <td>{{.Promoted}}</td>
-  <td>{{.Yanked}}</td>
-  <td>{{.Expired}}</td>
+  <td class="date">{{.Created}}</td>
+  <td class="date">{{.Promoted}}</td>
+  <td class="date">{{.Yanked}}</td>
+  <td class="date">{{.Expired}}</td>
   <td>{{range .Links}}<a href="{{.URL}}">{{.Name}}</a> {{end}}</td>
 </tr>{{end}}
 
 {{define "rowhead"}}<thead><tr><th>state</th><th>version</th><th>stamp</th><th>cut</th><th>promoted</th><th>yanked</th><th>expired</th><th>downloads</th></tr></thead>{{end}}
 
 {{define "tabs"}}<nav class="tabs">{{range .Tabs}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav>{{end}}
+
+{{define "cardtitle"}}<b class="version">{{.Version}}</b>
+    <span class="stamp">{{.Stamp}}</span>
+    <span class="pills"><span class="state state-{{.State}}">{{.State}}</span>{{if .IsCurrent}} <span class="state state-current">current</span>{{end}}</span>{{end}}
+
+{{define "filetable"}}<table class="files">
+    <thead><tr><th>FILE</th><th>PLATFORM</th><th>SIZE</th><th>SHA-256</th></tr></thead>
+    <tbody>
+    {{range .Files}}<tr><td class="file">{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td class="platform">{{.Platform}}</td><td class="size">{{.Size}}</td><td class="sha">{{with .SHA}}<code title="{{.}}">{{.}}</code><button class="btn copy" type="button" data-copy hidden>copy</button>{{end}}</td></tr>
+    {{end}}</tbody>
+    </table>{{end}}
