@@ -13,14 +13,15 @@ import (
 )
 
 type fixture struct {
-	t      *testing.T
-	h      *host
-	root   string
-	stage  string
-	calls  []string
-	failOn map[string]bool
-	out    bytes.Buffer
-	errOut bytes.Buffer
+	t       *testing.T
+	h       *host
+	root    string
+	stage   string
+	calls   []string
+	failOn  map[string]bool
+	replies map[string]string
+	out     bytes.Buffer
+	errOut  bytes.Buffer
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -29,7 +30,7 @@ func newFixture(t *testing.T) *fixture {
 	if err := os.Chmod(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{t: t, root: filepath.Join(base, "root"), stage: filepath.Join(base, "stage"), failOn: map[string]bool{}}
+	f := &fixture{t: t, root: filepath.Join(base, "root"), stage: filepath.Join(base, "stage"), failOn: map[string]bool{}, replies: map[string]string{}}
 	for _, d := range []string{"bin", "etc/manage/templates", "var/manage-deploy"} {
 		f.mkdir(filepath.Join(f.root, d), 0o755)
 	}
@@ -97,6 +98,11 @@ func (f *fixture) record(name string, args ...string) ([]byte, error) {
 	for key := range f.failOn {
 		if strings.HasPrefix(call, key) {
 			return []byte("simulated failure"), fmt.Errorf("exit status 1")
+		}
+	}
+	for key, reply := range f.replies {
+		if strings.HasPrefix(call, key) {
+			return []byte(reply), nil
 		}
 	}
 	return nil, nil
