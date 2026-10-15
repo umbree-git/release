@@ -8,6 +8,33 @@ written here — they come from the operator's sealed configuration
 `<STATIC_DIR>`, `<downloads-base>`, `<MANAGE_HOST>`, `<MANAGE_DATA_DIR>`,
 `<SERVICE_USER>`.
 
+## First deploy of the manage service
+
+Until the service runs, no stable cut can: `tools/release.sh` refuses before
+the build while `UMBREE_R2_GATED_BUCKET` or an https `UMBREE_MANAGE_URL` is
+missing. The order, each step after the one before it has been checked:
+
+1. **Provision** on `<RELEASE_HOST>`: the non-root deploy user and its sudoers
+   drop-in (`ops/README.md` §7, "The deploy user"); the host helper — the operator
+   builds the bundle with `tools/deploy-manage.sh --build-helper`, checks its
+   `SHA256SUMS` on the host, installs it, and writes `helper.conf` once ("The host
+   helper"); the `umbree-release` user, the data dir,
+   `secret.key`, the env file, the R2 credentials, `<STATIC_DIR>` writable by
+   `umbree-release`, and `ss -ltn` showing 8788 free (`ops/README.md` §7, "Provision").
+2. **Deploy**: `tools/deploy-manage.sh --dry-run`, then `tools/deploy-manage.sh`
+   from `main`, with `STATIC_DIR` in the deploy config. It enables the service
+   (not the timer) and ends verified (`/healthz`, `/manage/login` 200) or restored.
+3. **Admins**: `admin add <name>` as `umbree-release`; scan the enrolment it
+   prints once.
+4. **Seal** `UMBREE_R2_GATED_BUCKET` and `UMBREE_MANAGE_URL` (the origin, not
+   `…/manage`) into the server config.
+5. **Backfill** each component, as `umbree-release`, with `serve` idle
+   ("`backfill` runs beside `serve`").
+6. **Retention**: `retain --dry-run`, check both bucket listings, then enable
+   `umbree-release-manage-retain.timer`. Enabling it can delete real bytes.
+
+Only then does a cut stage and register.
+
 ## A cut no longer makes anything public
 
 Since the gated store landed, a stable cut stages the bytes to the private
