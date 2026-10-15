@@ -142,4 +142,19 @@ H=relative
 HOME="$H" sh "$L/run.sh" >/dev/null 2>&1
 check "relative HOME: exit 1" eq "$?" 1
 
+fresh sudo
+echo 0 > "$H/a.probe"
+mkdir -p "${TK_ROOT}/idshim"
+cat > "${TK_ROOT}/idshim/id" <<'IDSHIM'
+#!/bin/sh
+[ "${1:-}" = -u ] && { echo 0; exit 0; }
+echo root
+IDSHIM
+chmod 0755 "${TK_ROOT}/idshim/id"
+HOME="$H" PATH="${TK_ROOT}/idshim:${PATH}" SUDO_USER=alice UMBREE_ICONS=text sh "$L/run.sh" >"${TK_ROOT}/out" 2>"${TK_ROOT}/err"
+RC=$?
+check "under sudo: exit 1" eq "$RC" 1
+check "under sudo: names the user" contains "$(cat "${TK_ROOT}/err")" "run as alice"
+check "under sudo: nothing probed or run" eq "$(cat "$H/calls")" ""
+
 tk_end
