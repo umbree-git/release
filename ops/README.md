@@ -226,18 +226,20 @@ Go program under a root-owned tree:
 └── var/manage-deploy/              root 0700: the .prev copies and .absent markers
 ```
 
-It takes no argument but its verb, honours no environment variable and reads
-only `helper.conf`. It refuses to run unless it is root, and unless the config,
-the templates and every directory up to `/usr/local/umbree-release` are
-root-owned and not group- or other-writable. No verb writes the helper,
+It takes no argument but its verb, honours no environment variable — not even
+`PATH` — and reads only `helper.conf`. It runs `systemctl`, `nginx`, `ss` and
+`systemd-analyze` by the absolute paths in `helper.conf`, and refuses unless
+each is root-owned, not group- or other-writable, not a symlink, and every
+directory above it up to `/` is the same. It refuses to run unless it is root, and unless the config,
+the templates and every directory up to `/` are root-owned and not group- or other-writable. No verb writes the helper,
 `etc/manage/` or anything but its fixed destinations.
 
 | Verb | Does |
 |---|---|
 | `preflight` | reads only: env file listen and no trusted proxy, `STAGE_DIR` ownership and mode, static dir writable by `SERVICE_USER`, the port free or held by the service's `MainPID`; warns on systemd older than 232 |
 | `install-binary` | opens `STAGE_DIR` and then `umbree-release-manage.new` in it with `O_NOFOLLOW`; refuses unless the directory is the deploy user's, mode 0750 or narrower, and the file is a regular file of the deploy user's with one link; snapshots the installed binary, units and vhost; copies through the held descriptor to a root temp, fsyncs, re-hashes, renames |
-| `render` | the units and vhost from its own templates and `helper.conf`; refuses its own output unless `User=`/`Group=` is `SERVICE_USER`, no `Exec*` has a `+`/`!`/`!!` prefix, there is no `PermissionsStartOnly`, and every directive is one the committed templates use; then `nginx -t` and `systemd-analyze verify`, restoring its files on failure |
-| `activate` | `daemon-reload`, `enable` the service (never the retain timer), `restart`, nginx reload |
+| `render` | the units and vhost from its own templates and `helper.conf`; refuses its own output unless `User=`/`Group=` is `SERVICE_USER`, no `Exec*` has a `+`/`!`/`!!` prefix, there is no `PermissionsStartOnly`, and every directive is one that unit's own template uses; writes a file only when its bytes differ from the installed one (reporting `unchanged` otherwise, and keeping a previous copy only of what it replaced); after a change, `nginx -t` and `systemd-analyze verify`, restoring its files on failure |
+| `activate` | `daemon-reload` only if a unit was replaced, `enable` the service (never the retain timer), `restart`, and an nginx reload only if the vhost was replaced — what `render` recorded in `var/manage-deploy/` |
 | `restore` | the snapshot back; on a first deploy the service is stopped, then disabled, then its files removed |
 | `status` | the installed binary's sha256, the service state, what the snapshot holds |
 
@@ -265,7 +267,16 @@ MANAGE_DATA_DIR=<MANAGE_DATA_DIR>
 MANAGE_ENV_FILE=/etc/umbree-release-manage/manage.env
 STATIC_DIR=<STATIC_DIR>
 MANAGE_LISTEN=127.0.0.1:<PORT>
+SYSTEMCTL=<SYSTEMCTL_PATH>
+NGINX=<NGINX_PATH>
+SS=<SS_PATH>
+SYSTEMD_ANALYZE=<SYSTEMD_ANALYZE_PATH>
 ```
+
+The four tool keys default to `/usr/bin/systemctl`, `/usr/sbin/nginx`,
+`/usr/bin/ss` and `/usr/bin/systemd-analyze`. **Confirm each on the host** with
+`command -v` and `ls -l` — an older distribution keeps `systemctl` and `ss` in
+`/bin` — and name the real file, never a symlink to it.
 
 ### The deploy user, once per host
 
@@ -281,6 +292,7 @@ The drop-in grants the helper's verbs and nothing else — one exact line each,
 no wildcard, no raw `install`, `rm`, `ss`, `cat`, `systemctl` or `nginx`:
 
 ```
+Defaults!/usr/local/umbree-release/bin/umbree-deploy-helper env_reset, secure_path=<SECURE_PATH>
 <SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper preflight
 <SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper install-binary
 <SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper render
@@ -289,7 +301,9 @@ no wildcard, no raw `install`, `rm`, `ss`, `cat`, `systemctl` or `nginx`:
 <SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper status
 ```
 
-No helper verb takes a port; `<PORT>` appears only in `helper.conf`. `visudo`
+The `Defaults` line is defence in depth — the helper already ignores the
+environment; `<SECURE_PATH>` is the host's root-owned system directories. No
+helper verb takes a port; `<PORT>` appears only in `helper.conf`. `visudo`
 refuses a drop-in that does not parse, and `sudo -n -l` as `<SSH_USER>` lists
 what it may run.
 
