@@ -18,13 +18,13 @@ type pageData struct {
 	CSRF  string
 	Error string
 	Nav   []navItem
+	Tabs  []navItem
 }
 
 type overviewPage struct {
 	pageData
 	Channel    string
 	Component  string
-	History    string
 	Current    *rowView
 	Promotable *rowView
 	Retention  []navItem
@@ -35,7 +35,6 @@ type historyPage struct {
 	pageData
 	Channel   string
 	Component string
-	Overview  string
 	Rows      []rowView
 }
 
@@ -48,12 +47,12 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, sta
 	}
 }
 
-func (s *Server) consolePage(w http.ResponseWriter, r *http.Request, sess *store.Session, title string) pageData {
+func (s *Server) consolePage(w http.ResponseWriter, r *http.Request, sess *store.Session, title, channel, comp string) pageData {
 	csrf, err := s.cfg.Auth.CSRFToken(w, r, sess)
 	if err != nil {
 		s.cfg.Log.Error("csrf token", "err", err, "path", r.URL.Path)
 	}
-	return pageData{Title: title, Admin: sess.Admin, CSRF: csrf}
+	return pageData{Title: title, Admin: sess.Admin, CSRF: csrf, Nav: componentNav(channel, comp, pagePath)}
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -66,7 +65,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 		http.NotFound(w, r)
 		return
 	}
-	page := overviewPage{Channel: channel, Component: comp, History: historyPath(channel, comp)}
+	page := overviewPage{Channel: channel, Component: comp}
 	current, err := s.cfg.Store.Current(comp, channel)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.pageError(w, r, err)
@@ -93,8 +92,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 	if s.cfg.Publish.Static != nil {
 		page.Republish = republishPath(channel, comp)
 	}
-	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel)
-	page.Nav = componentNav(channel, comp, pagePath)
+	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel, channel, comp)
+	page.Tabs = pageTabs(channel, comp, false)
 	s.render(w, r, "index", http.StatusOK, page)
 }
 
@@ -109,12 +108,12 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, sess *sto
 		s.pageError(w, r, err)
 		return
 	}
-	page := historyPage{Channel: channel, Component: comp, Overview: pagePath(channel, comp)}
+	page := historyPage{Channel: channel, Component: comp}
 	for _, rv := range rows {
 		page.Rows = append(page.Rows, s.view(rv))
 	}
-	page.pageData = s.consolePage(w, r, sess, comp+" history · "+channel)
-	page.Nav = componentNav(channel, comp, historyPath)
+	page.pageData = s.consolePage(w, r, sess, comp+" history · "+channel, channel, comp)
+	page.Tabs = pageTabs(channel, comp, true)
 	s.render(w, r, "history", http.StatusOK, page)
 }
 
