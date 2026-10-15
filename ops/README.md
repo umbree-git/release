@@ -174,7 +174,9 @@ ss -ltn | grep ':8788 ' || echo '8788 is free'
 The operator runs it from a workstation checkout of `main`. It reads an
 operator-local config file, never committed —
 `$UMBREE_MANAGE_DEPLOY_CONFIG`, default `~/.umbree/release/manage-deploy.env`,
-`KEY=value` lines:
+`KEY=value` lines. `MANAGE_DATA_DIR`, `STATIC_DIR`, `SERVICE_USER`,
+`MANAGE_ENV_FILE` and `MANAGE_LISTEN` only feed the workstation lint and must
+equal the host's `helper.conf`, which is what the host renders from:
 
 | Key | Default | |
 |---|---|---|
@@ -184,46 +186,86 @@ operator-local config file, never committed —
 | `STATIC_DIR` | none — required | absolute and clean; the vhost's `root` and the unit's second `ReadWritePaths=` entry. Copy it from the sealed server config; the script never decrypts |
 | `SERVICE_USER` | `umbree-release` | the unit's `User=`/`Group=`; root refuses |
 | `MANAGE_ENV_FILE` | `/etc/umbree-release-manage/manage.env` | the unit's `EnvironmentFile=` |
-| `MANAGE_BIN_DIR` | `/usr/local/bin` | where the binary is installed, root-owned 0755 |
 | `MANAGE_LISTEN` | `127.0.0.1:8788` | must equal the vhost's upstream and the env file's `UMBREE_MANAGE_LISTEN` |
 | `MANAGE_URL` | `https://release.umbree.org` | what the verify reads; https with a host name |
-| `UNIT_DIR`, `VHOST_DIR`, `STAGE_DIR` | `/etc/systemd/system`, `/etc/nginx/sites-enabled`, `/home/<SSH_USER>/umbree-release-manage-deploy` | `STAGE_DIR` is the deploy user's own, unprivileged |
+| `STAGE_DIR` | `/home/<SSH_USER>/umbree-release-manage-deploy` | the deploy user's own directory, mode 0750; must equal `helper.conf` |
 
 Every path key must be absolute and clean (no `//`, `.`, `..` or trailing `/`).
 Values holding `#`, `&`, `'` or whitespace are refused rather than quoted. The
 toolchain is not configurable: the build accepts `go1.26.9` only.
 
 ```sh
-tools/deploy-manage.sh --dry-run     # build, render, print the plan and sha256; contacts no host
-tools/deploy-manage.sh               # the deploy
-tools/deploy-manage.sh --skip-vhost  # binary and units only
-tools/deploy-manage.sh --rollback    # the previous binary, units and vhost back, then verify
+tools/deploy-manage.sh --build-helper  # the helper bundle, for the operator to install; contacts no host
+tools/deploy-manage.sh --dry-run       # build, lint, print the plan and sha256; contacts no host
+tools/deploy-manage.sh                 # the deploy
+tools/deploy-manage.sh --rollback      # helper restore of the previous binary, units and vhost, then verify
 ```
 
 What a deploy does, in order: build `umbree-release-manage` for linux/amd64 with
-the pinned Go and print its sha256; render the three units from `ops/systemd/`
-and the vhost with `STATIC_DIR` into a scratch directory, never into the tree
-(refusing a surviving `<…>`, `User=root`, or a missing `ProtectSystem=strict` /
-`ReadWritePaths=`); a read-only preflight on the host (env file present, its
-listen address agrees, no trusted proxy, the static directory writable by
-`umbree-release`, the port free or held by the service's own `MainPID`; a
-warning for systemd older than 232); copy to `STAGE_DIR`; keep the installed
-binary, units and vhost as `.prev`, and mark the ones that did not exist; install;
-`nginx -t`; `daemon-reload`; `systemctl enable` the service — never the retain
-timer, which waits for RUNBOOK step 6; restart; reload nginx; verify
-`systemctl is-active`, `/healthz` and `/manage/login` 200. Any failure from the
-install on restores the `.prev` copies, removes what had none, and exits non-zero.
+the pinned Go and print its sha256; lint the units and vhost on the workstation
+(an early warning, not the control); on the host, as `<SSH_USER>`, check
+`sudo -n -l` for every helper verb the run and its restore use, refusing before
+anything is copied with the verb named; `sudo -n <HELPER> preflight`; copy the
+binary — the only file sent — to `STAGE_DIR/umbree-release-manage.new`; then
+`sudo -n <HELPER> install-binary`, `render`, `activate`; verify `is-active`,
+`/healthz` and `/manage/login` 200 as `<SSH_USER>`. A failed `render`,
+`activate` or verify runs `sudo -n <HELPER> restore`; a refused `install-binary`
+has changed nothing.
 
-**The deploy elevates per step.** It connects as `<SSH_USER>`, never root. Staging
-into `STAGE_DIR`, the `.prev` copies and `.absent` markers there, the checksum,
-`systemctl show` / `is-active` / `--version` and the `curl` verifies run as that
-user. Only these run under `sudo -n` — non-interactive, so a missing sudoers rule
-fails at once with a `✗` naming the step instead of waiting for a password:
-`install` into the binary, unit and vhost paths, `rm` of a destination that had
-no previous copy, `systemctl daemon-reload|enable|restart|stop|disable` of the
-service, `nginx -t` and the nginx reload, and the root-only reads — `cat` of the
-env file, `ss -ltnpH`, and `test -w` on the static dir as `umbree-release`.
-Restore and `--rollback` use the same calls.
+### The host helper
+
+`<HELPER>` is `/usr/local/umbree-release/bin/umbree-deploy-helper`, a root-owned
+Go program under a root-owned tree:
+
+```
+/usr/local/umbree-release/
+├── bin/umbree-deploy-helper        the helper, root 0755
+├── bin/umbree-release-manage       the service binary, written only by install-binary
+├── etc/manage/helper.conf          root 0644
+├── etc/manage/templates/           root 0644: the three units and the vhost, from the bundle
+└── var/manage-deploy/              root 0700: the .prev copies and .absent markers
+```
+
+It takes no argument but its verb, honours no environment variable and reads
+only `helper.conf`. It refuses to run unless it is root, and unless the config,
+the templates and every directory up to `/usr/local/umbree-release` are
+root-owned and not group- or other-writable. No verb writes the helper,
+`etc/manage/` or anything but its fixed destinations.
+
+| Verb | Does |
+|---|---|
+| `preflight` | reads only: env file listen and no trusted proxy, `STAGE_DIR` ownership and mode, static dir writable by `SERVICE_USER`, the port free or held by the service's `MainPID`; warns on systemd older than 232 |
+| `install-binary` | opens `STAGE_DIR` and then `umbree-release-manage.new` in it with `O_NOFOLLOW`; refuses unless the directory is the deploy user's, mode 0750 or narrower, and the file is a regular file of the deploy user's with one link; snapshots the installed binary, units and vhost; copies through the held descriptor to a root temp, fsyncs, re-hashes, renames |
+| `render` | the units and vhost from its own templates and `helper.conf`; refuses its own output unless `User=`/`Group=` is `SERVICE_USER`, no `Exec*` has a `+`/`!`/`!!` prefix, there is no `PermissionsStartOnly`, and every directive is one the committed templates use; then `nginx -t` and `systemd-analyze verify`, restoring its files on failure |
+| `activate` | `daemon-reload`, `enable` the service (never the retain timer), `restart`, nginx reload |
+| `restore` | the snapshot back; on a first deploy the service is stopped, then disabled, then its files removed |
+| `status` | the installed binary's sha256, the service state, what the snapshot holds |
+
+**Install the helper, once per helper or template change**, from a reviewed
+`main` commit: `tools/deploy-manage.sh --build-helper` writes
+`dist/umbree-deploy-helper/` (the helper, `templates/`, `SHA256SUMS`) and prints
+the sums. Copy it to the host, check it there, and install:
+
+```sh
+# OPERATOR, on <RELEASE_HOST>, in the copied bundle:
+sha256sum -c SHA256SUMS
+sudo install -d -o root -g root -m 0755 /usr/local/umbree-release/bin /usr/local/umbree-release/etc/manage/templates
+sudo install -d -o root -g root -m 0700 /usr/local/umbree-release/var/manage-deploy
+sudo install -o root -g root -m 0755 umbree-deploy-helper /usr/local/umbree-release/bin/
+sudo install -o root -g root -m 0644 templates/* /usr/local/umbree-release/etc/manage/templates/
+```
+
+**Write `helper.conf` once**, root 0644, `KEY=value`:
+
+```
+SERVICE_USER=umbree-release
+DEPLOY_USER=<SSH_USER>
+STAGE_DIR=/home/<SSH_USER>/umbree-release-manage-deploy
+MANAGE_DATA_DIR=<MANAGE_DATA_DIR>
+MANAGE_ENV_FILE=/etc/umbree-release-manage/manage.env
+STATIC_DIR=<STATIC_DIR>
+MANAGE_LISTEN=127.0.0.1:<PORT>
+```
 
 ### The deploy user, once per host
 
@@ -235,48 +277,29 @@ sudo install -d -m 0700 -o <SSH_USER> /home/<SSH_USER>/.ssh
 sudo visudo -f /etc/sudoers.d/umbree-release-deploy
 ```
 
-The drop-in allows exactly the deploy's commands, by absolute path (check each
-with `command -v` on the host; `<STAGE>` is `STAGE_DIR`, the other placeholders
-are the deploy config's values):
+The drop-in grants the helper's verbs and nothing else — one exact line each,
+no wildcard, no raw `install`, `rm`, `ss`, `cat`, `systemctl` or `nginx`:
 
 ```
-Cmnd_Alias UMBREE_INSTALL = \
-    /usr/bin/install -m 0755 -o root -g root <STAGE>/umbree-release-manage.new <MANAGE_BIN_DIR>/umbree-release-manage, \
-    /usr/bin/install -m 0755 -o root -g root <STAGE>/umbree-release-manage.prev <MANAGE_BIN_DIR>/umbree-release-manage, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage.service.new <UNIT_DIR>/umbree-release-manage.service, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage.service.prev <UNIT_DIR>/umbree-release-manage.service, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.service.new <UNIT_DIR>/umbree-release-manage-retain.service, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.service.prev <UNIT_DIR>/umbree-release-manage-retain.service, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.timer.new <UNIT_DIR>/umbree-release-manage-retain.timer, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.timer.prev <UNIT_DIR>/umbree-release-manage-retain.timer, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/release.umbree.org.conf.new <VHOST_DIR>/release.umbree.org.conf, \
-    /usr/bin/install -m 0644 -o root -g root <STAGE>/release.umbree.org.conf.prev <VHOST_DIR>/release.umbree.org.conf, \
-    /usr/bin/rm -f <MANAGE_BIN_DIR>/umbree-release-manage, \
-    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage.service, \
-    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage-retain.service, \
-    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage-retain.timer, \
-    /usr/bin/rm -f <VHOST_DIR>/release.umbree.org.conf
-Cmnd_Alias UMBREE_SERVICE = \
-    /usr/bin/systemctl daemon-reload, \
-    /usr/bin/systemctl enable umbree-release-manage.service, \
-    /usr/bin/systemctl restart umbree-release-manage.service, \
-    /usr/bin/systemctl stop umbree-release-manage.service, \
-    /usr/bin/systemctl disable umbree-release-manage.service, \
-    /usr/sbin/nginx -t, \
-    /usr/bin/systemctl reload nginx
-Cmnd_Alias UMBREE_READ = \
-    /usr/bin/cat <MANAGE_ENV_FILE>, \
-    /usr/bin/ss -ltnpH sport = \:8788
-<SSH_USER> ALL=(root) NOPASSWD: UMBREE_INSTALL, UMBREE_SERVICE, UMBREE_READ
-<SSH_USER> ALL=(umbree-release) NOPASSWD: /usr/bin/test -w <STATIC_DIR>
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper preflight
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper install-binary
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper render
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper activate
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper restore
+<SSH_USER> ALL=(root) NOPASSWD: /usr/local/umbree-release/bin/umbree-deploy-helper status
 ```
 
-No wildcards: in sudoers a `*` in an argument matches spaces and slashes too.
-`visudo` refuses a drop-in that does not parse, and `sudo -n -l` as `<SSH_USER>`
-lists what it may run.
+No helper verb takes a port; `<PORT>` appears only in `helper.conf`. `visudo`
+refuses a drop-in that does not parse, and `sudo -n -l` as `<SSH_USER>` lists
+what it may run.
 
-The staged files are the deploy user's, so whoever holds `<SSH_USER>`'s key can
-install a binary that runs as `umbree-release`: guard that key like a release key.
+**What the deploy key can still do.** `<SSH_USER>` chooses the service binary,
+so whoever holds its key can **run any code as `umbree-release`** and restart
+the service and reload nginx. `umbree-release` holds the catalog, the
+second-factor key, the R2 credentials and write access to the static directory —
+it can publish a release. It cannot become root: every unit and the vhost come
+from root-owned templates and `helper.conf`, and the helper reads nothing else
+the deploy user writes. Guard that key like a release key.
 
 After the first deploy: `admin add` (below), the seal of `UMBREE_R2_GATED_BUCKET`
 and `UMBREE_MANAGE_URL`, `backfill`, `retain --dry-run`, then the timer —
