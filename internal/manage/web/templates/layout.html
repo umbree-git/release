@@ -15,7 +15,7 @@
   {{if .Admin}}<nav class="components">{{range .Nav}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav>
   <form class="signout" method="post" action="/manage/logout">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <span class="dim">{{.Who}}</span> <button class="btn" type="submit">Sign out</button>
+    <button class="btn" type="submit">Sign out</button>
   </form>{{end}}
 </header>
 <main>

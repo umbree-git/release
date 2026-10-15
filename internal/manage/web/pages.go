@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/catalog"
@@ -16,7 +15,6 @@ const refusalMessage = "Sign-in refused."
 type pageData struct {
 	Title string
 	Admin string
-	Who   string
 	CSRF  string
 	Error string
 	Nav   []navItem
@@ -54,7 +52,7 @@ func (s *Server) consolePage(w http.ResponseWriter, r *http.Request, sess *store
 	if err != nil {
 		s.cfg.Log.Error("csrf token", "err", err, "path", r.URL.Path)
 	}
-	return pageData{Title: title, Admin: sess.Admin, Who: localPart(sess.Admin), CSRF: csrf, Nav: componentNav(channel, comp, pagePath)}
+	return pageData{Title: title, Admin: sess.Admin, CSRF: csrf, Nav: componentNav(channel, comp, pagePath)}
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -143,9 +141,4 @@ func (s *Server) pageError(w http.ResponseWriter, r *http.Request, err error) {
 func (s *Server) refuse(w http.ResponseWriter, r *http.Request) {
 	auth.ClearCookies(w)
 	s.render(w, r, "login", http.StatusUnauthorized, pageData{Title: "Sign in", Error: refusalMessage})
-}
-
-func localPart(admin string) string {
-	name, _, _ := strings.Cut(admin, "@")
-	return name
 }
