@@ -17,16 +17,21 @@ var (
 	envProxy   = regexp.MustCompile(`(?m)^[ \t]*(?:export[ \t]+)?UMBREE_MANAGE_TRUSTED_PROXY=`)
 	pidField   = regexp.MustCompile(`pid=([0-9]+)`)
 	systemdVer = regexp.MustCompile(`^systemd ([0-9]+)`)
+	mainPIDKey = regexp.MustCompile(`(?m)^MainPID=([0-9]+)$`)
+)
+
+const (
+	systemdFloor      = 229
+	systemdHardenedAt = 232
 )
 
 func preflight(h *host, cfg *config) error {
-	checks := []func(*host, *config) error{checkEnvFile, checkStage, checkStaticWritable, checkPort}
+	checks := []func(*host, *config) error{checkEnvFile, checkStage, checkStaticWritable, checkPort, checkSystemd}
 	for _, c := range checks {
 		if err := c(h, cfg); err != nil {
 			return err
 		}
 	}
-	warnOldSystemd(h)
 	h.ok("preflight passed")
 	return nil
 }
@@ -83,7 +88,7 @@ func checkStaticWritable(h *host, cfg *config) error {
 }
 
 func checkPort(h *host, cfg *config) error {
-	out, err := h.exec("SS", "-ltnpH", "sport = :"+cfg.port)
+	out, err := h.exec("SS", "-ltnp", "sport = :"+cfg.port)
 	if err != nil {
 		return fmt.Errorf("ss: %v: %s", err, tail(out))
 	}
@@ -95,8 +100,7 @@ func checkPort(h *host, cfg *config) error {
 		return nil
 	}
 	sort.Strings(pids)
-	mainOut, _ := h.exec("SYSTEMCTL", "show", "-p", "MainPID", "--value", serviceUnit)
-	main := strings.TrimSpace(string(mainOut))
+	main := mainPID(h)
 	if main != "" && main != "0" && pids[0] == main && pids[len(pids)-1] == main {
 		h.ok("port %s held by %s (MainPID %s, a redeploy)", cfg.port, serviceUnit, main)
 		return nil
@@ -104,14 +108,28 @@ func checkPort(h *host, cfg *config) error {
 	return fmt.Errorf("port %s is bound by pid %s, not %s (MainPID %q)", cfg.port, strings.Join(pids, ","), serviceUnit, main)
 }
 
-func warnOldSystemd(h *host) {
+func mainPID(h *host) string {
+	out, _ := h.exec("SYSTEMCTL", "show", "-p", "MainPID", serviceUnit)
+	m := mainPIDKey.FindSubmatch(out)
+	if m == nil {
+		return ""
+	}
+	return string(m[1])
+}
+
+func checkSystemd(h *host, _ *config) error {
 	out, err := h.exec("SYSTEMCTL", "--version")
 	m := systemdVer.FindSubmatch(out)
 	if err != nil || m == nil {
 		h.warn("could not read the systemd version; ProtectSystem=strict and ReadWritePaths= may be ignored")
-		return
+		return nil
 	}
-	if v, _ := strconv.Atoi(string(m[1])); v < 232 {
+	v, _ := strconv.Atoi(string(m[1]))
+	if v < systemdFloor {
+		return fmt.Errorf("systemd %d is older than the helper's floor, systemd %d", v, systemdFloor)
+	}
+	if v < systemdHardenedAt {
 		h.warn("systemd %d ignores ProtectSystem=strict and ReadWritePaths= — file ownership is the control", v)
 	}
+	return nil
 }

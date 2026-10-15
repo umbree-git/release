@@ -25,7 +25,7 @@ func TestRealRunnerNeverResolvesThroughPATH(t *testing.T) {
 		t.Fatal("a command on the caller's PATH ran")
 	}
 	log := f.read(filepath.Join(f.base(), "tools.log"))
-	for _, want := range []string{"tools/ss -ltnpH", "tools/systemctl restart " + serviceUnit} {
+	for _, want := range []string{"tools/ss -ltnp sport = :8788", "tools/systemctl restart " + serviceUnit} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("the configured absolute tool did not run %q; log:\n%s", want, log)
 		}

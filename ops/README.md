@@ -234,9 +234,16 @@ directory above it up to `/` is the same. It refuses to run unless it is root, a
 the templates and every directory up to `/` are root-owned and not group- or other-writable. No verb writes the helper,
 `etc/manage/` or anything but its fixed destinations.
 
+**Host floor: systemd ≥ 229, iproute2 `ss` ≥ ss151103, nginx ≥ 1.10.3** — the
+release host's Ubuntu 16.04 versions. Every command the helper and
+`tools/deploy-manage.sh` run on the host uses only flags present at that floor:
+`ss -ltnp` (no `-H`, so its header line is read and ignored) and
+`systemctl show -p MainPID` parsed as `MainPID=<n>` (no `--value`, which is
+systemd 230). The helper refuses below systemd 229.
+
 | Verb | Does |
 |---|---|
-| `preflight` | reads only: env file listen and no trusted proxy, `STAGE_DIR` ownership and mode, static dir writable by `SERVICE_USER`, the port free or held by the service's `MainPID`; warns on systemd older than 232 |
+| `preflight` | reads only: env file listen and no trusted proxy, `STAGE_DIR` ownership and mode, static dir writable by `SERVICE_USER`, the port free or held by the service's `MainPID`; refuses systemd older than 229 and warns below 232 |
 | `install-binary` | opens `STAGE_DIR` and then `umbree-release-manage.new` in it with `O_NOFOLLOW`; refuses unless the directory is the deploy user's, mode 0750 or narrower, and the file is a regular file of the deploy user's with one link; snapshots the installed binary, units and vhost; copies through the held descriptor to a root temp, fsyncs, re-hashes, renames |
 | `render` | the units and vhost from its own templates and `helper.conf`; refuses its own output unless `User=`/`Group=` is `SERVICE_USER`, no `Exec*` has a `+`/`!`/`!!` prefix, there is no `PermissionsStartOnly`, and every directive is one that unit's own template uses; writes a file only when its bytes differ from the installed one (reporting `unchanged` otherwise, and keeping a previous copy only of what it replaced); after a change, `nginx -t` and `systemd-analyze verify`, restoring its files on failure |
 | `activate` | `daemon-reload` only if a unit was replaced, `enable` the service (never the retain timer), `restart`, and an nginx reload only if the vhost was replaced — what `render` recorded in `var/manage-deploy/` |
