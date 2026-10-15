@@ -89,12 +89,21 @@ check_url() {
     esac
 }
 
+check_paths() {
+    check_clean_dir STATIC_DIR "${STATIC_DIR}"
+    check_clean_dir MANAGE_DATA_DIR "${MANAGE_DATA_DIR}"
+    check_clean_dir MANAGE_ENV_FILE "${MANAGE_ENV_FILE}"
+    check_clean_dir MANAGE_BIN_DIR "${MANAGE_BIN_DIR}"
+    check_clean_dir UNIT_DIR "${UNIT_DIR}"
+    check_clean_dir VHOST_DIR "${VHOST_DIR}"
+    check_clean_dir STAGE_DIR "${STAGE_DIR}"
+}
+
 load_config() {
     [ -f "${CONFIG}" ] || refuse_config "no deploy config at ${CONFIG} — create it (RELEASE_HOST, MANAGE_DATA_DIR, STATIC_DIR, …) or set \$UMBREE_MANAGE_DEPLOY_CONFIG"
     RELEASE_HOST="$(cfg_value RELEASE_HOST '')"
     MANAGE_DATA_DIR="$(cfg_value MANAGE_DATA_DIR '')"
     STATIC_DIR="$(cfg_value STATIC_DIR '')"
-    check_clean_dir STATIC_DIR "${STATIC_DIR}"
     SERVICE_USER="$(cfg_value SERVICE_USER umbree-release)"
     MANAGE_ENV_FILE="$(cfg_value MANAGE_ENV_FILE /etc/umbree-release-manage/manage.env)"
     MANAGE_BIN_DIR="$(cfg_value MANAGE_BIN_DIR /usr/local/bin)"
@@ -105,6 +114,7 @@ load_config() {
     UNIT_DIR="$(cfg_value UNIT_DIR /etc/systemd/system)"
     VHOST_DIR="$(cfg_value VHOST_DIR /etc/nginx/sites-enabled)"
     STAGE_DIR="$(cfg_value STAGE_DIR "/root/${NAME}-deploy")"
+    check_paths
     PORT="${MANAGE_LISTEN##*:}"
 }
 
@@ -232,7 +242,7 @@ restore_script() {
         printf "  if [ -f '%s/%s.prev' ]; then install -m %s -o root -g root '%s/%s.prev' '%s' || true\n" "${STAGE_DIR}" "${f}" "${mode}" "${STAGE_DIR}" "${f}" "${dst}"
         printf "  elif [ -f '%s/%s.absent' ]; then rm -f '%s'; fi\n" "${STAGE_DIR}" "${f}" "${dst}"
     done
-    printf "  [ -f '%s/%s.absent' ] && systemctl disable %s >/dev/null 2>&1\n" "${STAGE_DIR}" "${UNIT}" "${UNIT}"
+    printf "  [ -f '%s/%s.absent' ] && { systemctl stop %s; systemctl disable %s; } >/dev/null 2>&1\n" "${STAGE_DIR}" "${UNIT}" "${UNIT}" "${UNIT}"
     printf '  systemctl daemon-reload || true\n'
     printf "  [ -f '%s/%s' ] && systemctl restart %s || true\n" "${MANAGE_BIN_DIR}" "${NAME}" "${UNIT}"
     printf '  nginx -t >/dev/null 2>&1 && systemctl reload nginx || true\n}\n'

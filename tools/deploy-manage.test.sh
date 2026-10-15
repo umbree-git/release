@@ -179,6 +179,19 @@ for v in "" "srv/static" "/srv/../static" "/srv//static" "/srv/static/" "/srv/./
     write_cfg
 done
 
+say "every path key must be absolute and clean, exit 2"
+for key in MANAGE_BIN_DIR UNIT_DIR VHOST_DIR STAGE_DIR MANAGE_DATA_DIR MANAGE_ENV_FILE; do
+    for v in "rel/path" "/a/../b" "/a//b" "/a/"; do
+        echo "${key}=${v}" >> "${CFG}"
+        reset_log
+        ARGS=(--dry-run); run
+        [ "${RC}" -eq 2 ] || die "${key}='${v}': exit ${RC}: ${OUT}"
+        has "${key}" "${OUT}" || die "${key}='${v}' refusal not named: ${OUT}"
+        [ -z "$(calls)" ] || die "${key}='${v}' still ran tools"
+        write_cfg
+    done
+done
+
 say "config values with # & ' or whitespace refuse, exit 2"
 for v in "/srv/a#b" "/srv/a&b" "/srv/a'b" "/srv/a b"; do
     printf 'MANAGE_DATA_DIR=%s\n' "${v}" >> "${CFG}"
@@ -298,6 +311,10 @@ ARGS=(); run SANDBOX_LOGIN_FAIL=1
 [ "${RC}" -ne 0 ] || die "first-deploy verify failure exited 0"
 [ ! -e "${HOST}/bin/umbree-release-manage" ] || die "first-deploy verify failure left the new binary"
 [ ! -e "${HOST}/units/umbree-release-manage-retain.timer" ] || die "first-deploy verify failure left the timer"
+grep -n 'systemctl stop umbree-release-manage.service' "${LOG}" | tail -n1 | cut -d: -f1 > "${W}/stop.n" || true
+grep -n 'systemctl disable umbree-release-manage.service' "${LOG}" | tail -n1 | cut -d: -f1 > "${W}/disable.n" || true
+[ -s "${W}/stop.n" ] || die "first-deploy verify failure did not stop the service"
+[ "$(cat "${W}/stop.n")" -lt "$(cat "${W}/disable.n")" ] || die "stop did not come before disable"
 
 say "systemd below 232 warns about the ignored sandbox keys and proceeds"
 reset_log

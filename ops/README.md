@@ -188,6 +188,7 @@ operator-local config file, never committed —
 | `MANAGE_URL` | `https://release.umbree.org` | what the verify reads; https with a host name |
 | `UNIT_DIR`, `VHOST_DIR`, `STAGE_DIR` | `/etc/systemd/system`, `/etc/nginx/sites-enabled`, `/root/umbree-release-manage-deploy` | |
 
+Every path key must be absolute and clean (no `//`, `.`, `..` or trailing `/`).
 Values holding `#`, `&`, `'` or whitespace are refused rather than quoted. The
 toolchain is not configurable: the build accepts `go1.26.9` only.
 
