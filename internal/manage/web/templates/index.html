@@ -5,23 +5,36 @@
   <h2>Release</h2>
   <section class="panel">
     <h3>Ready to promote</h3>
-    {{with .Promotable}}
-    <table>{{template "rowhead"}}<tbody>{{template "rowcells" .}}</tbody></table>
+    {{with .Promotable}}<section class="card state-{{.State}}" id="row-{{.ID}}">
+    <div class="card-head">
+    {{template "cardtitle" .}}
+    <span class="dim date">cut {{.Created}}</span>
+    <span class="card-gap"></span>
     <form class="act" method="post" action="/manage/releases/{{.ID}}/promote">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn primary" type="submit">Promote {{.Version}}</button>
     </form>
-    {{else}}<p class="dim">Nothing staged is newer than the newest release that was ever public.</p>{{end}}
+    </div>
+    {{template "filetable" .}}
+    </section>{{else}}<p class="empty-bar">No staged cut waiting</p>{{end}}
   </section>
   <section class="panel">
     <h3>Current</h3>
-    {{with .Current}}
-    <table>{{template "rowhead"}}<tbody>{{template "rowcells" .}}</tbody></table>
+    {{with .Current}}<section class="card state-{{.State}}" id="row-{{.ID}}">
+    <div class="card-head">
+    {{template "cardtitle" .}}
+    <span class="dim date">promoted {{.Promoted}}</span>
+    </div>
+    <div class="card-head">
+    <nav class="card-links">{{with .SumsURL}}<a href="{{.}}">sums</a>{{end}}{{with .SigURL}}<a href="{{.}}">sig</a>{{end}}{{with .Manifest}}<a href="{{.}}">manifest</a>{{end}}</nav>
+    <span class="card-gap"></span>
     <form class="act" method="post" action="/manage/releases/{{.ID}}/yank">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn danger outline" type="submit">Yank {{.Version}}</button>
     </form>
-    {{else}}<p class="dim">No current public release in the catalog.</p>{{end}}
+    </div>
+    {{template "filetable" .}}
+    </section>{{else}}<p class="dim">No current public release in the catalog.</p>{{end}}
   </section>
 </section>
 <section class="group maintenance">

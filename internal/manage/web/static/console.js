@@ -259,6 +259,32 @@
     }
   });
 
+  function copySha(button) {
+    let code = button.closest("td").querySelector("code");
+    if (!code || !navigator.clipboard) {
+      return;
+    }
+    navigator.clipboard.writeText(code.textContent).then(function () {
+      button.textContent = "copied";
+      button.classList.add("copied");
+      window.setTimeout(function () {
+        button.textContent = "copy";
+        button.classList.remove("copied");
+      }, 1500);
+    }).catch(function () {
+      button.textContent = "copy failed";
+    });
+  }
+
+  if (navigator.clipboard) {
+    document.querySelectorAll("button[data-copy]").forEach(function (button) {
+      button.hidden = false;
+      button.addEventListener("click", function () {
+        copySha(button);
+      });
+    });
+  }
+
   window.addEventListener("beforeunload", function (ev) {
     if (busy) {
       ev.preventDefault();
