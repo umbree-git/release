@@ -95,8 +95,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /manage/logout", s.handleLogout)
 	mux.HandleFunc("GET /manage", s.guard(s.handleRoot))
 	mux.HandleFunc("GET /manage/{$}", s.guard(s.handleRoot))
-	mux.HandleFunc("GET /manage/beta/{component}", s.guard(s.handleBeta(false)))
-	mux.HandleFunc("GET /manage/beta/{component}/history", s.guard(s.handleBeta(true)))
+	beta := s.guard(betaPage(s.consolePage, s.render))
+	mux.HandleFunc("GET /manage/beta/{component}", beta)
+	mux.HandleFunc("GET /manage/beta/{component}/history", beta)
 	mux.HandleFunc("GET /manage/{channel}/{component}", s.guard(s.handleOverview))
 	mux.HandleFunc("GET /manage/{channel}/{component}/history", s.guard(s.handleHistory))
 	for _, action := range []string{actionPromote, actionYank} {

@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/catalog"
@@ -39,7 +40,7 @@ type historyPage struct {
 	Rows      []rowView
 }
 
-type betaPage struct {
+type betaView struct {
 	pageData
 	Channel   string
 	Component string
@@ -130,21 +131,26 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, sess *sto
 	s.render(w, r, "history", http.StatusOK, page)
 }
 
-func (s *Server) handleBeta(history bool) guarded {
+type pageBuilder func(w http.ResponseWriter, r *http.Request, sess *store.Session, title, channel, comp string) pageData
+
+type pageRenderer func(w http.ResponseWriter, r *http.Request, name string, status int, data any)
+
+func betaPage(build pageBuilder, render pageRenderer) guarded {
 	return func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 		comp := r.PathValue("component")
 		if !catalog.ValidComponent(comp) {
 			http.NotFound(w, r)
 			return
 		}
+		history := strings.HasSuffix(r.URL.Path, "/history")
 		title := comp + " · " + channelBeta
 		if history {
 			title = comp + " history · " + channelBeta
 		}
-		page := betaPage{Channel: channelBeta, Component: comp, History: history}
-		page.pageData = s.consolePage(w, r, sess, title, channelBeta, comp)
+		page := betaView{Channel: channelBeta, Component: comp, History: history}
+		page.pageData = build(w, r, sess, title, channelBeta, comp)
 		page.Tabs, page.Channels = pageTabs(channelBeta, comp, history), channelSwitch(channelBeta, comp, history)
-		s.render(w, r, "beta_empty", http.StatusOK, page)
+		render(w, r, "beta_empty", http.StatusOK, page)
 	}
 }
 
