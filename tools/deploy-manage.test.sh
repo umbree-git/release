@@ -18,10 +18,11 @@ REPO="${W}/repo"
 mkdir -p "${REPO}/tools" "${REPO}/ops/nginx" "${REPO}/ops/systemd" "${REPO}/cmd/umbree-release-manage"
 cp "${SCRIPT}" "${REPO}/tools/deploy-manage.sh"
 cp "${REPO_ROOT}"/ops/systemd/* "${REPO}/ops/systemd/"
-sed 's#<STATIC_DIR>#/srv/static#' "${VHOST}" > "${REPO}/ops/nginx/release.umbree.org.conf"
+cp "${VHOST}" "${REPO}/ops/nginx/release.umbree.org.conf"
+cp -R "${REPO}/ops" "${W}/ops.committed"
 
 HOST="${W}/host"
-mkdir -p "${HOST}/bin" "${HOST}/vhosts" "${HOST}/units" "${HOST}/stage" "${HOST}/etc" "${HOST}/data"
+mkdir -p "${HOST}/bin" "${HOST}/vhosts" "${HOST}/units" "${HOST}/stage" "${HOST}/etc" "${HOST}/data" "${HOST}/static"
 SHIMS="${W}/shims"; HOSTSHIMS="${W}/hostshims"; mkdir -p "${SHIMS}" "${HOSTSHIMS}"
 LOG="${W}/calls.log"; : > "${LOG}"
 export SANDBOX_LOG="${LOG}" SANDBOX_HOSTSHIMS="${HOSTSHIMS}"
@@ -65,8 +66,20 @@ EOF
 cat > "${HOSTSHIMS}/systemctl" <<'EOF'
 #!/bin/sh
 echo "systemctl $*" >> "$SANDBOX_LOG"
-[ "$1" = is-active ] && echo active
+case "$1" in
+    --version) echo "systemd ${SANDBOX_SYSTEMD:-255} (${SANDBOX_SYSTEMD:-255})"; echo "+PAM +AUDIT" ;;
+    is-active) echo active ;;
+    show) echo "${SANDBOX_MAINPID:-0}" ;;
+    restart) [ "${SANDBOX_RESTART_FAIL:-0}" = 1 ] && { echo "Job for $2 failed." >&2; exit 1; } ;;
+esac
 exit 0
+EOF
+cat > "${HOSTSHIMS}/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$SANDBOX_LOG"
+[ "$1" = -u ] && shift 2
+[ "${SANDBOX_STATIC_RO:-0}" = 1 ] && [ "$1" = test ] && exit 1
+exec "$@"
 EOF
 cat > "${HOSTSHIMS}/nginx" <<'EOF'
 #!/bin/sh
@@ -78,7 +91,7 @@ cat > "${HOSTSHIMS}/ss" <<'EOF'
 #!/bin/sh
 echo "ss $*" >> "$SANDBOX_LOG"
 echo "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process"
-[ -n "${SANDBOX_PORT_HOLDER:-}" ] && echo "LISTEN 0 4096 127.0.0.1:8788 0.0.0.0:* users:((\"${SANDBOX_PORT_HOLDER}\",pid=42,fd=3))"
+[ -n "${SANDBOX_PORT_HOLDER:-}" ] && echo "LISTEN 0 4096 127.0.0.1:8788 0.0.0.0:* users:((\"$(printf '%s' "${SANDBOX_PORT_HOLDER}" | cut -c1-15)\",pid=${SANDBOX_PORT_PID:-42},fd=3))"
 exit 0
 EOF
 cat > "${HOSTSHIMS}/sha256sum" <<'EOF'
@@ -101,6 +114,7 @@ write_cfg() {
     {
         echo "RELEASE_HOST=sandbox-host"
         echo "MANAGE_DATA_DIR=${HOST}/data"
+        echo "STATIC_DIR=${HOST}/static"
         echo "MANAGE_ENV_FILE=${ENVF}"
         echo "MANAGE_BIN_DIR=${HOST}/bin"
         echo "UNIT_DIR=${HOST}/units"
@@ -148,20 +162,39 @@ has "sha256 " "${OUT}" || die "dry-run printed no sha256: ${OUT}"
 has "User=umbree-release" "${OUT}" || die "dry-run did not show the rendered unit: ${OUT}"
 has "nothing copied" "${OUT}" || die "dry-run did not say it changed nothing: ${OUT}"
 
-say "--dry-run of the committed vhost warns about its unresolved placeholder, still contacts no host"
-cp "${VHOST}" "${REPO}/ops/nginx/release.umbree.org.conf"
-reset_log
-ARGS=(--dry-run); run
-[ "${RC}" -eq 0 ] || die "dry-run with committed vhost exit ${RC}: ${OUT}"
-has "<STATIC_DIR>" "${OUT}" || die "dry-run did not name the unresolved vhost placeholder: ${OUT}"
-[ -z "$(remote_calls)" ] || die "dry-run contacted a host: $(remote_calls)"
+say "the rendered vhost and unit carry STATIC_DIR; the committed files keep the placeholder"
+has "ReadWritePaths=${HOST}/data ${HOST}/static" "${OUT}" || die "rendered unit lacks the static dir: ${OUT}"
+! has "<STATIC_DIR>" "${OUT}" || die "a <STATIC_DIR> survived the render: ${OUT}"
+diff -r "${W}/ops.committed" "${REPO}/ops" >/dev/null || die "a run changed the committed ops files"
 
-say "a live run refuses an unresolved vhost placeholder before contacting the host"
-reset_log
-ARGS=(); run
-[ "${RC}" -ne 0 ] || die "live run with <STATIC_DIR> in the vhost succeeded"
-[ -z "$(remote_calls)" ] || die "the refusal contacted a host: $(remote_calls)"
-sed 's#<STATIC_DIR>#/srv/static#' "${VHOST}" > "${REPO}/ops/nginx/release.umbree.org.conf"
+say "STATIC_DIR missing, relative or unclean refuses, exit 2"
+for v in "" "srv/static" "/srv/../static" "/srv//static" "/srv/static/" "/srv/./static"; do
+    grep -v '^STATIC_DIR=' "${CFG}" > "${CFG}.tmp"; mv "${CFG}.tmp" "${CFG}"
+    [ -z "${v}" ] || echo "STATIC_DIR=${v}" >> "${CFG}"
+    reset_log
+    ARGS=(--dry-run); run
+    [ "${RC}" -eq 2 ] || die "STATIC_DIR='${v}': exit ${RC}: ${OUT}"
+    has "STATIC_DIR" "${OUT}" || die "STATIC_DIR='${v}' refusal not named: ${OUT}"
+    [ -z "$(calls)" ] || die "STATIC_DIR='${v}' still ran tools"
+    write_cfg
+done
+
+say "config values with # & ' or whitespace refuse, exit 2"
+for v in "/srv/a#b" "/srv/a&b" "/srv/a'b" "/srv/a b"; do
+    printf 'MANAGE_DATA_DIR=%s\n' "${v}" >> "${CFG}"
+    ARGS=(--dry-run); run
+    [ "${RC}" -eq 2 ] || die "MANAGE_DATA_DIR='${v}': exit ${RC}: ${OUT}"
+    has "MANAGE_DATA_DIR" "${OUT}" || die "bad-character refusal not named: ${OUT}"
+    write_cfg
+done
+
+say "MANAGE_URL must be https with a host name, exit 2"
+for v in "http://release.example" "https://" "https://10.0.0.1" "release.example"; do
+    echo "MANAGE_URL=${v}" >> "${CFG}"
+    ARGS=(--dry-run); run
+    [ "${RC}" -eq 2 ] || die "MANAGE_URL='${v}': exit ${RC}: ${OUT}"
+    write_cfg
+done
 
 say "each missing required key refuses with its name, exit 2"
 for key in RELEASE_HOST MANAGE_DATA_DIR; do
@@ -186,10 +219,16 @@ ARGS=(--dry-run); run
 has "${CFG}" "${OUT}" || die "missing config file not named: ${OUT}"
 mv "${CFG}.away" "${CFG}"
 
-say "the pinned Go toolchain is required"
+say "the pinned Go toolchain is required, and a GO_VERSION key does not move it"
 ARGS=(--dry-run); run SANDBOX_GOVERSION=go1.27.1
 [ "${RC}" -ne 0 ] || die "a go1.27.1 build was accepted"
 has "go1.26.9" "${OUT}" || die "toolchain refusal did not name the pin: ${OUT}"
+echo "GO_VERSION=go1.27.1" >> "${CFG}"
+ARGS=(--dry-run); run SANDBOX_GOVERSION=go1.27.1
+[ "${RC}" -ne 0 ] || die "GO_VERSION=go1.27.1 opted out of the pin"
+ARGS=(--dry-run); run
+[ "${RC}" -eq 0 ] || die "GO_VERSION key changed a go1.26.9 build: ${OUT}"
+write_cfg
 
 say "unit checks: root user, surviving placeholder, dropped ProtectSystem=strict"
 echo "SERVICE_USER=root" >> "${CFG}"
@@ -238,8 +277,38 @@ ARGS=(); run SANDBOX_PORT_HOLDER=python3
 has "python3" "${OUT}" || die "port refusal did not name the holder: ${OUT}"
 ! grep -q '^scp' "${LOG}" || die "port refusal copied files"
 
-say "first live deploy installs binary, units and vhost and verifies"
+say "an unwritable static dir refuses before any copy"
 printf 'old vhost\n' > "${HOST}/vhosts/release.umbree.org.conf"
+reset_log
+ARGS=(); run SANDBOX_STATIC_RO=1
+[ "${RC}" -ne 0 ] || die "an unwritable static dir was accepted"
+has "${HOST}/static" "${OUT}" || die "static refusal did not name the dir: ${OUT}"
+! grep -q '^scp' "${LOG}" || die "static refusal copied files"
+
+say "a first deploy that fails nginx -t removes what had no previous copy"
+reset_log
+ARGS=(); run SANDBOX_NGINX_FAIL=1
+[ "${RC}" -ne 0 ] || die "first-deploy nginx -t failure exited 0"
+[ ! -e "${HOST}/bin/umbree-release-manage" ] || die "first-deploy failure left the new binary"
+[ ! -e "${HOST}/units/umbree-release-manage.service" ] || die "first-deploy failure left the new unit"
+grep -q '^old vhost$' "${HOST}/vhosts/release.umbree.org.conf" || die "first-deploy failure did not restore the old vhost"
+
+say "a first deploy that fails verify removes what had no previous copy"
+ARGS=(); run SANDBOX_LOGIN_FAIL=1
+[ "${RC}" -ne 0 ] || die "first-deploy verify failure exited 0"
+[ ! -e "${HOST}/bin/umbree-release-manage" ] || die "first-deploy verify failure left the new binary"
+[ ! -e "${HOST}/units/umbree-release-manage-retain.timer" ] || die "first-deploy verify failure left the timer"
+
+say "systemd below 232 warns about the ignored sandbox keys and proceeds"
+reset_log
+ARGS=(); run SANDBOX_SYSTEMD=229 SANDBOX_BUILD_TAG=1
+[ "${RC}" -eq 0 ] || die "systemd 229 deploy exit ${RC}: ${OUT}"
+has "! systemd 229" "${OUT}" || die "no systemd warning: ${OUT}"
+has "ProtectSystem=strict" "${OUT}" || die "warning did not name ProtectSystem=strict: ${OUT}"
+rm -f "${HOST}/bin/umbree-release-manage" "${HOST}"/units/* "${HOST}"/stage/*
+printf 'old vhost\n' > "${HOST}/vhosts/release.umbree.org.conf"
+
+say "first live deploy installs binary, units and vhost, enables the service only, and verifies"
 reset_log
 ARGS=(); run SANDBOX_BUILD_TAG=1
 [ "${RC}" -eq 0 ] || die "first deploy exit ${RC}: ${OUT}"
@@ -247,6 +316,10 @@ grep -q 'fake umbree-release-manage 1' "${HOST}/bin/umbree-release-manage" || di
 grep -q 'User=umbree-release' "${HOST}/units/umbree-release-manage.service" || die "unit not installed"
 [ -f "${HOST}/units/umbree-release-manage-retain.timer" ] || die "timer not installed"
 grep -q '127.0.0.1:8788' "${HOST}/vhosts/release.umbree.org.conf" || die "vhost not installed"
+grep -q "root  ${HOST}/static;" "${HOST}/vhosts/release.umbree.org.conf" || die "installed vhost lacks the static root"
+grep -q 'systemctl enable umbree-release-manage.service' "${LOG}" || die "the service was not enabled"
+! grep -qE 'systemctl enable .*(timer|retain)' "${LOG}" || die "the retain timer was enabled"
+! has "! systemd" "${OUT}" || die "systemd 255 warned"
 grep -q 'nginx -t' "${LOG}" || die "nginx -t not run"
 grep -q 'systemctl daemon-reload' "${LOG}" || die "no daemon-reload"
 grep -q 'systemctl restart umbree-release-manage.service' "${LOG}" || die "no restart"
@@ -255,9 +328,16 @@ grep -q 'healthz' "${LOG}" || die "no /healthz verify"
 grep -q '/manage/login' "${LOG}" || die "no /manage/login verify"
 cp "${HOST}/vhosts/release.umbree.org.conf" "${W}/vhost.v1"
 
-say "the port held by the installed service is a redeploy, accepted"
+say "a holder with the service's truncated name but another pid is refused"
 reset_log
-ARGS=(); run SANDBOX_PORT_HOLDER=umbree-release-manage SANDBOX_BUILD_TAG=2
+ARGS=(); run SANDBOX_PORT_HOLDER=umbree-release-manage SANDBOX_PORT_PID=99 SANDBOX_MAINPID=42 SANDBOX_BUILD_TAG=2
+[ "${RC}" -ne 0 ] || die "a foreign umbree-release- holder was accepted"
+has "pid=99" "${OUT}" || die "foreign-holder refusal did not name it: ${OUT}"
+! grep -q '^scp' "${LOG}" || die "foreign-holder refusal copied files"
+
+say "the port held by the service's MainPID is a redeploy, accepted"
+reset_log
+ARGS=(); run SANDBOX_PORT_HOLDER=umbree-release-manage SANDBOX_PORT_PID=42 SANDBOX_MAINPID=42 SANDBOX_BUILD_TAG=2
 [ "${RC}" -eq 0 ] || die "redeploy with own port holder exit ${RC}: ${OUT}"
 grep -q 'fake umbree-release-manage 2' "${HOST}/bin/umbree-release-manage" || die "v2 not installed"
 
@@ -267,6 +347,14 @@ ARGS=(); run SANDBOX_NGINX_FAIL=1 SANDBOX_BUILD_TAG=3
 [ "${RC}" -ne 0 ] || die "nginx -t failure exited 0"
 cmp -s "${HOST}/vhosts/release.umbree.org.conf" "${W}/vhost.v1" || die "previous vhost not restored after nginx -t failure"
 grep -q 'fake umbree-release-manage 2' "${HOST}/bin/umbree-release-manage" || die "binary not restored after nginx -t failure"
+
+say "a failed systemctl restart restores binary, units and vhost"
+cp "${HOST}/units/umbree-release-manage.service" "${W}/unit.before"
+ARGS=(); run SANDBOX_RESTART_FAIL=1 SANDBOX_BUILD_TAG=7
+[ "${RC}" -ne 0 ] || die "failed restart exited 0"
+grep -q 'fake umbree-release-manage 2' "${HOST}/bin/umbree-release-manage" || die "binary not restored after failed restart"
+cmp -s "${HOST}/vhosts/release.umbree.org.conf" "${W}/vhost.v1" || die "vhost not restored after failed restart"
+cmp -s "${HOST}/units/umbree-release-manage.service" "${W}/unit.before" || die "unit not restored after failed restart"
 
 say "a failed /manage/login verify restores .prev"
 ARGS=(); run SANDBOX_LOGIN_FAIL=1 SANDBOX_BUILD_TAG=4
@@ -295,7 +383,9 @@ ARGS=(--skip-vhost); run SANDBOX_BUILD_TAG=6
 
 say "the committed vhost: three proxied paths, no forwarded-for, no real_ip, / still try_files"
 ! grep -qE 'X-Forwarded-For|real_ip|set_real_ip_from' "${VHOST}" || die "the vhost carries X-Forwarded-For or real_ip"
-[ "$(grep -cE 'proxy_pass +http://127.0.0.1:8788;' "${VHOST}")" -eq 3 ] || die "the vhost does not proxy exactly three locations"
+[ "$(grep -cE 'proxy_pass +http://umbree_manage;' "${VHOST}")" -eq 3 ] || die "the vhost does not proxy exactly three locations to the upstream"
+[ "$(grep -c '8788' "${VHOST}")" -eq 1 ] || die "the port is not stated once"
+grep -qE '^upstream umbree_manage \{ *server 127.0.0.1:8788; *\}' "${VHOST}" || die "no upstream block"
 grep -q 'location ^~ /manage/ {' "${VHOST}" || die "no ^~ /manage/ location"
 grep -q 'location ^~ /api/v1/releases/ {' "${VHOST}" || die "no ^~ /api/v1/releases/ location"
 grep -q 'location = /healthz {' "${VHOST}" || die "no = /healthz location"
