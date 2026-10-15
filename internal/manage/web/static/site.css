@@ -42,7 +42,10 @@ h3 { font-size: .95rem; margin: 0 0 .6rem; }
 .tabs { display: flex; gap: .25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .tabs a { padding: .4rem .9rem; color: var(--dim); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs a[aria-current="page"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
-a { color: var(--accent); }
+a { color: var(--accent); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+a.btn:hover, a.btn:focus-visible { text-decoration: none; }
 .dim { color: var(--dim); }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 1rem; overflow-x: auto; }
 .panel.narrow { max-width: 26rem; margin: 3rem auto; }
