@@ -14,13 +14,13 @@ import (
 const refusalMessage = "Sign-in refused."
 
 type pageData struct {
-	Title string
-	Admin string
-	Who   string
-	CSRF  string
-	Error string
-	Nav   []navItem
-	Tabs  []navItem
+	Title    string
+	Admin    string
+	CSRF     string
+	Error    string
+	Nav      []navItem
+	Tabs     []navItem
+	Channels []navItem
 }
 
 type overviewPage struct {
@@ -40,6 +40,13 @@ type historyPage struct {
 	Rows      []rowView
 }
 
+type betaView struct {
+	pageData
+	Channel   string
+	Component string
+	History   bool
+}
+
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, status int, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -54,7 +61,7 @@ func (s *Server) consolePage(w http.ResponseWriter, r *http.Request, sess *store
 	if err != nil {
 		s.cfg.Log.Error("csrf token", "err", err, "path", r.URL.Path)
 	}
-	return pageData{Title: title, Admin: sess.Admin, Who: localPart(sess.Admin), CSRF: csrf, Nav: componentNav(channel, comp, pagePath)}
+	return pageData{Title: title, Admin: sess.Admin, CSRF: csrf, Nav: componentNav(channel, comp, pagePath)}
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -95,7 +102,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request, sess *st
 		page.Republish = republishPath(channel, comp)
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" · "+channel, channel, comp)
-	page.Tabs = pageTabs(channel, comp, false)
+	page.Tabs, page.Channels = pageTabs(channel, comp, false), channelSwitch(channel, comp, false)
 	s.render(w, r, "index", http.StatusOK, page)
 }
 
@@ -120,8 +127,31 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request, sess *sto
 		page.Rows = append(page.Rows, v)
 	}
 	page.pageData = s.consolePage(w, r, sess, comp+" history · "+channel, channel, comp)
-	page.Tabs = pageTabs(channel, comp, true)
+	page.Tabs, page.Channels = pageTabs(channel, comp, true), channelSwitch(channel, comp, true)
 	s.render(w, r, "history", http.StatusOK, page)
+}
+
+type pageBuilder func(w http.ResponseWriter, r *http.Request, sess *store.Session, title, channel, comp string) pageData
+
+type pageRenderer func(w http.ResponseWriter, r *http.Request, name string, status int, data any)
+
+func betaPage(build pageBuilder, render pageRenderer) guarded {
+	return func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+		comp := r.PathValue("component")
+		if !catalog.ValidComponent(comp) {
+			http.NotFound(w, r)
+			return
+		}
+		history := strings.HasSuffix(r.URL.Path, "/history")
+		title := comp + " · " + channelBeta
+		if history {
+			title = comp + " history · " + channelBeta
+		}
+		page := betaView{Channel: channelBeta, Component: comp, History: history}
+		page.pageData = build(w, r, sess, title, channelBeta, comp)
+		page.Tabs, page.Channels = pageTabs(channelBeta, comp, history), channelSwitch(channelBeta, comp, history)
+		render(w, r, "beta_empty", http.StatusOK, page)
+	}
 }
 
 func (s *Server) historyRow(rv store.ReleaseVersion) (rowView, error) {
@@ -143,9 +173,4 @@ func (s *Server) pageError(w http.ResponseWriter, r *http.Request, err error) {
 func (s *Server) refuse(w http.ResponseWriter, r *http.Request) {
 	auth.ClearCookies(w)
 	s.render(w, r, "login", http.StatusUnauthorized, pageData{Title: "Sign in", Error: refusalMessage})
-}
-
-func localPart(admin string) string {
-	name, _, _ := strings.Cut(admin, "@")
-	return name
 }

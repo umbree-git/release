@@ -6,6 +6,8 @@ import (
 	"github.com/umbree-git/release/internal/manage/catalog"
 )
 
+const channelBeta = "beta"
+
 func pagePath(channel, component string) string { return "/manage/" + channel + "/" + component }
 
 func historyPath(channel, component string) string { return pagePath(channel, component) + "/history" }

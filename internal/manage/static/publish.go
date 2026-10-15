@@ -91,10 +91,6 @@ func (p *Publisher) render(component string, m manifest.Manifest) ([]file, error
 	if err != nil {
 		return nil, err
 	}
-	js, err := VersionJS(component, m.Version, m.Stamp)
-	if err != nil {
-		return nil, err
-	}
 	pub, err := fs.ReadFile(p.Assets, PubkeyPath)
 	if err != nil {
 		return nil, err
@@ -109,7 +105,6 @@ func (p *Publisher) render(component string, m manifest.Manifest) ([]file, error
 	}
 	return []file{
 		{rel: component + "/install.sh", body: install, mode: 0o755},
-		{rel: component + "/version.js", body: js, mode: 0o644},
 		{rel: "umbree-release.pub", body: pub, mode: 0o644},
 		{rel: "index.html", body: site, mode: 0o644},
 		{rel: "favicon.svg", body: icon, mode: 0o644},

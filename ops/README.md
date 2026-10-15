@@ -88,25 +88,30 @@ again on a by-hand republish:
 ├── favicon.svg           # site/favicon.svg
 ├── umbree-release.pub    # signing public key
 ├── umbree/
-│   ├── install.sh         # the bootstrap, with the promoted stamp as its floor
-│   └── version.js         # the JSONP version badge for that stamp
+│   └── install.sh         # the bootstrap, with the promoted stamp as its floor
 └── umbreed/
-    ├── install.sh
-    └── version.js
+    └── install.sh
 ```
+
+`<comp>/version.js` is not in this tree: the vhost proxies
+`/umbree/version.js` and `/umbreed/version.js` to the manage service, which
+answers from the catalog. A `version.js` left here by an older publisher is
+never served.
 
 Nothing else runs on the host as part of publishing: no build and no
 dispatcher. The manage service need not run on this host; when it does not,
 it uploads the files over sftp with a dedicated key (section 7). The renderer is
-held byte-identical to `tools/gen-bootstraps.sh` and `tools/gen-version-jsonp.sh`
-by a test.
+held byte-identical to `tools/gen-bootstraps.sh` by a test. `version.js` has no
+static renderer any more; `tools/gen-version-jsonp.sh` remains only for the
+dormant beta flow (`tools/release.sh --channel beta`).
 
 ## 6. Smoke test
 
 ```sh
 curl -fsSI https://release.umbree.org/                              # 200, text/html
 curl -fsSI https://release.umbree.org/umbree/install.sh             # 200, text/x-shellscript
-curl -fsSI https://release.umbree.org/umbree/version.js             # 200, application/javascript
+curl -fsS  https://release.umbree.org/umbree/version.js              # live JSONP, "channel":"production"
+curl -fsSI https://release.umbree.org/umbreed/version.js            # 200, application/javascript, max-age=300
 curl -fsSI https://release.umbree.org/umbree-release.pub            # 200, text/plain
 ```
 
@@ -120,16 +125,21 @@ curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbree/install.
 
 `umbree-release-manage serve` runs the catalog intake and the operator console.
 It runs on `<RELEASE_HOST>`, beside the static surface, and binds loopback
-`127.0.0.1:8788`. The vhost proxies exactly three paths to it — `/manage/`,
-`/api/v1/releases/` and `/healthz` — and serves everything else from
-`<STATIC_DIR>`. Its public address reaches the cut only as the sealed
+`127.0.0.1:8788`. The vhost proxies exactly these to it — `/manage/`,
+`/api/v1/releases/`, `/healthz`, `/umbree/version.js` and `/umbreed/version.js`
+— and serves everything else from `<STATIC_DIR>`. The two `version.js`
+locations are exact matches ahead of the `.js` regex; the service sends
+`Cache-Control: public, max-age=300`. Cloudflare's Browser Cache TTL for the
+zone must be "Respect existing headers", or the edge overrides that with its
+own TTL (the page's hourly cache-buster still bounds the staleness). Its public address reaches the cut only as the sealed
 `UMBREE_MANAGE_URL`, the origin `https://release.umbree.org` (the client appends
 `/api/v1/releases/…`; a value ending in `/manage` registers at a 404).
 
 The session cookies are `Secure` and scoped to `/manage`, so the console works
-only over HTTPS. The only unauthenticated routes are `/healthz` and the intake
-under `/api/v1/releases/`. There are no public pages and no badge: the public
-manifest is the only machine pointer. The vhost sends no `X-Forwarded-For` and
+only over HTTPS. The only unauthenticated routes are `/healthz`, the intake
+under `/api/v1/releases/` and the two read-only `version.js` badges, which name
+only the current public release. There are no public pages: the public
+manifest is the only machine pointer for installers. The vhost sends no `X-Forwarded-For` and
 has no `real_ip`; the service is run without `--trusted-proxy`, so every client
 shares one sign-in budget and `admin unlock` is the recovery.
 
@@ -212,6 +222,15 @@ binary — the only file sent — to `STAGE_DIR/umbree-release-manage.new`; then
 `/healthz` and `/manage/login` 200 as `<SSH_USER>`. A failed `render`,
 `activate` or verify runs `sudo -n <HELPER> restore`; a refused `install-binary`
 has changed nothing.
+
+**When the vhost template changes, the order is fixed:** rebuild the helper
+bundle from `main` (`tools/deploy-manage.sh --build-helper`), have it
+reinstalled on the host with its sums verified, and only then run
+`tools/deploy-manage.sh`. The host renders the vhost from the helper's own
+template copy, so a deploy run first installs the new service against the old
+vhost: `/<comp>/version.js` is still served from the frozen static file, and
+since promotes no longer write it, the badge goes stale after the next promote
+with no warning anywhere.
 
 ### The host helper
 

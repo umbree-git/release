@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +63,7 @@ func copyFile(t *testing.T, from, to string) {
 func shellTree(t *testing.T) string {
 	t.Helper()
 	root, dir := repoRoot(t), t.TempDir()
-	for _, p := range []string{"tools/gen-bootstraps.sh", "tools/gen-version-jsonp.sh", "tools/bootstrap.template.sh", "umbree-release.pub"} {
+	for _, p := range []string{"tools/gen-bootstraps.sh", "tools/bootstrap.template.sh", "umbree-release.pub"} {
 		copyFile(t, filepath.Join(root, p), filepath.Join(dir, p))
 	}
 	modules, err := filepath.Glob(filepath.Join(root, "tools/modules/*"))
@@ -106,21 +104,6 @@ func runShell(t *testing.T, dir string, env []string, args ...string) {
 	}
 }
 
-func manifestServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	mux := http.NewServeMux()
-	for comp, stamp := range fixtureStamps {
-		body, err := fixtureManifest(comp, stamp).Encode()
-		if err != nil {
-			t.Fatal(err)
-		}
-		mux.HandleFunc("GET /"+comp+"/latest.json", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
-	}
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
-}
-
 func firstDifference(a, b []byte) string {
 	al, bl := strings.Split(string(a), "\n"), strings.Split(string(b), "\n")
 	for i := 0; i < len(al) && i < len(bl); i++ {
@@ -134,8 +117,6 @@ func firstDifference(a, b []byte) string {
 func TestStaticRenderMatchesShellGenerators(t *testing.T) {
 	dir := shellTree(t)
 	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}, "tools/gen-bootstraps.sh")
-	srv := manifestServer(t)
-	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + srv.URL}, "tools/gen-version-jsonp.sh", "umbree", "umbreed")
 	r := static.NewRenderer(release.Assets)
 	for comp, stamp := range fixtureStamps {
 		got, err := r.Bootstrap(comp, stamp, fixtureBase)
@@ -148,18 +129,6 @@ func TestStaticRenderMatchesShellGenerators(t *testing.T) {
 		}
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s/install.sh: the Go render differs from gen-bootstraps.sh (%s)", comp, firstDifference(got, want))
-		}
-		m := fixtureManifest(comp, stamp)
-		js, err := static.VersionJS(comp, m.Version, m.Stamp)
-		if err != nil {
-			t.Fatalf("%s: %v", comp, err)
-		}
-		wantJS, err := os.ReadFile(filepath.Join(dir, comp, "version.js"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(js, wantJS) {
-			t.Errorf("%s/version.js: Go %q, gen-version-jsonp.sh %q", comp, js, wantJS)
 		}
 	}
 }
