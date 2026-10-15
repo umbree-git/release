@@ -122,10 +122,10 @@ table.history td.action .act { margin-top: 0; }
 table.history td.action .btn { padding: .15rem .6rem; font-size: .85rem; }
 table.history th:nth-child(1) { width: 13%; }
 table.history th:nth-child(2) { width: 8%; }
-table.history th:nth-child(3) { width: 16%; }
-table.history th:nth-child(4) { width: 9%; }
-table.history th:nth-child(5) { width: 9%; }
-table.history th:nth-child(6) { width: 9%; }
+table.history th:nth-child(3) { width: 10%; }
+table.history th:nth-child(4) { width: 11%; }
+table.history th:nth-child(5) { width: 11%; }
+table.history th:nth-child(6) { width: 11%; }
 table.history th:nth-child(7) { width: 7%; }
 table.history th:nth-child(8) { width: 15%; }
 table.history th:nth-child(9) { width: 14%; }

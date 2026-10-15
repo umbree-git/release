@@ -301,6 +301,20 @@ func TestCopyButtonRightAligned(t *testing.T) {
 	}
 }
 
+func TestHistoryDateColumnsFitADate(t *testing.T) {
+	c := newConsole(t)
+	rules := cssRules(t, c)
+	for _, n := range []string{"4", "5", "6"} {
+		m := percentRe.FindStringSubmatch(ruleFor(t, rules, "table.history th:nth-child("+n+")"))
+		if m == nil {
+			t.Fatalf("date column %s has no percentage width", n)
+		}
+		if v, _ := strconv.ParseFloat(m[1], 64); v < 11 {
+			t.Fatalf("date column %s is %v%%, narrower than 11%%", n, v)
+		}
+	}
+}
+
 func TestHistoryNoHorizontalScrollRules(t *testing.T) {
 	c := newConsole(t)
 	c.seedHistory()
