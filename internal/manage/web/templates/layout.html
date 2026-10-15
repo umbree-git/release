@@ -6,6 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <title>{{.Title}} · umbree release</title>
 <link rel="stylesheet" href="/manage/static/site.css">
+<script src="/manage/static/console.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -13,7 +14,7 @@
   {{if .Admin}}<nav class="components">{{range .Nav}}<a href="{{.Path}}"{{if .Active}} aria-current="page"{{end}}>{{.Name}}</a>{{end}}</nav>
   <form class="signout" method="post" action="/manage/logout">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <span class="dim">{{.Admin}}</span> <button class="btn" type="submit">Sign out</button>
+    <span class="dim">{{.Who}}</span> <button class="btn" type="submit">Sign out</button>
   </form>{{end}}
 </header>
 <main>
