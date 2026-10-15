@@ -178,7 +178,8 @@ operator-local config file, never committed —
 
 | Key | Default | |
 |---|---|---|
-| `RELEASE_HOST` | none — required | the ssh destination, as root |
+| `RELEASE_HOST` | none — required | the ssh host; the connection is `<SSH_USER>@<RELEASE_HOST>` |
+| `SSH_USER` | none — required | the non-root deploy account on the host; `root` refuses |
 | `MANAGE_DATA_DIR` | none — required | the unit's `ReadWritePaths=` |
 | `STATIC_DIR` | none — required | absolute and clean; the vhost's `root` and the unit's second `ReadWritePaths=` entry. Copy it from the sealed server config; the script never decrypts |
 | `SERVICE_USER` | `umbree-release` | the unit's `User=`/`Group=`; root refuses |
@@ -186,7 +187,7 @@ operator-local config file, never committed —
 | `MANAGE_BIN_DIR` | `/usr/local/bin` | where the binary is installed, root-owned 0755 |
 | `MANAGE_LISTEN` | `127.0.0.1:8788` | must equal the vhost's upstream and the env file's `UMBREE_MANAGE_LISTEN` |
 | `MANAGE_URL` | `https://release.umbree.org` | what the verify reads; https with a host name |
-| `UNIT_DIR`, `VHOST_DIR`, `STAGE_DIR` | `/etc/systemd/system`, `/etc/nginx/sites-enabled`, `/root/umbree-release-manage-deploy` | |
+| `UNIT_DIR`, `VHOST_DIR`, `STAGE_DIR` | `/etc/systemd/system`, `/etc/nginx/sites-enabled`, `/home/<SSH_USER>/umbree-release-manage-deploy` | `STAGE_DIR` is the deploy user's own, unprivileged |
 
 Every path key must be absolute and clean (no `//`, `.`, `..` or trailing `/`).
 Values holding `#`, `&`, `'` or whitespace are refused rather than quoted. The
@@ -213,10 +214,69 @@ timer, which waits for RUNBOOK step 6; restart; reload nginx; verify
 `systemctl is-active`, `/healthz` and `/manage/login` 200. Any failure from the
 install on restores the `.prev` copies, removes what had none, and exits non-zero.
 
-**The whole remote session runs as root over ssh.** That is a recorded deviation
-(project README): `ss -p` needs root to name a port's holder, and every write is
-a system file. The preflight only reads; the static-dir check drops to
-`umbree-release` with `sudo -u`.
+**The deploy elevates per step.** It connects as `<SSH_USER>`, never root. Staging
+into `STAGE_DIR`, the `.prev` copies and `.absent` markers there, the checksum,
+`systemctl show` / `is-active` / `--version` and the `curl` verifies run as that
+user. Only these run under `sudo -n` — non-interactive, so a missing sudoers rule
+fails at once with a `✗` naming the step instead of waiting for a password:
+`install` into the binary, unit and vhost paths, `rm` of a destination that had
+no previous copy, `systemctl daemon-reload|enable|restart|stop|disable` of the
+service, `nginx -t` and the nginx reload, and the root-only reads — `cat` of the
+env file, `ss -ltnpH`, and `test -w` on the static dir as `umbree-release`.
+Restore and `--rollback` use the same calls.
+
+### The deploy user, once per host
+
+```sh
+# OPERATOR, on <RELEASE_HOST>:
+sudo useradd --create-home --shell /bin/sh <SSH_USER>
+sudo install -d -m 0700 -o <SSH_USER> /home/<SSH_USER>/.ssh
+# add the operator's deploy public key to /home/<SSH_USER>/.ssh/authorized_keys
+sudo visudo -f /etc/sudoers.d/umbree-release-deploy
+```
+
+The drop-in allows exactly the deploy's commands, by absolute path (check each
+with `command -v` on the host; `<STAGE>` is `STAGE_DIR`, the other placeholders
+are the deploy config's values):
+
+```
+Cmnd_Alias UMBREE_INSTALL = \
+    /usr/bin/install -m 0755 -o root -g root <STAGE>/umbree-release-manage.new <MANAGE_BIN_DIR>/umbree-release-manage, \
+    /usr/bin/install -m 0755 -o root -g root <STAGE>/umbree-release-manage.prev <MANAGE_BIN_DIR>/umbree-release-manage, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage.service.new <UNIT_DIR>/umbree-release-manage.service, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage.service.prev <UNIT_DIR>/umbree-release-manage.service, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.service.new <UNIT_DIR>/umbree-release-manage-retain.service, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.service.prev <UNIT_DIR>/umbree-release-manage-retain.service, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.timer.new <UNIT_DIR>/umbree-release-manage-retain.timer, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/umbree-release-manage-retain.timer.prev <UNIT_DIR>/umbree-release-manage-retain.timer, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/release.umbree.org.conf.new <VHOST_DIR>/release.umbree.org.conf, \
+    /usr/bin/install -m 0644 -o root -g root <STAGE>/release.umbree.org.conf.prev <VHOST_DIR>/release.umbree.org.conf, \
+    /usr/bin/rm -f <MANAGE_BIN_DIR>/umbree-release-manage, \
+    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage.service, \
+    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage-retain.service, \
+    /usr/bin/rm -f <UNIT_DIR>/umbree-release-manage-retain.timer, \
+    /usr/bin/rm -f <VHOST_DIR>/release.umbree.org.conf
+Cmnd_Alias UMBREE_SERVICE = \
+    /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl enable umbree-release-manage.service, \
+    /usr/bin/systemctl restart umbree-release-manage.service, \
+    /usr/bin/systemctl stop umbree-release-manage.service, \
+    /usr/bin/systemctl disable umbree-release-manage.service, \
+    /usr/sbin/nginx -t, \
+    /usr/bin/systemctl reload nginx
+Cmnd_Alias UMBREE_READ = \
+    /usr/bin/cat <MANAGE_ENV_FILE>, \
+    /usr/bin/ss -ltnpH sport = \:8788
+<SSH_USER> ALL=(root) NOPASSWD: UMBREE_INSTALL, UMBREE_SERVICE, UMBREE_READ
+<SSH_USER> ALL=(umbree-release) NOPASSWD: /usr/bin/test -w <STATIC_DIR>
+```
+
+No wildcards: in sudoers a `*` in an argument matches spaces and slashes too.
+`visudo` refuses a drop-in that does not parse, and `sudo -n -l` as `<SSH_USER>`
+lists what it may run.
+
+The staged files are the deploy user's, so whoever holds `<SSH_USER>`'s key can
+install a binary that runs as `umbree-release`: guard that key like a release key.
 
 After the first deploy: `admin add` (below), the seal of `UMBREE_R2_GATED_BUCKET`
 and `UMBREE_MANAGE_URL`, `backfill`, `retain --dry-run`, then the timer —

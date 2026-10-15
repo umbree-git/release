@@ -14,7 +14,8 @@ Until the service runs, no stable cut can: `tools/release.sh` refuses before
 the build while `UMBREE_R2_GATED_BUCKET` or an https `UMBREE_MANAGE_URL` is
 missing. The order, each step after the one before it has been checked:
 
-1. **Provision** on `<RELEASE_HOST>`: the `umbree-release` user, the data dir,
+1. **Provision** on `<RELEASE_HOST>`: the non-root deploy user and its sudoers
+   drop-in (`ops/README.md` §7, "The deploy user"), the `umbree-release` user, the data dir,
    `secret.key`, the env file, the R2 credentials, `<STATIC_DIR>` writable by
    `umbree-release`, and `ss -ltn` showing 8788 free (`ops/README.md` §7, "Provision").
 2. **Deploy**: `tools/deploy-manage.sh --dry-run`, then `tools/deploy-manage.sh`
