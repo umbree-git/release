@@ -144,8 +144,16 @@ sudo install -d -o umbree-release -g umbree-release -m 0700 <MANAGE_DATA_DIR>
 sudo -u umbree-release sh -c 'umask 077; head -c 32 /dev/urandom > <MANAGE_DATA_DIR>/secret.key'
 sudo install -d -m 0750 -g umbree-release /etc/umbree-release-manage
 sudo install -m 0640 -g umbree-release /dev/null /etc/umbree-release-manage/manage.env
+sudo chgrp umbree-release <STATIC_DIR> && sudo chmod g+w <STATIC_DIR>
 ss -ltn | grep ':8788 ' || echo '8788 is free'
 ```
+
+- **The static directory** `<STATIC_DIR>` must be writable by `umbree-release`
+  (owner or group-write) and nothing else of that account's is: promote and yank
+  republish into it in-process. On a host whose systemd is older than 232,
+  `ProtectSystem=strict` and `ReadWritePaths=` are ignored, so this ownership is
+  the control there; the deploy warns once when it sees such a version, and its
+  preflight refuses a static directory `umbree-release` cannot write.
 
 - **The TOTP sealing key** `<MANAGE_DATA_DIR>/secret.key`: 32 random bytes, mode
   0600, owned by `umbree-release`. The service refuses to start without it and
@@ -172,13 +180,16 @@ operator-local config file, never committed —
 |---|---|---|
 | `RELEASE_HOST` | none — required | the ssh destination, as root |
 | `MANAGE_DATA_DIR` | none — required | the unit's `ReadWritePaths=` |
+| `STATIC_DIR` | none — required | absolute and clean; the vhost's `root` and the unit's second `ReadWritePaths=` entry. Copy it from the sealed server config; the script never decrypts |
 | `SERVICE_USER` | `umbree-release` | the unit's `User=`/`Group=`; root refuses |
 | `MANAGE_ENV_FILE` | `/etc/umbree-release-manage/manage.env` | the unit's `EnvironmentFile=` |
 | `MANAGE_BIN_DIR` | `/usr/local/bin` | where the binary is installed, root-owned 0755 |
 | `MANAGE_LISTEN` | `127.0.0.1:8788` | must equal the vhost's upstream and the env file's `UMBREE_MANAGE_LISTEN` |
-| `MANAGE_URL` | `https://release.umbree.org` | what the verify reads |
+| `MANAGE_URL` | `https://release.umbree.org` | what the verify reads; https with a host name |
 | `UNIT_DIR`, `VHOST_DIR`, `STAGE_DIR` | `/etc/systemd/system`, `/etc/nginx/sites-enabled`, `/root/umbree-release-manage-deploy` | |
-| `GO_VERSION` | `go1.26.9` | the only toolchain the build accepts |
+
+Values holding `#`, `&`, `'` or whitespace are refused rather than quoted. The
+toolchain is not configurable: the build accepts `go1.26.9` only.
 
 ```sh
 tools/deploy-manage.sh --dry-run     # build, render, print the plan and sha256; contacts no host
@@ -189,33 +200,22 @@ tools/deploy-manage.sh --rollback    # the previous binary, units and vhost back
 
 What a deploy does, in order: build `umbree-release-manage` for linux/amd64 with
 the pinned Go and print its sha256; render the three units from `ops/systemd/`
+and the vhost with `STATIC_DIR` into a scratch directory, never into the tree
 (refusing a surviving `<…>`, `User=root`, or a missing `ProtectSystem=strict` /
 `ReadWritePaths=`); a read-only preflight on the host (env file present, its
-listen address agrees, no trusted proxy, the port free or held by the service);
-copy to `STAGE_DIR`; keep the installed binary, units and vhost as `.prev`;
-install; `nginx -t` — on failure the `.prev` copies go back and nothing reloads;
-`daemon-reload`, restart, reload nginx; verify `systemctl is-active`,
-`/healthz` and `/manage/login` 200. A failed verify restores `.prev` and exits
-non-zero.
+listen address agrees, no trusted proxy, the static directory writable by
+`umbree-release`, the port free or held by the service's own `MainPID`; a
+warning for systemd older than 232); copy to `STAGE_DIR`; keep the installed
+binary, units and vhost as `.prev`, and mark the ones that did not exist; install;
+`nginx -t`; `daemon-reload`; `systemctl enable` the service — never the retain
+timer, which waits for RUNBOOK step 6; restart; reload nginx; verify
+`systemctl is-active`, `/healthz` and `/manage/login` 200. Any failure from the
+install on restores the `.prev` copies, removes what had none, and exits non-zero.
 
-**The committed vhost carries `root <STATIC_DIR>;`.** A deploy that installs the
-vhost refuses while any placeholder survives outside a comment, so either keep
-an operator-local copy with the real static directory in the checkout before
-deploying, or use `--skip-vhost` and install the vhost by hand (§2, §4). The
-dry-run names the placeholders it found.
-
-**The rendered unit's `ReadWritePaths=` names only `<MANAGE_DATA_DIR>`.** With
-`--static-dest` set to `<STATIC_DIR>` on this host, promote's republish needs that
-directory writable too (below, "Static destination"); a deploy re-installs the
-rendered unit and overwrites a hand edit. Until the template carries it, add it
-with a drop-in, which a deploy does not touch:
-
-```sh
-# OPERATOR, on <RELEASE_HOST>:
-sudo install -d /etc/systemd/system/umbree-release-manage.service.d
-printf '[Service]\nReadWritePaths=<STATIC_DIR>\n' | sudo tee /etc/systemd/system/umbree-release-manage.service.d/static.conf
-sudo systemctl daemon-reload && sudo systemctl restart umbree-release-manage
-```
+**The whole remote session runs as root over ssh.** That is a recorded deviation
+(project README): `ss -p` needs root to name a port's holder, and every write is
+a system file. The preflight only reads; the static-dir check drops to
+`umbree-release` with `sudo -u`.
 
 After the first deploy: `admin add` (below), the seal of `UMBREE_R2_GATED_BUCKET`
 and `UMBREE_MANAGE_URL`, `backfill`, `retain --dry-run`, then the timer —

@@ -15,10 +15,11 @@ the build while `UMBREE_R2_GATED_BUCKET` or an https `UMBREE_MANAGE_URL` is
 missing. The order, each step after the one before it has been checked:
 
 1. **Provision** on `<RELEASE_HOST>`: the `umbree-release` user, the data dir,
-   `secret.key`, the env file, the R2 credentials, and `ss -ltn` showing 8788
-   free (`ops/README.md` §7, "Provision").
+   `secret.key`, the env file, the R2 credentials, `<STATIC_DIR>` writable by
+   `umbree-release`, and `ss -ltn` showing 8788 free (`ops/README.md` §7, "Provision").
 2. **Deploy**: `tools/deploy-manage.sh --dry-run`, then `tools/deploy-manage.sh`
-   from `main`. It ends verified (`/healthz`, `/manage/login` 200) or restored.
+   from `main`, with `STATIC_DIR` in the deploy config. It enables the service
+   (not the timer) and ends verified (`/healthz`, `/manage/login` 200) or restored.
 3. **Admins**: `admin add <name>` as `umbree-release`; scan the enrolment it
    prints once.
 4. **Seal** `UMBREE_R2_GATED_BUCKET` and `UMBREE_MANAGE_URL` (the origin, not
