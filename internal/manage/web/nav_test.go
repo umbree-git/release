@@ -118,7 +118,7 @@ func TestTablesHaveLabelledHead(t *testing.T) {
 		labels []string
 	}{
 		"overview": {b.get("/manage/production/umbree").body, 2, fileLabels},
-		"history":  {b.get("/manage/production/umbree/history").body, 1, headLabels},
+		"history":  {b.get("/manage/production/umbree/history").body, 1, historyLabels},
 		"confirm":  {b.post(path, url.Values{auth.CSRFField: {b.csrf()}}).body, 1, headLabels},
 	}
 	for name, tc := range cases {

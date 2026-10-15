@@ -42,7 +42,10 @@ h3 { font-size: .95rem; margin: 0 0 .6rem; }
 .tabs { display: flex; gap: .25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .tabs a { padding: .4rem .9rem; color: var(--dim); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs a[aria-current="page"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
-a { color: var(--accent); }
+a { color: var(--accent); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+a.btn:hover, a.btn:focus-visible { text-decoration: none; }
 .dim { color: var(--dim); }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1rem 1.25rem; margin-bottom: 1rem; overflow-x: auto; }
 .panel.narrow { max-width: 26rem; margin: 3rem auto; }
@@ -67,7 +70,8 @@ th { font-weight: 500; color: var(--dim); font-size: .85rem; }
 tr.state-expired, tr.state-yanked { color: var(--dim); }
 .flash.error, .result.error { color: var(--danger); }
 .result.ok { color: var(--ok); }
-.log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .85rem; padding-left: 1.25rem; }
+.log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .85rem; padding-left: 2.5rem; }
+.log li { overflow-wrap: anywhere; }
 .log .ev-error { color: var(--danger); }
 .confirm-inline { margin-top: .75rem; padding: .75rem 1rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg); }
 .confirm-inline[data-verb="yank"], .confirm-inline[data-verb="clean"] { border-color: var(--danger); }
@@ -75,7 +79,7 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 .confirm-inline p { margin: 0 0 .6rem; }
 .confirm-inline form { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
 .inline-progress { margin-top: .75rem; background: var(--bg); }
-.inline-progress .panel.progress { margin: 0; border: 0; padding: 0; background: transparent; }
+.inline-progress .panel.progress { margin: 0; border: 0; padding: 0; background: transparent; min-width: 0; overflow: visible; }
 .run-steps { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: 0 0 .75rem; padding: 0; }
 .run-steps .run-step { padding: 0 .5rem; border: 1px solid var(--line); border-radius: 3px; font-size: .8rem; font-weight: 600; background: var(--panel); }
 .run-steps .run-step[data-state="ok"] { border-color: var(--ok); color: var(--ok); }
@@ -94,8 +98,34 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 table.files td.platform, table.files td.size { white-space: nowrap; }
 table.files td.size { text-align: right; }
 table.files th { font-size: .75rem; letter-spacing: .04em; }
-table.files td.sha { white-space: nowrap; }
-table.files td.sha code { display: inline-block; max-width: 16rem; margin-right: .5rem; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.files { table-layout: fixed; width: 100%; }
+table.files th:nth-child(1) { width: 32%; }
+table.files th:nth-child(2) { width: 16%; }
+table.files th:nth-child(3) { width: 12%; }
+table.files th:nth-child(4) { width: 40%; }
+table.files td.file { overflow-wrap: anywhere; }
+table.files td.sha { position: relative; padding-right: 4rem; }
+table.files td.sha code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.files td.sha .btn.copy { position: absolute; right: .5rem; top: 50%; transform: translateY(-50%); }
 .btn.copy { padding: 0 .5rem; font-size: .8rem; }
 .btn.copy.copied { border-color: var(--ok); color: var(--ok); }
 .card-head > .confirm-inline, .card-head > .inline-progress { flex-basis: 100%; }
+.card-head > .confirm-inline, .card-head > .inline-progress { min-width: 0; }
+.panel.history { overflow-x: visible; }
+table.history { table-layout: fixed; width: 100%; }
+table.history td { overflow-wrap: anywhere; }
+table.history .pills { flex-wrap: wrap; }
+table.history td.stamp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.history td.count { text-align: right; }
+table.history .row-links { display: flex; flex-wrap: wrap; gap: 0 .6rem; }
+table.history td.action .act { margin-top: 0; }
+table.history td.action .btn { padding: .15rem .6rem; font-size: .85rem; }
+table.history th:nth-child(1) { width: 13%; }
+table.history th:nth-child(2) { width: 8%; }
+table.history th:nth-child(3) { width: 10%; }
+table.history th:nth-child(4) { width: 11%; }
+table.history th:nth-child(5) { width: 11%; }
+table.history th:nth-child(6) { width: 11%; }
+table.history th:nth-child(7) { width: 7%; }
+table.history th:nth-child(8) { width: 15%; }
+table.history th:nth-child(9) { width: 14%; }

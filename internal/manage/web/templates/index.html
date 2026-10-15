@@ -10,10 +10,7 @@
     {{template "cardtitle" .}}
     <span class="dim date">cut {{.Created}}</span>
     <span class="card-gap"></span>
-    <form class="act" method="post" action="/manage/releases/{{.ID}}/promote">
-      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-      <button class="btn primary" type="submit">Promote {{.Version}}</button>
-    </form>
+    {{template "promoteform" .Form $.CSRF}}
     </div>
     {{template "filetable" .}}
     </section>{{else}}<p class="empty-bar">No staged cut waiting</p>{{end}}
@@ -28,10 +25,7 @@
     <div class="card-head">
     <nav class="card-links">{{with .SumsURL}}<a href="{{.}}">sums</a>{{end}}{{with .SigURL}}<a href="{{.}}">sig</a>{{end}}{{with .Manifest}}<a href="{{.}}">manifest</a>{{end}}</nav>
     <span class="card-gap"></span>
-    <form class="act" method="post" action="/manage/releases/{{.ID}}/yank">
-      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-      <button class="btn danger outline" type="submit">Yank {{.Version}}</button>
-    </form>
+    {{template "yankform" .Form $.CSRF}}
     </div>
     {{template "filetable" .}}
     </section>{{else}}<p class="dim">No current public release in the catalog.</p>{{end}}

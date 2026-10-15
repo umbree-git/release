@@ -10,6 +10,7 @@ import (
 
 	"github.com/umbree-git/release/internal/manage/auth"
 	"github.com/umbree-git/release/internal/manage/backend/backendtest"
+	"github.com/umbree-git/release/internal/register"
 )
 
 const gatedControl = "/manage/retention/production/umbree/gated"
@@ -230,9 +231,9 @@ func TestHistoryHidesLinksOfPrunedPublicRow(t *testing.T) {
 	c.promoteDirect(c.stage("old", "0.0.1", 1))
 	c.promoteDirect(c.stage("cur", "0.0.2", 1))
 	b := c.signedIn("ops")
-	oldLink := publicBase + "/umbree/" + stampOf("0.0.1", 1) + "/umbree-linux-amd64.zip"
+	oldLink := publicBase + "/umbree/" + stampOf("0.0.1", 1) + "/" + register.SumsName
 	if r := b.get("/manage/production/umbree/history"); !strings.Contains(r.body, oldLink) {
-		t.Fatalf("keep-control: the public row's link is missing before the prune")
+		t.Fatalf("keep-control: the public row's sums link is missing before the prune")
 	}
 	if _, err := c.st.RecordPruned(c.rows["old"], "public", nil, "test-operator", c.now); err != nil {
 		t.Fatal(err)
@@ -240,6 +241,9 @@ func TestHistoryHidesLinksOfPrunedPublicRow(t *testing.T) {
 	r := b.get("/manage/production/umbree/history")
 	if strings.Contains(r.body, oldLink) {
 		t.Fatal("the history links bytes the public pass deleted")
+	}
+	if cells := rowCells(t, r.body, c.rows["old"]); hrefRe.MatchString(historyRow(t, r.body, c.rows["old"])) || cells[colLinks].inner != noValue {
+		t.Fatalf("the pruned row keeps a link or a links cell %q", cells[colLinks].inner)
 	}
 	if !strings.Contains(r.body, publicBase+"/umbree/"+stampOf("0.0.2", 1)+"/") {
 		t.Fatal("keep-control: the current row lost its links")
