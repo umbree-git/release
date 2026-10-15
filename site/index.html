@@ -7,13 +7,18 @@
 <title>umbree — install channel</title>
 <meta name="description" content="Public, signed, self-service install channel for the Umbree command-line client. Every download is verified end-to-end.">
 <script>
-  // Defined before umbree/version.js is injected below — that file is a fixed
-  // JSONP callback invocation (no CORS, works on this static surface with no
-  // dynamic backend). See tools/gen-version-jsonp.sh for the payload shape.
+  var components = ["umbree", "umbreed"];
+  var semver = /^[0-9]+\.[0-9]+\.[0-9]+$/;
   function __umbreeVersion(data) {
-    var el = document.getElementById('version-badge');
-    if (el && data && data.version) {
-      el.textContent = 'v' + data.version;
+    if (!data || typeof data.component !== "string" || typeof data.version !== "string") {
+      return;
+    }
+    if (components.indexOf(data.component) < 0 || !semver.test(data.version)) {
+      return;
+    }
+    var el = document.getElementById("version-" + data.component);
+    if (el) {
+      el.textContent = "v" + data.version;
     }
   }
 </script>
@@ -98,6 +103,8 @@
     margin-left: 8px; vertical-align: middle;
   }
 
+  .install .label .pill { text-transform: none; letter-spacing: normal; font-weight: 400; }
+
   footer {
     margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--line);
     color: var(--text-faint); font-size: 13px;
@@ -110,7 +117,7 @@
   <header>
     <h1 class="brand">umbr<span class="ee">ee</span></h1>
     <p class="tagline">The signed, self-service install channel for the Umbree command-line client
-      — a residential/datacenter proxy client. <span id="version-badge" class="pill"></span></p>
+      — a residential/datacenter proxy client. <span id="version-umbree" class="pill">latest</span></p>
   </header>
 
   <section>
@@ -127,7 +134,7 @@
     <p class="faint">umbree lands in <code>$HOME/.local/bin</code>.</p>
 
     <span class="install">
-      <span class="label">umbreed — the home-exit daemon</span>
+      <span class="label">umbreed — the home-exit daemon <span id="version-umbreed" class="pill">latest</span></span>
       <code>curl -fsSL --proto '=https' --tlsv1.2 https://release.umbree.org/umbreed/install.sh | sh</code>
     </span>
 
@@ -186,6 +193,16 @@ else                             echo "MISMATCH for $f — do not install"; fi</
   </footer>
 
 </div>
-<script src="umbree/version.js"></script>
+<script>
+  (function () {
+    var hour = Math.floor(Date.now() / 3600000);
+    for (var i = 0; i < components.length; i++) {
+      var s = document.createElement("script");
+      s.src = "/" + components[i] + "/version.js?" + hour;
+      s.referrerPolicy = "no-referrer";
+      document.body.appendChild(s);
+    }
+  })();
+</script>
 </body>
 </html>
