@@ -41,7 +41,7 @@ func (s *Server) handleRepublish(w http.ResponseWriter, r *http.Request, sess *s
 			s.pageError(w, r, err)
 			return
 		}
-		page.pageData = s.consolePage(w, r, sess, "Republish static · "+comp)
+		page.pageData = s.consolePage(w, r, sess, "Republish static · "+comp, channel, comp)
 		s.render(w, r, "republish", http.StatusOK, page)
 		return
 	}
@@ -59,6 +59,6 @@ func (s *Server) handleRepublish(w http.ResponseWriter, r *http.Request, sess *s
 	default:
 		page.Result = summary
 	}
-	page.pageData = s.consolePage(w, r, sess, "Republish static · "+comp)
+	page.pageData = s.consolePage(w, r, sess, "Republish static · "+comp, channel, comp)
 	s.render(w, r, "republish", status, page)
 }

@@ -78,3 +78,10 @@ func componentNav(channel, current string, at func(channel, component string) st
 	}
 	return out
 }
+
+func pageTabs(channel, comp string, history bool) []navItem {
+	return []navItem{
+		{Name: "Overview", Path: pagePath(channel, comp), Active: !history},
+		{Name: "History", Path: historyPath(channel, comp), Active: history},
+	}
+}

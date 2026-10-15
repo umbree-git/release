@@ -95,6 +95,6 @@ func (s *Server) askConfirm(w http.ResponseWriter, r *http.Request, sess *store.
 		Verb: action, Note: actionNotes[action], Danger: action == actionYank,
 		Action: r.URL.Path, Token: token, Back: pagePath(row.Channel, row.Component),
 	}
-	page.pageData = s.consolePage(w, r, sess, "Confirm "+action)
+	page.pageData = s.consolePage(w, r, sess, "Confirm "+action, row.Channel, row.Component)
 	s.render(w, r, "confirm", http.StatusOK, page)
 }
