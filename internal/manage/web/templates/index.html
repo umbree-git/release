@@ -42,7 +42,7 @@
   </section>
   {{with .Republish}}<section class="panel muted danger">
     <h3>Static surface</h3>
-    <p class="dim">Promote and yank republish the installer, <code>version.js</code>, the public key and the site page. If that step failed, republish them here from the live manifest.</p>
+    <p class="dim">Promote and yank republish the installer, the public key and the site page. If that step failed, republish them here from the live manifest.</p>
     <form class="act" data-confirm-slot="republish" method="post" action="{{.}}">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <button class="btn" type="submit">Republish static</button>

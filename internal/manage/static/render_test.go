@@ -107,23 +107,6 @@ func TestRenderRefusesBadFloorOrBase(t *testing.T) {
 	}
 }
 
-func TestVersionJSRefusesUnsafeValues(t *testing.T) {
-	for _, tc := range [][3]string{
-		{"umbree", "0.2.1\"});alert(1);//", "v0.2.1.2026.10.09.0a1b2c3d"},
-		{"umbree", "0.2.1", "v0.2.1 2026"},
-		{"umbree", "", "v0.2.1.2026.10.09.0a1b2c3d"},
-		{"nosuch", "0.2.1", "v0.2.1.2026.10.09.0a1b2c3d"},
-	} {
-		if js, err := static.VersionJS(tc[0], tc[1], tc[2]); err == nil {
-			t.Errorf("VersionJS%q = %q, want a refusal", tc, js)
-		}
-	}
-	js, err := static.VersionJS("umbree", "0.2.1", "v0.2.1.2026.10.09.0a1b2c3d")
-	if err != nil || string(js) != `__umbreeVersion({"component":"umbree","version":"0.2.1","stamp":"v0.2.1.2026.10.09.0a1b2c3d"});`+"\n" {
-		t.Fatalf("keep-control: %q, %v", js, err)
-	}
-}
-
 const edgeModule = `# module: edge v1
 # a whole-line comment
 	# an indented one

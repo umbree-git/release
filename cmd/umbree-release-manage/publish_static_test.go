@@ -43,7 +43,10 @@ func TestPublishStaticVerbByHand(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), "\nMIN_VERSION=\""+staticStamp+"\"\n") {
 		t.Fatalf("the published bootstrap does not bake the manifest's stamp: %v", err)
 	}
-	for _, f := range []string{"umbree/version.js", "umbree-release.pub", "index.html"} {
+	if _, err := os.Stat(filepath.Join(dest, "umbree", "version.js")); !os.IsNotExist(err) {
+		t.Errorf("a static version.js was published: %v", err)
+	}
+	for _, f := range []string{"umbree-release.pub", "index.html"} {
 		if _, err := os.Stat(filepath.Join(dest, f)); err != nil {
 			t.Errorf("%s not published: %v", f, err)
 		}

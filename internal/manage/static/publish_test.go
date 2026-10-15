@@ -131,9 +131,6 @@ func TestStaticDestLocalDir(t *testing.T) {
 	if got := readFile(t, filepath.Join(dir, "umbree", "install.sh")); got != string(want) {
 		t.Fatal("the published install.sh is not the render for the manifest's stamp")
 	}
-	if got := readFile(t, filepath.Join(dir, "umbree", "version.js")); !strings.Contains(got, `"stamp":"`+stamp+`"`) {
-		t.Fatalf("version.js %q", got)
-	}
 	if readFile(t, filepath.Join(dir, "umbree-release.pub")) != embedded(t, static.PubkeyPath) {
 		t.Fatal("the pubkey is not the embedded one")
 	}
@@ -230,7 +227,7 @@ func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	if lastPut < 0 || lastPut > firstRename {
 		t.Fatalf("a rename precedes an upload, so a failed upload could follow a replaced file: %+v", batch)
 	}
-	want := []string{"/srv/static/favicon.svg", "/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh", "/srv/static/umbree/version.js"}
+	want := []string{"/srv/static/favicon.svg", "/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh"}
 	keys := slices.Sorted(maps.Keys(final))
 	if !slices.Equal(keys, want) {
 		t.Fatalf("renamed into place %v, want %v", keys, want)
@@ -269,5 +266,33 @@ func TestStaticRemoteFailureNamesItsOutput(t *testing.T) {
 		}}
 	if _, err := failing.Publish(context.Background(), "umbree"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("a failed upload: %v, want its output in the error", err)
+	}
+}
+
+func TestPublishOmitsVersionJS(t *testing.T) {
+	dir := t.TempDir()
+	p := &static.Publisher{Assets: release.Assets, Source: sourceFor(t, "umbree"), DownloadsBase: fixtureBase,
+		Dest: static.Dest{Dir: dir}}
+	summary, err := p.Publish(context.Background(), "umbree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(summary, "version.js") {
+		t.Fatalf("the summary names version.js: %q", summary)
+	}
+	var got []string
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dir, path)
+			got = append(got, filepath.ToSlash(rel))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"favicon.svg", "index.html", "umbree-release.pub", "umbree/install.sh"}
+	if slices.Sort(got); !slices.Equal(got, want) {
+		t.Fatalf("published %v, want %v", got, want)
 	}
 }
