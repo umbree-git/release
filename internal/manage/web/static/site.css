@@ -70,7 +70,7 @@ th { font-weight: 500; color: var(--dim); font-size: .85rem; }
 tr.state-expired, tr.state-yanked { color: var(--dim); }
 .flash.error, .result.error { color: var(--danger); }
 .result.ok { color: var(--ok); }
-.log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .85rem; padding-left: 1.25rem; }
+.log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .85rem; padding-left: 2.5rem; }
 .log li { overflow-wrap: anywhere; }
 .log .ev-error { color: var(--danger); }
 .confirm-inline { margin-top: .75rem; padding: .75rem 1rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg); }
@@ -79,7 +79,7 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 .confirm-inline p { margin: 0 0 .6rem; }
 .confirm-inline form { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
 .inline-progress { margin-top: .75rem; background: var(--bg); }
-.inline-progress .panel.progress { margin: 0; border: 0; padding: 0; background: transparent; min-width: 0; }
+.inline-progress .panel.progress { margin: 0; border: 0; padding: 0; background: transparent; min-width: 0; overflow: visible; }
 .run-steps { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: 0 0 .75rem; padding: 0; }
 .run-steps .run-step { padding: 0 .5rem; border: 1px solid var(--line); border-radius: 3px; font-size: .8rem; font-weight: 600; background: var(--panel); }
 .run-steps .run-step[data-state="ok"] { border-color: var(--ok); color: var(--ok); }
