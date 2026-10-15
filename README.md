@@ -320,8 +320,9 @@ Promote and yank end by republishing the static surface to the service's
 promote or yank, whose manifest is already live; the overview's **Republish
 static** control (session, CSRF and a confirm, like the others) or
 `umbree-release-manage publish-static <comp>` on the host does it again from
-the live manifest. Deploying the service is the operator's step: `ops/README.md` →
-"Manage service".
+the live manifest. Deploying the service is the operator's step:
+`tools/deploy-manage.sh`, run from `main` (`--dry-run` contacts no host), with the
+provisioning before it in `ops/README.md` → "Manage service".
 
 ## Retention
 
