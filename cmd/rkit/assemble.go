@@ -13,8 +13,22 @@ import (
 	"github.com/burrowee-git/release-kit/pack"
 )
 
-func stageMigrations(srcDir string) ([]pack.Content, error) {
-	dir := filepath.Join(srcDir, "install", "migrations")
+func migrationsDir(comp, srcDir, repoDir string, fromTree bool) string {
+	if fromTree {
+		return filepath.Join(srcDir, "install", "migrations")
+	}
+	return filepath.Join(repoDir, "inner", comp, "migrations")
+}
+
+func isShippedMigration(name string) bool {
+	if strings.HasSuffix(name, ".test.sh") || strings.HasSuffix(name, "_test.sh") {
+		return false
+	}
+	return strings.HasSuffix(name, ".sh") || name == "ledger" || name == "component.conf"
+}
+
+func stageMigrations(comp, srcDir, repoDir string, fromTree bool) ([]pack.Content, error) {
+	dir := migrationsDir(comp, srcDir, repoDir, fromTree)
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -28,7 +42,7 @@ func stageMigrations(srcDir string) ([]pack.Content, error) {
 			continue
 		}
 		n := e.Name()
-		if strings.HasSuffix(n, ".sh") || n == "ledger" || n == "component.conf" {
+		if isShippedMigration(n) {
 			out = append(out, pack.Content{Src: filepath.Join(dir, n), Name: "migrations/" + n})
 		}
 	}

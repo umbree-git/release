@@ -289,7 +289,7 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 		return nil, fmt.Errorf("install.sh: %w", err)
 	}
 
-	migs, err := stageMigrations(o.SrcDir)
+	migs, err := stageMigrations(o.Component, o.SrcDir, o.RepoDir, installFromTree)
 	if err != nil {
 		return nil, err
 	}
