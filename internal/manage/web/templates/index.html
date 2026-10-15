@@ -2,7 +2,6 @@
 <h1>{{.Component}} <span class="dim">· {{.Channel}}</span></h1>
 {{template "tabs" .}}
 <section class="group">
-  <h2>Release</h2>
   <section class="panel">
     <h3>Ready to promote</h3>
     {{with .Promotable}}<section class="card state-{{.State}}" id="row-{{.ID}}">

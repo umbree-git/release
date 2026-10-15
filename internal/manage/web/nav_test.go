@@ -160,7 +160,10 @@ func TestOverviewGroupsReleaseAndMaintenance(t *testing.T) {
 	c := newConsole(t)
 	c.seedHistory()
 	body := c.signedIn("ops").get("/manage/production/umbree").body
-	order := []string{"<h2>Release</h2>", "Ready to promote", "<h3>Current</h3>", "<h2>Maintenance</h2>", "<h3>Retention</h3>"}
+	if strings.Contains(body, "<h2>Release</h2>") {
+		t.Fatal("the overview still has a Release heading")
+	}
+	order := []string{"Ready to promote", "<h3>Current</h3>", "<h2>Maintenance</h2>", "<h3>Retention</h3>"}
 	last := -1
 	for _, want := range order {
 		at := strings.Index(body, want)
