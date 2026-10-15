@@ -150,3 +150,11 @@ func TestConsoleLinksNoUnderline(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyButtonRightAligned(t *testing.T) {
+	c := newConsole(t)
+	rules := cssRules(t, c)
+	requireDecl(t, rules, "table.files td.sha", "display: flex", "align-items: center")
+	requireDecl(t, rules, "table.files td.sha code", "flex: 1 1 auto", "min-width: 0", "text-overflow: ellipsis")
+	requireDecl(t, rules, "table.files td.sha .btn.copy", "flex: none", "margin-left: auto")
+}

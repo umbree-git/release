@@ -97,8 +97,9 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 table.files td.platform, table.files td.size { white-space: nowrap; }
 table.files td.size { text-align: right; }
 table.files th { font-size: .75rem; letter-spacing: .04em; }
-table.files td.sha { white-space: nowrap; }
-table.files td.sha code { display: inline-block; max-width: 16rem; margin-right: .5rem; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.files td.sha { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+table.files td.sha code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.files td.sha .btn.copy { flex: none; margin-left: auto; }
 .btn.copy { padding: 0 .5rem; font-size: .8rem; }
 .btn.copy.copied { border-color: var(--ok); color: var(--ok); }
 .card-head > .confirm-inline, .card-head > .inline-progress { flex-basis: 100%; }
