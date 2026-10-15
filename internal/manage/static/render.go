@@ -17,6 +17,7 @@ const (
 	ModulesDir    = "tools/modules"
 	PubkeyPath    = "umbree-release.pub"
 	SitePath      = "site/index.html"
+	FaviconPath   = "site/favicon.svg"
 	ServedChannel = "stable"
 )
 
