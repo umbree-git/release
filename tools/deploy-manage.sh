@@ -9,19 +9,27 @@ UNIT="${NAME}.service"
 UNITS="${NAME}.service ${NAME}-retain.service ${NAME}-retain.timer"
 VHOST_SRC="${ROOT}/ops/nginx/release.umbree.org.conf"
 VHOST_NAME="$(basename "${VHOST_SRC}")"
+HELPER_NAME=umbree-deploy-helper
+HOST_ROOT=/usr/local/umbree-release
+HELPER="${HOST_ROOT}/bin/${HELPER_NAME}"
+MANAGE_BIN_DIR="${HOST_ROOT}/bin"
+DEPLOY_VERBS="preflight install-binary render activate restore"
+ROLLBACK_VERBS="status restore"
 
 usage() {
     cat <<USAGE
-usage: tools/deploy-manage.sh [--dry-run] [--skip-vhost] [--rollback]
+usage: tools/deploy-manage.sh [--dry-run] [--rollback]
+       tools/deploy-manage.sh --build-helper
 
-  Builds ${NAME} from this checkout, renders its units from ops/systemd/,
-  installs binary, units and the vhost on the release host named in the
-  operator's deploy config, restarts the service, reloads nginx and verifies.
-  A failed nginx -t or verify restores the previous copies.
+  Builds ${NAME} from this checkout, stages only that binary on the release
+  host as the operator's non-root SSH_USER, and drives the root-owned host
+  helper (${HELPER}) through sudo -n:
+  preflight, install-binary, render, activate, and restore on any failure.
 
-  --dry-run     build, render and print the plan; contacts no host
-  --skip-vhost  binary and units only
-  --rollback    restore the previous binary, units and vhost, then verify
+  --dry-run       build, lint the units and vhost, print the plan; contacts no host
+  --rollback      helper restore of the previous binary, units and vhost, then verify
+  --build-helper  build the helper bundle (helper, templates, SHA256SUMS) into
+                  dist/${HELPER_NAME}/; contacts no host, reads no deploy config
 
   Config: \$UMBREE_MANAGE_DEPLOY_CONFIG (default ~/.umbree/release/manage-deploy.env)
 USAGE
@@ -93,9 +101,6 @@ check_paths() {
     check_clean_dir STATIC_DIR "${STATIC_DIR}"
     check_clean_dir MANAGE_DATA_DIR "${MANAGE_DATA_DIR}"
     check_clean_dir MANAGE_ENV_FILE "${MANAGE_ENV_FILE}"
-    check_clean_dir MANAGE_BIN_DIR "${MANAGE_BIN_DIR}"
-    check_clean_dir UNIT_DIR "${UNIT_DIR}"
-    check_clean_dir VHOST_DIR "${VHOST_DIR}"
     check_clean_dir STAGE_DIR "${STAGE_DIR}"
 }
 
@@ -108,16 +113,12 @@ load_config() {
     STATIC_DIR="$(cfg_value STATIC_DIR '')"
     SERVICE_USER="$(cfg_value SERVICE_USER umbree-release)"
     MANAGE_ENV_FILE="$(cfg_value MANAGE_ENV_FILE /etc/umbree-release-manage/manage.env)"
-    MANAGE_BIN_DIR="$(cfg_value MANAGE_BIN_DIR /usr/local/bin)"
     MANAGE_LISTEN="$(cfg_value MANAGE_LISTEN 127.0.0.1:8788)"
     MANAGE_URL="$(cfg_value MANAGE_URL https://release.umbree.org)"
     MANAGE_URL="${MANAGE_URL%/}"
     check_url MANAGE_URL "${MANAGE_URL}"
-    UNIT_DIR="$(cfg_value UNIT_DIR /etc/systemd/system)"
-    VHOST_DIR="$(cfg_value VHOST_DIR /etc/nginx/sites-enabled)"
     STAGE_DIR="$(cfg_value STAGE_DIR "/home/${SSH_USER}/${NAME}-deploy")"
     check_paths
-    PORT="${MANAGE_LISTEN##*:}"
 }
 
 check_vhost_port() {
@@ -176,100 +177,34 @@ build() {
 
 print_plan() {
     rev="$(git -C "${ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')@$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo '?')"
-    say "plan for ${SSH_USER}@${RELEASE_HOST} (sudo -n per step) from ${rev}:"
-    printf '    preflight  %s free or held by %s MainPID; %s agrees; no UMBREE_MANAGE_TRUSTED_PROXY; %s writable by %s\n' "${PORT}" "${UNIT}" "${MANAGE_ENV_FILE}" "${STATIC_DIR}" "${SERVICE_USER}"
-    printf '    binary     %s/%s  (previous kept in %s as .prev)\n' "${MANAGE_BIN_DIR}" "${NAME}" "${STAGE_DIR}"
-    printf '    units      %s/{%s}  (daemon-reload, enable and restart %s; the retain timer is not enabled)\n' "${UNIT_DIR}" "$(printf '%s' "${UNITS}" | tr ' ' ',')" "${UNIT}"
-    if [ "${SKIP_VHOST}" = 1 ]; then printf '    vhost      skipped (--skip-vhost)\n'
-    else printf '    vhost      %s/%s  (nginx -t gates the reload)\n' "${VHOST_DIR}" "${VHOST_NAME}"; fi
+    say "plan for ${SSH_USER}@${RELEASE_HOST} from ${rev}:"
+    printf '    sudoers    sudo -n -l %s <verb> for: %s\n' "${HELPER}" "${DEPLOY_VERBS}"
+    printf '    preflight  sudo -n %s preflight\n' "${HELPER}"
+    printf '    stage      %s/%s.new  (the only file copied)\n' "${STAGE_DIR}" "${NAME}"
+    printf '    install    sudo -n %s install-binary, render, activate  (restore on failure)\n' "${HELPER}"
     printf '    verify     is-active %s; %s/healthz; %s/manage/login 200\n' "${UNIT}" "${MANAGE_URL}" "${MANAGE_URL}"
-    for u in ${UNITS}; do diff -u -L /dev/null -L "${UNIT_DIR}/${u}" /dev/null "${OUT}/${u}" || true; done
+    for u in ${UNITS}; do diff -u -L /dev/null -L "lint: ${u}" /dev/null "${OUT}/${u}" || true; done
 }
 
 remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_USER}@${RELEASE_HOST}" "$1"; }
 
-preflight_body() {
-    cat <<'BODY'
-envc=$(sudo -n cat "$env") || { echo "refuse: step 'read env file': sudo -n cat $env failed — no such file, or no sudoers rule for it"; exit 1; }
-l=$(printf '%s\n' "$envc" | grep -E '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_LISTEN=' | tail -n1 | sed -e 's/^.*UMBREE_MANAGE_LISTEN=//' -e 's/["[:space:]]//g' | tr -d "'")
-[ "$l" = "$listen" ] || { echo "refuse: UMBREE_MANAGE_LISTEN in $env is '$l', the deploy and the vhost use $listen"; exit 1; }
-if printf '%s\n' "$envc" | grep -qE '^[[:space:]]*(export[[:space:]]+)?UMBREE_MANAGE_TRUSTED_PROXY='; then
-  echo "refuse: $env sets UMBREE_MANAGE_TRUSTED_PROXY, and this edge sends no X-Forwarded-For"; exit 1
-fi
-sudo -n -u "$user" test -w "$static" || { echo "refuse: step 'static dir check': sudo -n -u $user test -w $static failed — not writable by $user (promote could not republish), or no sudoers rule"; exit 1; }
-ssout=$(sudo -n ss -ltnpH "sport = :$port") || { echo "refuse: step 'port check': sudo -n ss -ltnpH failed — no sudoers rule for it"; exit 1; }
-held=$(printf '%s\n' "$ssout" | grep -v '^State' | grep . || true)
-if [ -n "$held" ]; then
-  main=$(systemctl show -p MainPID --value "$unit" 2>/dev/null || echo 0)
-  pids=$(printf '%s\n' "$held" | grep -oE 'pid=[0-9]+' | sort -u)
-  if [ -n "$main" ] && [ "$main" != 0 ] && [ "$pids" = "pid=$main" ]; then
-    echo "port $port held by $unit (MainPID $main, a redeploy)"
-  else
-    echo "refuse: port $port is already bound by something other than $unit (MainPID ${main:-0}): $held"; exit 1
-  fi
-fi
-echo 'preflight passed'
-BODY
+sudoers_check() {
+    say "checking the sudoers rules for: $*"
+    remote "for v in $*; do
+  sudo -n -l '${HELPER}' \"\$v\" >/dev/null 2>&1 || { echo \"refuse: no sudoers rule for: sudo -n ${HELPER} \$v\"; exit 1; }
+done" || fail "sudoers on ${RELEASE_HOST} is missing a helper verb (named above) — nothing was copied (ops/README.md §7)"
 }
 
 preflight() {
-    say "preflight on ${RELEASE_HOST} (read-only)"
-    remote "set -e
-env='${MANAGE_ENV_FILE}'; listen='${MANAGE_LISTEN}'; port='${PORT}'; unit='${UNIT}'
-user='${SERVICE_USER}'; static='${STATIC_DIR}'
-$(preflight_body)" || fail "preflight refused on ${RELEASE_HOST} — nothing was copied"
-    sdv="$(remote "systemctl --version | sed -n '1s/^systemd \([0-9][0-9]*\).*/\1/p'")" || sdv=""
-    case "${sdv}" in
-        ''|*[!0-9]*) warn "could not read the systemd version on ${RELEASE_HOST}; ProtectSystem=strict and ReadWritePaths= may be ignored" ;;
-        *) [ "${sdv}" -ge 232 ] || warn "systemd ${sdv} on ${RELEASE_HOST} ignores ProtectSystem=strict and ReadWritePaths= — file ownership is the control (ops/README.md §7)" ;;
-    esac
+    sudoers_check "${DEPLOY_VERBS}"
+    say "preflight on ${RELEASE_HOST}"
+    remote "sudo -n '${HELPER}' preflight" || fail "helper preflight refused on ${RELEASE_HOST} — nothing was copied"
 }
 
 stage() {
-    say "copying to ${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/"
-    remote "install -d -m 0700 '${STAGE_DIR}'" || fail "could not create ${STAGE_DIR} on ${RELEASE_HOST} as ${SSH_USER}"
+    say "copying ${NAME} to ${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/"
+    remote "install -d -m 0750 '${STAGE_DIR}' && rm -f '${STAGE_DIR}/${NAME}.new'" || fail "could not prepare ${STAGE_DIR} on ${RELEASE_HOST} as ${SSH_USER}"
     scp -q "${OUT}/${NAME}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${NAME}.new" || fail "scp of the binary failed"
-    for u in ${UNITS}; do scp -q "${OUT}/${u}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${u}.new" || fail "scp of ${u} failed"; done
-    [ "${SKIP_VHOST}" = 1 ] || scp -q "${OUT}/${VHOST_NAME}" "${SSH_USER}@${RELEASE_HOST}:${STAGE_DIR}/${VHOST_NAME}.new" || fail "scp of the vhost failed"
-}
-
-pairs() {
-    printf '%s %s 0755\n' "${NAME}" "${MANAGE_BIN_DIR}/${NAME}"
-    for u in ${UNITS}; do printf '%s %s 0644\n' "${u}" "${UNIT_DIR}/${u}"; done
-    [ "${SKIP_VHOST}" = 1 ] || printf '%s %s 0644\n' "${VHOST_NAME}" "${VHOST_DIR}/${VHOST_NAME}"
-}
-
-restore_script() {
-    printf 'restore() {\n'
-    pairs | while read -r f dst mode; do
-        printf "  if [ -f '%s/%s.prev' ]; then sudo -n install -m %s -o root -g root '%s/%s.prev' '%s' || true\n" "${STAGE_DIR}" "${f}" "${mode}" "${STAGE_DIR}" "${f}" "${dst}"
-        printf "  elif [ -f '%s/%s.absent' ]; then sudo -n rm -f '%s' || true; fi\n" "${STAGE_DIR}" "${f}" "${dst}"
-    done
-    printf "  [ -f '%s/%s.absent' ] && { sudo -n systemctl stop %s; sudo -n systemctl disable %s; } >/dev/null 2>&1\n" "${STAGE_DIR}" "${UNIT}" "${UNIT}" "${UNIT}"
-    printf '  sudo -n systemctl daemon-reload || true\n'
-    printf "  [ -f '%s/%s' ] && sudo -n systemctl restart %s || true\n" "${MANAGE_BIN_DIR}" "${NAME}" "${UNIT}"
-    printf '  sudo -n nginx -t >/dev/null 2>&1 && sudo -n systemctl reload nginx || true\n}\n'
-}
-
-step() { printf "  %s || { echo \"step '%s': %s failed\"; return 1; }\n" "$2" "$1" "$2"; }
-
-install_script() {
-    printf "echo '%s  %s/%s.new' | sha256sum -c - >/dev/null || { echo 'checksum mismatch after copy'; exit 1; }\n" "${SUM}" "${STAGE_DIR}" "${NAME}"
-    pairs | while read -r f dst _; do
-        printf "rm -f '%s/%s.prev' '%s/%s.absent'\n" "${STAGE_DIR}" "${f}" "${STAGE_DIR}" "${f}"
-        printf "if [ -f '%s' ]; then cp -p '%s' '%s/%s.prev'; else : > '%s/%s.absent'; fi\n" "${dst}" "${dst}" "${STAGE_DIR}" "${f}" "${STAGE_DIR}" "${f}"
-    done
-    printf 'apply() {\n'
-    pairs | while read -r f dst mode; do
-        step "install ${f}" "sudo -n install -m ${mode} -o root -g root '${STAGE_DIR}/${f}.new' '${dst}'"
-    done
-    printf '  sudo -n nginx -t >/dev/null 2>&1 || { sudo -n nginx -t 2>&1 | tail -n 3; echo "step '"'"'nginx -t'"'"': sudo -n nginx -t rejected the new config"; return 1; }\n'
-    step daemon-reload "sudo -n systemctl daemon-reload"
-    step enable "sudo -n systemctl enable ${UNIT}"
-    step restart "sudo -n systemctl restart ${UNIT}"
-    step "nginx reload" "sudo -n systemctl reload nginx"
-    printf '}\n'
-    printf "apply || { restore; echo 'install failed — previous copies restored, new-only files removed'; exit 1; }\n"
 }
 
 verify_script() {
@@ -279,46 +214,72 @@ verify_script() {
     printf "  c=\$(curl -sS -o /dev/null -w '%%{http_code}' '%s/manage/login'); [ \"\$c\" = 200 ] || { echo \"/manage/login -> \$c\"; return 1; }; echo '/manage/login -> 200'\n}\n" "${MANAGE_URL}"
 }
 
+deploy_script() {
+    verify_script
+    printf "H='%s'\n" "${HELPER}"
+    cat <<'REMOTE'
+sudo -n "$H" install-binary || { echo "install-binary refused; nothing was changed"; exit 1; }
+for v in render activate; do
+  sudo -n "$H" "$v" || { echo "$v failed; restoring"; sudo -n "$H" restore; exit 1; }
+done
+verify || { echo "verify failed; restoring"; sudo -n "$H" restore; exit 1; }
+REMOTE
+}
+
 deploy() {
     preflight
     stage
-    say "installing on ${RELEASE_HOST}"
-    remote "set -e
-$(restore_script)
-$(verify_script)
-$(install_script)
-verify || { restore; echo 'verify failed — previous copies restored, new-only files removed'; exit 1; }" \
-        || fail "deploy failed on ${RELEASE_HOST} — see the lines above; the host is on its previous copies"
+    say "installing on ${RELEASE_HOST} through the helper"
+    remote "$(deploy_script)" \
+        || fail "deploy failed on ${RELEASE_HOST} — see the lines above; the helper restored the previous copies"
     ok "deployed ${NAME} (sha256 ${SUM}) to ${RELEASE_HOST}, verified at ${MANAGE_URL}"
 }
 
 rollback() {
-    say "rolling back on ${SSH_USER}@${RELEASE_HOST} from the .prev copies in ${STAGE_DIR}"
-    remote "set -e
-[ -f '${STAGE_DIR}/${NAME}.prev' ] || { echo 'no ${STAGE_DIR}/${NAME}.prev to roll back to'; exit 1; }
-$(restore_script)
-$(verify_script)
-restore
+    sudoers_check "${ROLLBACK_VERBS}"
+    say "rolling back on ${SSH_USER}@${RELEASE_HOST} through the helper"
+    remote "$(verify_script)
+sudo -n '${HELPER}' status | grep -q '/${NAME}: previous copy held' || { echo 'the helper holds no previous binary to roll back to'; exit 1; }
+sudo -n '${HELPER}' restore
 verify" || fail "rollback failed on ${RELEASE_HOST} — read the service journal on the host"
     ok "rollback complete"
 }
 
+build_helper() {
+    say "$(go version)"
+    have="$(go env GOVERSION)"
+    [ "${have}" = "${GO_PIN}" ] || fail "go is ${have}, the helper builds with ${GO_PIN} only — put ${GO_PIN} first on PATH"
+    dest="${ROOT}/dist/${HELPER_NAME}"
+    rm -rf "${dest}"; mkdir -p "${dest}/templates"
+    ( cd "${ROOT}" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOTOOLCHAIN=local \
+        go build -trimpath -o "${dest}/${HELPER_NAME}" "./cmd/${HELPER_NAME}" ) || fail "helper build failed"
+    for u in ${UNITS}; do cp "${ROOT}/ops/systemd/${u}" "${dest}/templates/${u}"; done
+    cp "${VHOST_SRC}" "${dest}/templates/${VHOST_NAME}"
+    ( cd "${dest}" && for f in "${HELPER_NAME}" templates/*; do printf '%s  %s\n' "$(sha256_of "$f")" "$f"; done > SHA256SUMS )
+    sed 's/^/    /' "${dest}/SHA256SUMS"
+    ok "helper bundle in ${dest}: SHA256SUMS sha256 $(sha256_of "${dest}/SHA256SUMS") — nothing contacted"
+}
+
 pick_markers
-DRY_RUN=0; SKIP_VHOST=0; ROLLBACK=0
+DRY_RUN=0; ROLLBACK=0; BUILD_HELPER=0
 for a in "$@"; do
     case "$a" in
         --dry-run) DRY_RUN=1 ;;
-        --skip-vhost) SKIP_VHOST=1 ;;
+        --build-helper) BUILD_HELPER=1 ;;
         --rollback) ROLLBACK=1 ;;
         -h|--help) usage; exit 0 ;;
         *) refuse_usage "unknown argument: $a" ;;
     esac
 done
 
+if [ "${BUILD_HELPER}" = 1 ]; then
+    [ $# -eq 1 ] || refuse_usage "--build-helper takes no other argument"
+    build_helper; exit 0
+fi
 load_config
 check_vhost_port
 if [ "${ROLLBACK}" = 1 ]; then
-    [ "${DRY_RUN}" = 1 ] && { ok "dry-run: rollback would restore the .prev copies in ${STAGE_DIR}; nothing done"; exit 0; }
+    [ "${DRY_RUN}" = 1 ] && { ok "dry-run: rollback would run sudo -n ${HELPER} restore; nothing done"; exit 0; }
     rollback; exit 0
 fi
 OUT="$(mktemp -d)"
