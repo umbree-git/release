@@ -111,12 +111,15 @@ func TestTablesHaveLabelledHead(t *testing.T) {
 	c.seedHistory()
 	b := c.signedIn("ops")
 	path := actionPath(c.rows["new"], "promote")
+	fileLabels := []string{"FILE", "PLATFORM", "SIZE", "SHA-256"}
 	cases := map[string]struct {
-		body  string
-		heads int
+		body   string
+		heads  int
+		labels []string
 	}{
-		"overview": {b.get("/manage/production/umbree").body, 2},
-		"confirm":  {b.post(path, url.Values{auth.CSRFField: {b.csrf()}}).body, 1},
+		"overview": {b.get("/manage/production/umbree").body, 2, fileLabels},
+		"history":  {b.get("/manage/production/umbree/history").body, 1, headLabels},
+		"confirm":  {b.post(path, url.Values{auth.CSRFField: {b.csrf()}}).body, 1, headLabels},
 	}
 	for name, tc := range cases {
 		heads := theadRe.FindAllStringSubmatch(tc.body, -1)
@@ -128,8 +131,8 @@ func TestTablesHaveLabelledHead(t *testing.T) {
 			for _, m := range thRe.FindAllStringSubmatch(h[1], -1) {
 				got = append(got, m[1])
 			}
-			if !slices.Equal(got, headLabels) {
-				t.Fatalf("%s: head %v, want %v", name, got, headLabels)
+			if !slices.Equal(got, tc.labels) {
+				t.Fatalf("%s: head %v, want %v", name, got, tc.labels)
 			}
 		}
 	}
