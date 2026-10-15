@@ -278,9 +278,27 @@ func TestConsoleLinksNoUnderline(t *testing.T) {
 func TestCopyButtonRightAligned(t *testing.T) {
 	c := newConsole(t)
 	rules := cssRules(t, c)
-	requireDecl(t, rules, "table.files td.sha", "display: flex", "align-items: center")
-	requireDecl(t, rules, "table.files td.sha code", "flex: 1 1 auto", "min-width: 0", "text-overflow: ellipsis")
-	requireDecl(t, rules, "table.files td.sha .btn.copy", "flex: none", "margin-left: auto")
+	if strings.Contains(ruleFor(t, rules, "table.files td.sha"), "display:") {
+		t.Fatal("the sha cell leaves table layout")
+	}
+	requireDecl(t, rules, "table.files", "table-layout: fixed", "width: 100%")
+	requireDecl(t, rules, "table.files td.sha", "position: relative", "padding-right: 4rem")
+	requireDecl(t, rules, "table.files td.sha code", "display: block", "overflow: hidden", "text-overflow: ellipsis", "white-space: nowrap")
+	requireDecl(t, rules, "table.files td.sha .btn.copy", "position: absolute", "right: .5rem")
+	total := 0.0
+	for _, r := range rules {
+		if strings.HasPrefix(r.selector, "table.files th:nth-child(") {
+			m := percentRe.FindStringSubmatch(r.body)
+			if m == nil {
+				t.Fatalf("%s has no percentage width", r.selector)
+			}
+			n, _ := strconv.ParseFloat(m[1], 64)
+			total += n
+		}
+	}
+	if total != 100 {
+		t.Fatalf("file table column widths sum to %v%%", total)
+	}
 }
 
 func TestHistoryNoHorizontalScrollRules(t *testing.T) {

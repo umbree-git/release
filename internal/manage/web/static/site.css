@@ -98,9 +98,15 @@ tr.state-expired, tr.state-yanked { color: var(--dim); }
 table.files td.platform, table.files td.size { white-space: nowrap; }
 table.files td.size { text-align: right; }
 table.files th { font-size: .75rem; letter-spacing: .04em; }
-table.files td.sha { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
-table.files td.sha code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-table.files td.sha .btn.copy { flex: none; margin-left: auto; }
+table.files { table-layout: fixed; width: 100%; }
+table.files th:nth-child(1) { width: 32%; }
+table.files th:nth-child(2) { width: 16%; }
+table.files th:nth-child(3) { width: 12%; }
+table.files th:nth-child(4) { width: 40%; }
+table.files td.file { overflow-wrap: anywhere; }
+table.files td.sha { position: relative; padding-right: 4rem; }
+table.files td.sha code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.files td.sha .btn.copy { position: absolute; right: .5rem; top: 50%; transform: translateY(-50%); }
 .btn.copy { padding: 0 .5rem; font-size: .8rem; }
 .btn.copy.copied { border-color: var(--ok); color: var(--ok); }
 .card-head > .confirm-inline, .card-head > .inline-progress { flex-basis: 100%; }
