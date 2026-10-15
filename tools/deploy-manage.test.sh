@@ -285,9 +285,9 @@ grep -q '^ssh-dest deployer@sandbox-host$' "${W}/all.log" || die "ssh did not co
     || die "a sudo call is not the helper with one verb: $(grep '^sudo ' "${W}/all.log" | grep -vE "^sudo -n (-l )?${HELPER} [a-z-]+$" | sort -u)"
 ! grep -qE '^install -m|^nginx|^ss ' "${W}/all.log" || die "a raw privileged command ran on the host"
 
-say "the committed vhost: three proxied paths to one upstream, no forwarded-for, no real_ip, / still try_files"
+say "the committed vhost: five proxied paths to one upstream, no forwarded-for, no real_ip, / still try_files"
 ! grep -qE 'X-Forwarded-For|real_ip|set_real_ip_from' "${VHOST}" || die "the vhost carries X-Forwarded-For or real_ip"
-[ "$(grep -cE 'proxy_pass +http://umbree_manage;' "${VHOST}")" -eq 3 ] || die "the vhost does not proxy exactly three locations to the upstream"
+[ "$(grep -cE 'proxy_pass +http://umbree_manage;' "${VHOST}")" -eq 5 ] || die "the vhost does not proxy exactly five locations to the upstream"
 [ "$(grep -c '8788' "${VHOST}")" -eq 1 ] || die "the port is not stated once"
 grep -qE '^upstream umbree_manage \{ *server 127.0.0.1:8788; *\}' "${VHOST}" || die "no upstream block"
 grep -q 'location ^~ /manage/ {' "${VHOST}" || die "no ^~ /manage/ location"
