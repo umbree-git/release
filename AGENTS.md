@@ -86,3 +86,34 @@ Load your environment's global agent policy — its hard rules and its
 always-on concepts — every session and follow them; its full per-topic
 guidelines are loaded on task. Your environment names where that tree lives.
 This file holds only what is true of *this* repo.
+
+## Review
+
+Rules for a review of a feature in this repo, seeded from past review findings (81 findings: 0 CRITICAL, 5 HIGH, 23 MEDIUM, 53 LOW).
+
+**Levels here** (judgement; the manual sets none)
+
+- `quick`: a docs-only or wording change that touches no script, Go file or stylesheet.
+- `standard`: the default for a feature in `internal` or `tools`.
+- `deep`: anything on the deploy helper's root path, `tools/deploy-manage.sh`, binary lookup by the invoker's `PATH`, or the manage console's static assets.
+
+**Always check**
+
+- The change does what the spec says on the path the operator uses, including layout and overflow inherited from a parent rule, not only the path the test takes (correctness, 17).
+- The feature's `task.md` carries its evidence: stamps from the real clock, the gates quoted, the run id (process, 15).
+- Every changed behaviour has a test that would fail without the change and that does not read the real home, `/etc/passwd` or other host state (test-gap, 11).
+- Anything the deploy helper runs as root resolves binaries by absolute path, never through the invoker's `PATH` (security, 9).
+- Truncated, empty, repeated and held-by-another-process cases are exercised, such as `ss` output cutting a process name at 15 characters (edge-case, 8).
+
+**Hold higher**
+
+- `tools/deploy-manage.sh` (2)
+- `cmd/umbree-deploy-helper/host.go` (1)
+- `internal/manage/web/static/site.css` (1)
+- `ops/README.md` (1)
+
+**Skip**
+
+- none yet
+
+Source: review mining, 2026-10-17 (81 findings); started from `review-mine.sh --review-section`.
