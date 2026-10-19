@@ -1,0 +1,18 @@
+# UPSTREAM — where the verbatim files in this directory come from, and their
+# exact bytes. Read by tools/legacy-darwin.test.sh; a file listed here whose
+# sha256 no longer matches is a LOCAL FORK of a stdlib patch, and that suite
+# fails until either the edit is undone or this file is re-pinned from a new
+# upstream copy (README.md, "Re-syncing from Burrowee").
+#
+# repo    burrowee-git/release
+# path    tools/legacy/darwin
+# commit  2bd2bd6414317d85b67db0b4715de40944e3f57a   (last commit touching the path; copied 2026-10-19 from main 68089d5e)
+#
+# file                  sha256
+_src/root_darwin.go   57337924c306ad7f5f9519d6c66c6393ce5f4f94b1cbc574d90a400d6125e696
+_src/security.go      eb2b08f249d646cadb061f4296356f4732941bedbb9b5a8bfbf31055755f9107
+_src/security.s       60ee69bdad6ad3e5bdd101a72a3aa1e77f4e56fffe4eec4f6bdb48f141433a7b
+GO_VERSION            6ef246973b95d2b8955f1ad30473085f7d0e7b4968b2b1cab9b1a469e361bff4
+overlay.test.sh       26533915e0127bef7fe3e079aec3f254208e4a90be5a78a0a45778b4b8732ea6
+overlay-json.sh       4a9eef8e9c4d74e38d35e61b89bcc430aa52b694c709c1b9929dad080568ce3b
+symbols.sh            5f5a37849aa40d9014148c4fb5926ea2e7c2a4876f7c1c7a2dd0d1bdd0265e34
