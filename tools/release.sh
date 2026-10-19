@@ -526,6 +526,15 @@ register_only() {
     echo "  Promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/$(gated_channel_for stable)/${comp} (row ${CUT_ROW})"
 }
 
+copy_beta_twins() {
+    local comp="$1" f
+    # shellcheck disable=SC2029
+    ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
+    for f in beta.install.sh beta.upgrade.sh beta.version.js; do
+        scp -q "${REPO_ROOT}/${comp}/${f}" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/${f}"
+    done
+}
+
 publish_beta() {
     local comp="$1" stamp="$2"
     local stage="${REPO_ROOT}/dist/${stamp}"
@@ -577,11 +586,7 @@ publish_beta() {
     bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
     bash "${REPO_ROOT}/tools/gen-version-jsonp.sh" --channel beta "${comp}" >&2
 
-    # shellcheck disable=SC2029
-    ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
-    scp -q "${REPO_ROOT}/${comp}/beta.install.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.install.sh"
-    scp -q "${REPO_ROOT}/${comp}/beta.upgrade.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.upgrade.sh"
-    scp -q "${REPO_ROOT}/${comp}/beta.version.js" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.version.js"
+    copy_beta_twins "${comp}"
 
     git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.upgrade.sh" "${comp}/beta.version.js"
     git commit --allow-empty -m "[RELEASED: ${comp} beta] $(date -u +%Y-%m-%d) ${stamp} (private)"
