@@ -164,7 +164,13 @@ verifier.
   kit exactly as `install.sh` does, then forces the kit's upgrade step:
   - a kit that ships a migration ladder (`migrations/upgrade.sh` inside the
     zip) has it run, with the optional `<line>` argument handed to it verbatim
-    (`curl … /umbree/upgrade.sh | sh -s -- 0.1.9`; the line must be `X.Y.Z`);
+    (`curl … /umbree/upgrade.sh | sh -s -- 0.1.9`; the line must be `X.Y.Z`).
+    Its exits are mapped: 0 (nothing to apply) and 2 (rungs ran) are both
+    success, exit 0; 1 is a refusal or failure, exit 1; 3 (a receipt was lost,
+    re-runnable) and 64 (a rejected command line) pass through as themselves.
+    A kit whose `migrations/upgrade.sh` is empty or unreadable, or that has no
+    `migrations/run.sh` beside it, is refused by name before anything is
+    installed;
   - an `umbreed` kit with no ladder runs `/usr/local/umbree/bin/umbreed restart`
     as you — it elevates only the restart, from your terminal when there is
     one, never from the script's own stdin. If it cannot restart, the new

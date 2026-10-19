@@ -426,6 +426,12 @@ unzip -q -o "$TMP/$ZIP" -d "$TMP/x" || fail "zip extraction failed — corrupt d
 if [ -n "$LINE" ] && [ ! -f "$TMP/x/migrations/upgrade.sh" ]; then
     fail "the $COMP kit $STAMP ships no migration ladder, so the line $LINE has nothing to run — nothing was installed"
 fi
+if [ "$MODE" = upgrade ] && [ -e "$TMP/x/migrations/upgrade.sh" ]; then
+    { [ -f "$TMP/x/migrations/upgrade.sh" ] && [ -r "$TMP/x/migrations/upgrade.sh" ] && [ -s "$TMP/x/migrations/upgrade.sh" ]; } \
+        || fail "the $COMP kit $STAMP ships an empty or unreadable migrations/upgrade.sh — refusing to run it; nothing was installed"
+    { [ -f "$TMP/x/migrations/run.sh" ] && [ -r "$TMP/x/migrations/run.sh" ] && [ -s "$TMP/x/migrations/run.sh" ]; } \
+        || fail "the $COMP kit $STAMP ships migrations/upgrade.sh but no migrations/run.sh — refusing a ladder with no runner; nothing was installed"
+fi
 
 ok "verified — running inner installer"
 case "$COMP" in
@@ -454,14 +460,34 @@ restart_umbreed() {
     ok "no migration ladder in this umbreed kit — restarted the service"
 }
 
+ladder_failed() {
+    printf '\n  ✗ installed %s, but %s\n\n' "$STAMP" "$2" >&2
+    exit "$1"
+}
+
+run_ladder() {
+    info "running the kit's migration ladder"
+    set +e
+    if [ -n "$LINE" ]; then
+        ( cd "$TMP/x" && sh ./migrations/upgrade.sh "$LINE" )
+    else
+        ( cd "$TMP/x" && sh ./migrations/upgrade.sh )
+    fi
+    _lr=$?
+    set -e
+    case "$_lr" in
+        0) ok "$COMP $STAMP installed — the migration ladder had nothing to apply" ;;
+        2) ok "$COMP $STAMP installed — the migration ladder ran its rungs" ;;
+        3) ladder_failed 3 "the migration ladder ran and a receipt was lost — re-runnable: run upgrade.sh again" ;;
+        64) ladder_failed 64 "the migration ladder rejected its command line (a defect in this bootstrap, not yours)" ;;
+        1) ladder_failed 1 "the migration ladder refused or failed — read its output above" ;;
+        *) ladder_failed 1 "the migration ladder exited $_lr, which it does not document — treated as a failure" ;;
+    esac
+}
+
 run_upgrade_step() {
     if [ -f "$TMP/x/migrations/upgrade.sh" ]; then
-        info "running the kit's migration ladder"
-        if [ -n "$LINE" ]; then
-            ( cd "$TMP/x" && sh ./migrations/upgrade.sh "$LINE" )
-        else
-            ( cd "$TMP/x" && sh ./migrations/upgrade.sh )
-        fi
+        run_ladder
         return
     fi
     case "$COMP" in
