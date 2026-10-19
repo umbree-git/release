@@ -179,17 +179,18 @@ else                             echo "MISMATCH for $f — do not install"; fi</
         <tr><th>OS</th><th>arm64</th><th>amd64</th></tr>
       </thead>
       <tbody>
-        <tr><td>macOS (darwin)</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>macOS 12 or later (darwin)</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>macOS 10.15–11 (darwin)</td><td>—</td><td class="yes">✓ <code>darwin-amd64-legacy</code></td></tr>
         <tr><td>Linux</td><td class="yes">✓</td><td class="yes">✓</td></tr>
       </tbody>
     </table>
-    <p class="faint">Windows is not supported.</p>
+    <p class="faint">Intel Macs on macOS 10.15–11 get a separate build, <code>darwin-amd64-legacy</code>, which the installer picks by itself. Apple Silicon below macOS 12 is not supported, and the installer says so. Windows is not supported.</p>
   </section>
 
   <footer>
     Public signing key:
     <a href="/umbree-release.pub">umbree-release.pub</a>.
-    <span class="pill">macOS + Linux · arm64 + amd64</span>
+    <span class="pill">macOS 10.15+ · Linux · arm64 + amd64</span>
   </footer>
 
 </div>
