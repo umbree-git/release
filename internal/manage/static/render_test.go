@@ -207,3 +207,31 @@ func TestRenderRefusesModuleHeredoc(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderedBootstrapCarriesPlatformDetectV2(t *testing.T) {
+	for _, comp := range []string{"umbree", "umbreed"} {
+		got, err := static.NewRenderer(release.Assets).Bootstrap(comp, fixtureStamps[comp], fixtureBase)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := string(got)
+		begin, end := strings.Index(out, "# BEGIN platform-detect\n"), strings.Index(out, "# END platform-detect\n")
+		if begin < 0 || end < begin {
+			t.Fatalf("%s: the served bootstrap splices no platform-detect block", comp)
+		}
+		block := out[begin:end]
+		for _, want := range []string{
+			`_pd_major="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"`,
+			`case "$_pd_major" in ''|*[!0-9]*) _pd_major=99 ;; esac`,
+			"amd64) ARCH=amd64-legacy ;;",
+			`arm64) fail "macOS $_pd_major on Apple Silicon is not supported — upgrade to macOS 12 or later" ;;`,
+		} {
+			if !strings.Contains(block, want) {
+				t.Errorf("%s: the served platform-detect block lacks %q", comp, want)
+			}
+		}
+		if zip := strings.Index(out, `ZIP="${COMP}-${OS}-${ARCH}.zip"`); zip < end {
+			t.Errorf("%s: the zip name is not derived from the detected ARCH after platform-detect", comp)
+		}
+	}
+}
