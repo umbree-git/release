@@ -11,7 +11,7 @@ case "$CHANNEL" in
     *)    SELF="install.sh";      TAG_RE="$STABLE_TAG_RE" ;;
 esac
 PUBKEY="RWQZyK0l3lgdSYfj8VXhoTWlVVVcRqfnuVROJzloNrw9NBFm11IeD3HN"
-MIN_VERSION="v0.1.3.2026.10.19.03c6310b"
+MIN_VERSION="v0.1.4.2026.10.19.3d4c13b9"
 PREFIX="${PREFIX:-$HOME/.local}"
 DOWNLOADS_BASE="${UMBREE_DOWNLOADS_BASE-https://downloads.umbree.org}"
 CURL="curl -fsSL --proto =https --proto-redir =https --tlsv1.2 --connect-timeout 15 --max-time 300 --speed-limit 4096 --speed-time 20"
