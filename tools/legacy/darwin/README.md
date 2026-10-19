@@ -65,8 +65,9 @@ comments.
 `rkit build` (`cmd/rkit/legacy.go`) builds the four stock targets through
 release-kit exactly as before — they never see `-overlay` — and then the fifth:
 
-1. before anything is stamped, refuses unless `go version` (the `go` on `PATH`,
-   the one release-kit compiles with) prints exactly `GO_VERSION`;
+1. before the version bump, the CVE gate or the stamp, refuses unless
+   `go version` (the `go` on `PATH`, the one release-kit compiles with) prints
+   exactly `GO_VERSION`;
 2. refuses a legacy target other than darwin/amd64;
 3. runs `overlay.test.sh` with that same `go` and refuses the build when it
    fails, so the guard, the overlay paths and the compile are one toolchain;
@@ -76,14 +77,16 @@ release-kit exactly as before — they never see `-overlay` — and then the fif
    `dist/<stamp>/darwin-amd64-legacy/`;
 5. runs `assert_legacy_symbols` on every binary, deleting and refusing one that
    fails, **before** it is signed;
-6. signs it with the same signer as the stock darwin binaries, after which it
-   goes through `verify-no-env.sh`, is zipped as
+6. on a darwin host, signs it with the same signer as the stock darwin
+   binaries, after which it goes through `verify-no-env.sh`, is zipped as
    `<comp>-darwin-amd64-legacy.zip`, notarized and listed in `SHA256SUMS.txt`
    like every other zip.
 
 `cmd/rkit/legacy_test.go` goes red if any check in steps 1, 2, 3 or 5 is
-deleted. `tools/legacy-darwin.test.sh` runs the drift guard, its two negative
-cases and the symbol rule against real builds, under the pinned toolchain.
+deleted, if the step 4 environment changes, or if step 6 stops signing on a
+darwin host. `tools/legacy-darwin.test.sh` runs the drift guard, its two
+negative cases and the symbol rule against real builds, under the pinned
+toolchain.
 
 ## Not covered by the CVE gate
 

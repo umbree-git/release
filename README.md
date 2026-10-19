@@ -238,10 +238,13 @@ public:
   notarize (darwin), per-target zips + `SHA256SUMS.txt` + minisign signature →
   `dist/<stamp>/`. The legacy target compiles with `go build -overlay` through
   `tools/legacy/darwin/`, so **the `go` on `PATH` must be exactly
-  `tools/legacy/darwin/GO_VERSION`**: anything else, a failed overlay drift
-  guard, or a legacy binary that still imports `_SecTrustCopyCertificateChain`
-  stops `rkit build` before anything is stamped, signed or staged. The stock
-  four never see the overlay. **`--public`** is
+  `tools/legacy/darwin/GO_VERSION`**: anything else stops `rkit build` before
+  the version bump, the CVE gate or the stamp. A failed overlay drift guard,
+  or a legacy binary that still imports `_SecTrustCopyCertificateChain`
+  (deleted on the spot), stops it later — after the stamp and the four stock
+  compiles, which a darwin host has already signed — but before the legacy
+  binary is signed and before anything is zipped, notarized, summed or
+  staged. The stock four never see the overlay. **`--public`** is
   the standard ship path: it turns on Apple sign+notarize and forces the CVE
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
