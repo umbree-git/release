@@ -2,7 +2,7 @@
 
 module_gate() {
     local suite rc log
-    for suite in test-modules.sh test-checksum-verify.sh test-install-minisign.sh sync-modules.test.sh public-hygiene.sh; do
+    for suite in test-modules.sh test-checksum-verify.sh test-install-minisign.sh sync-modules.test.sh platform-detect.test.sh public-hygiene.sh; do
         [ -f "${REPO_ROOT}/tools/${suite}" ] \
             || { echo "✗ module gate: ${suite} is missing from tools/" >&2; exit 1; }
         echo "→ module gate: ${suite}" >&2
