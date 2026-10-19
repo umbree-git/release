@@ -20,7 +20,7 @@ const (
 	sizeUnits       = "KMGTPE"
 )
 
-var archiveName = regexp.MustCompile(`^umbreed?-([a-z0-9]+)-([a-z0-9_]+)\.zip$`)
+var archiveName = regexp.MustCompile(`^umbreed?-(darwin-amd64-legacy|[a-z0-9]+-[a-z0-9_]+)\.zip$`)
 
 type fileRow struct {
 	Name     string
@@ -45,7 +45,7 @@ func humanSize(n int64) string {
 
 func platformOf(name string) string {
 	if m := archiveName.FindStringSubmatch(name); m != nil {
-		return m[1] + "/" + m[2]
+		return strings.Replace(m[1], "-", "/", 1)
 	}
 	return unknownPlatform
 }
