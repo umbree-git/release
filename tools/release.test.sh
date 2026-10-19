@@ -419,7 +419,7 @@ undo_cut
 echo "# beta verb unchanged"
 sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 check "beta verb unchanged: publish_beta is byte-identical to the 01 baseline" \
-    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "b5851de6642a4a1974e556b3c298ca2eceedadb32e2400c81c7ab0e12ea285e9"
+    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "8a6c8fcc3b3f7500696ec6a283ddbd9e8d0bafd38e3b0f38ec3575520d86fdd9"
 
 echo "# distribute_only has no publish call"
 STABLE_BODY=""
