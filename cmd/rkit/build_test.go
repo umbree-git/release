@@ -31,51 +31,25 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 	if res.Stamp == "" {
 		t.Fatal("empty stamp")
 	}
+	platforms := []string{"darwin-amd64-legacy"}
 	for _, tgt := range relconfig.Targets() {
-		for _, b := range []string{"umbree"} {
-			p := filepath.Join(out, res.Stamp, tgt.OS+"-"+tgt.Arch, b)
-			if _, err := os.Stat(p); err != nil {
-				t.Errorf("missing %s: %v", p, err)
-			}
+		platforms = append(platforms, tgt.OS+"-"+tgt.Arch)
+	}
+	for _, platform := range platforms {
+		p := filepath.Join(out, res.Stamp, platform, "umbree")
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("missing %s: %v", p, err)
 		}
 	}
-	if len(res.Zips) != len(relconfig.Targets()) {
-		t.Fatalf("got %d zips, want %d: %v", len(res.Zips), len(relconfig.Targets()), res.Zips)
+	if len(res.Zips) != len(platforms) {
+		t.Fatalf("got %d zips, want %d: %v", len(res.Zips), len(platforms), res.Zips)
 	}
-	wantEntries := []string{"install.sh", "umbree"}
-	sort.Strings(wantEntries)
 	wantInstallSh, err := os.ReadFile(filepath.Join(repo, "inner", "umbree", "install.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, zp := range res.Zips {
-		r, err := zip.OpenReader(zp)
-		if err != nil {
-			t.Fatalf("open %s: %v", zp, err)
-		}
-		var got []string
-		for _, f := range r.File {
-			got = append(got, f.Name)
-			if f.Name == "install.sh" {
-				rc, err := f.Open()
-				if err != nil {
-					t.Fatalf("open install.sh in %s: %v", zp, err)
-				}
-				data, err := io.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					t.Fatalf("read install.sh in %s: %v", zp, err)
-				}
-				if string(data) != string(wantInstallSh) {
-					t.Errorf("%s install.sh not byte-identical to inner/umbree/install.sh", zp)
-				}
-			}
-		}
-		r.Close()
-		sort.Strings(got)
-		if !reflect.DeepEqual(got, wantEntries) {
-			t.Errorf("%s entries = %v, want %v", zp, got, wantEntries)
-		}
+		assertZipCarriesInstaller(t, zp, []string{"install.sh", "umbree"}, string(wantInstallSh))
 	}
 	if _, err := os.Stat(res.Sums); err != nil {
 		t.Errorf("missing sums file %s: %v", res.Sums, err)
@@ -84,6 +58,39 @@ func TestOrchestrateBuildsMatrixIntoScratch(t *testing.T) {
 		if _, err := os.Stat(res.Minisig); err != nil {
 			t.Errorf("Result.Minisig=%s but file missing: %v", res.Minisig, err)
 		}
+	}
+}
+
+func assertZipCarriesInstaller(t *testing.T, zp string, wantEntries []string, wantInstallSh string) {
+	t.Helper()
+	r, err := zip.OpenReader(zp)
+	if err != nil {
+		t.Fatalf("open %s: %v", zp, err)
+	}
+	defer r.Close()
+	var got []string
+	for _, f := range r.File {
+		got = append(got, f.Name)
+		if f.Name != "install.sh" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("open install.sh in %s: %v", zp, err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read install.sh in %s: %v", zp, err)
+		}
+		if string(data) != wantInstallSh {
+			t.Errorf("%s install.sh not byte-identical to inner/umbree/install.sh", zp)
+		}
+	}
+	sort.Strings(got)
+	sort.Strings(wantEntries)
+	if !reflect.DeepEqual(got, wantEntries) {
+		t.Errorf("%s entries = %v, want %v", zp, got, wantEntries)
 	}
 }
 
@@ -123,6 +130,7 @@ func writeFixtureModule(t *testing.T, repo string) {
 	}
 	copyReal("tools/verify-no-env.sh")
 	copyReal("tools/version.sh")
+	copyLegacyOverlay(t, repo)
 
 	git := func(args ...string) {
 		t.Helper()
@@ -261,25 +269,7 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	writeFixtureModule(t, repo)
 
 	src := filepath.Join(parent, "srcroot")
-	if err := os.Mkdir(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mainSrc := "package main\n\nimport \"fmt\"\n\nvar version string\n\nfunc main() { fmt.Println(version) }\n"
-	mustWriteFile(t, filepath.Join(src, "go.mod"), "module fixturesrc\n\ngo 1.25.0\n")
-	mustWriteFile(t, filepath.Join(src, "cmd", "umbree", "main.go"), mainSrc)
-	gitSrc := func(args ...string) {
-		t.Helper()
-		c := exec.Command("git", append([]string{"-C", src}, args...)...)
-		c.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	gitSrc("init", "-q")
-	gitSrc("add", "-A")
-	gitSrc("commit", "-q", "-m", "fixture src")
+	writeFixtureSource(t, src)
 
 	origWD, err := os.Getwd()
 	if err != nil {
@@ -311,6 +301,29 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(src, "dist")); !os.IsNotExist(err) {
 		t.Fatalf("dist/ leaked into SrcDir %s (relative --repo misplacement bug), stat err = %v", src, err)
 	}
+}
+
+func writeFixtureSource(t *testing.T, src string) {
+	t.Helper()
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mainSrc := "package main\n\nimport \"fmt\"\n\nvar version string\n\nfunc main() { fmt.Println(version) }\n"
+	mustWriteFile(t, filepath.Join(src, "go.mod"), "module fixturesrc\n\ngo 1.25.0\n")
+	mustWriteFile(t, filepath.Join(src, "cmd", "umbree", "main.go"), mainSrc)
+	gitSrc := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", append([]string{"-C", src}, args...)...)
+		c.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitSrc("init", "-q")
+	gitSrc("add", "-A")
+	gitSrc("commit", "-q", "-m", "fixture src")
 }
 
 func TestBuildGateOnByDefaultCanBeSkipped(t *testing.T) {
@@ -360,162 +373,171 @@ func TestBuildAppleSelectsDevIDSignerAndNotarizes(t *testing.T) {
 }
 
 func TestRenderInstall(t *testing.T) {
-	t.Run("umbree prefers the component tree's install/install.sh", func(t *testing.T) {
-		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
-		srcDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh"), "#!/bin/sh\necho FROM TREE\n")
-		for _, ch := range []string{"stable", "beta"} {
-			dst := filepath.Join(t.TempDir(), "install.sh")
-			fromTree, err := renderInstall("umbree", "v0", srcDir, repoDir, dst, ch)
-			if err != nil {
-				t.Fatalf("%s: %v", ch, err)
-			}
-			if !fromTree {
-				t.Fatalf("%s: tree copy not reported as from-tree", ch)
-			}
-			got, _ := os.ReadFile(dst)
-			if !strings.Contains(string(got), "FROM TREE") {
-				t.Fatalf("%s: shipped %q, want the tree copy", ch, got)
-			}
-		}
-	})
+	t.Run("umbree prefers the component tree's install/install.sh", renderInstallPrefersTree)
+	t.Run("umbree beta refuses the inner/ fallback", renderInstallBetaRefusesInnerFallback)
+	t.Run("umbree stable falls back to inner/ with a warning", renderInstallStableFallsBackWithWarning)
+	t.Run("umbree verbatim copy from inner/umbree/install.sh", renderInstallVerbatimInnerCopy)
+	t.Run("umbreed substitutes the stamp from srcDir's canonical template", renderInstallUmbreedSubstitutesStamp)
+	t.Run("umbree missing install.sh names the inner path", renderInstallMissingInstallNamesInnerPath)
+	t.Run("umbreed missing template names the path and the env var", renderInstallMissingTemplateNamesPathAndEnv)
+	t.Run("unknown component is rejected, not silently rendered", renderInstallUnknownComponentRejected)
+}
 
-	t.Run("umbree beta refuses the inner/ fallback", func(t *testing.T) {
-		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+func renderInstallPrefersTree(t *testing.T) {
+	repoDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+	srcDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh"), "#!/bin/sh\necho FROM TREE\n")
+	for _, ch := range []string{"stable", "beta"} {
 		dst := filepath.Join(t.TempDir(), "install.sh")
-		_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "beta")
-		if err == nil {
-			t.Fatal("beta shipped the release repo's inner installer")
+		fromTree, err := renderInstall("umbree", "v0", srcDir, repoDir, dst, ch)
+		if err != nil {
+			t.Fatalf("%s: %v", ch, err)
 		}
-		if !strings.Contains(err.Error(), "feature 02") {
-			t.Fatalf("error = %q, want it to name feature 02", err.Error())
+		if !fromTree {
+			t.Fatalf("%s: tree copy not reported as from-tree", ch)
 		}
-		if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
-			t.Fatal("beta refusal still wrote install.sh")
+		got, _ := os.ReadFile(dst)
+		if !strings.Contains(string(got), "FROM TREE") {
+			t.Fatalf("%s: shipped %q, want the tree copy", ch, got)
 		}
-	})
+	}
+}
 
-	t.Run("umbree stable falls back to inner/ with a warning", func(t *testing.T) {
-		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
-		dst := filepath.Join(t.TempDir(), "install.sh")
-		stderr := captureStderr(t, func() {
-			fromTree, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if fromTree {
-				t.Fatal("fallback reported as from-tree")
-			}
-		})
-		if !strings.Contains(stderr, "inner/umbree/install.sh is a fallback") {
-			t.Fatalf("stderr = %q, want the fallback warning", stderr)
-		}
-	})
+func renderInstallBetaRefusesInnerFallback(t *testing.T) {
+	repoDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+	dst := filepath.Join(t.TempDir(), "install.sh")
+	_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "beta")
+	if err == nil {
+		t.Fatal("beta shipped the release repo's inner installer")
+	}
+	if !strings.Contains(err.Error(), "feature 02") {
+		t.Fatalf("error = %q, want it to name feature 02", err.Error())
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatal("beta refusal still wrote install.sh")
+	}
+}
 
-	t.Run("umbree verbatim copy from inner/umbree/install.sh", func(t *testing.T) {
-		repoDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi from umbree\n")
-		dst := filepath.Join(t.TempDir(), "out", "install.sh")
-		fromTree, err := renderInstall("umbree", "v0.1.0.x", t.TempDir(), repoDir, dst, "stable")
+func renderInstallStableFallsBackWithWarning(t *testing.T) {
+	repoDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho FALLBACK\n")
+	dst := filepath.Join(t.TempDir(), "install.sh")
+	stderr := captureStderr(t, func() {
+		fromTree, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if fromTree {
-			t.Fatal("fallback copy reported as from-tree")
-		}
-		got, err := os.ReadFile(dst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != string(want) {
-			t.Fatalf("umbree install.sh = %q, want verbatim %q", got, want)
-		}
-		fi, err := os.Stat(dst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if fi.Mode().Perm() != 0o755 {
-			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
+			t.Fatal("fallback reported as from-tree")
 		}
 	})
+	if !strings.Contains(stderr, "inner/umbree/install.sh is a fallback") {
+		t.Fatalf("stderr = %q, want the fallback warning", stderr)
+	}
+}
 
-	t.Run("umbreed substitutes the stamp from srcDir's canonical template", func(t *testing.T) {
-		repoDir := t.TempDir()
-		srcDir := t.TempDir()
-		mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh.in"),
-			"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
-		dst := filepath.Join(t.TempDir(), "out", "install.sh")
-		stamp := "v0.2.0.2026.08.30.deadbeef"
-		if _, err := renderInstall("umbreed", stamp, srcDir, repoDir, dst, "stable"); err != nil {
-			t.Fatal(err)
-		}
-		got, err := os.ReadFile(dst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(got), stamp) {
-			t.Fatalf("rendered install.sh = %q, want it to contain the stamp %q", got, stamp)
-		}
-		if strings.Contains(string(got), "__UMBREED_VERSION__") {
-			t.Fatalf("rendered install.sh = %q, placeholder was not substituted", got)
-		}
-		fi, err := os.Stat(dst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if fi.Mode().Perm() != 0o755 {
-			t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
-		}
-	})
+func renderInstallVerbatimInnerCopy(t *testing.T) {
+	repoDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(repoDir, "inner", "umbree", "install.sh"), "#!/bin/sh\necho hi from umbree\n")
+	dst := filepath.Join(t.TempDir(), "out", "install.sh")
+	fromTree, err := renderInstall("umbree", "v0.1.0.x", t.TempDir(), repoDir, dst, "stable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromTree {
+		t.Fatal("fallback copy reported as from-tree")
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(repoDir, "inner", "umbree", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("umbree install.sh = %q, want verbatim %q", got, want)
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
+	}
+}
 
-	t.Run("umbree missing install.sh names the inner path", func(t *testing.T) {
-		repoDir := t.TempDir()
-		dst := filepath.Join(t.TempDir(), "install.sh")
-		_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
-		if err == nil {
-			t.Fatal("expected error for a missing inner/umbree/install.sh")
-		}
-		wantPath := filepath.Join(repoDir, "inner", "umbree", "install.sh")
-		if !strings.Contains(err.Error(), wantPath) {
-			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
-		}
-	})
+func renderInstallUmbreedSubstitutesStamp(t *testing.T) {
+	repoDir := t.TempDir()
+	srcDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(srcDir, "install", "install.sh.in"),
+		"#!/bin/sh\necho installing umbreed __UMBREED_VERSION__\n")
+	dst := filepath.Join(t.TempDir(), "out", "install.sh")
+	stamp := "v0.2.0.2026.08.30.deadbeef"
+	if _, err := renderInstall("umbreed", stamp, srcDir, repoDir, dst, "stable"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), stamp) {
+		t.Fatalf("rendered install.sh = %q, want it to contain the stamp %q", got, stamp)
+	}
+	if strings.Contains(string(got), "__UMBREED_VERSION__") {
+		t.Fatalf("rendered install.sh = %q, placeholder was not substituted", got)
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, want 0755", fi.Mode().Perm())
+	}
+}
 
-	t.Run("umbreed missing template names the path and the env var", func(t *testing.T) {
-		repoDir := t.TempDir()
-		srcDir := t.TempDir()
-		dst := filepath.Join(t.TempDir(), "install.sh")
-		_, err := renderInstall("umbreed", "v0", srcDir, repoDir, dst, "stable")
-		if err == nil {
-			t.Fatal("expected error for a missing install/install.sh.in")
-		}
-		wantPath := filepath.Join(srcDir, "install", "install.sh.in")
-		if !strings.Contains(err.Error(), wantPath) {
-			t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
-		}
-		if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREED") {
-			t.Fatalf("error = %q, want it to name UMBREE_SRC_UMBREED", err.Error())
-		}
-	})
+func renderInstallMissingInstallNamesInnerPath(t *testing.T) {
+	repoDir := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "install.sh")
+	_, err := renderInstall("umbree", "v0", t.TempDir(), repoDir, dst, "stable")
+	if err == nil {
+		t.Fatal("expected error for a missing inner/umbree/install.sh")
+	}
+	wantPath := filepath.Join(repoDir, "inner", "umbree", "install.sh")
+	if !strings.Contains(err.Error(), wantPath) {
+		t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+	}
+}
 
-	t.Run("unknown component is rejected, not silently rendered", func(t *testing.T) {
-		repoDir := t.TempDir()
-		dst := filepath.Join(t.TempDir(), "install.sh")
-		_, err := renderInstall("nope", "v0", "/unused/src", repoDir, dst, "stable")
-		if err == nil {
-			t.Fatal("expected error for an unrecognized component")
-		}
-		if !strings.Contains(err.Error(), "nope") {
-			t.Fatalf("error = %q, want it to name the component %q", err.Error(), "nope")
-		}
-	})
+func renderInstallMissingTemplateNamesPathAndEnv(t *testing.T) {
+	repoDir := t.TempDir()
+	srcDir := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "install.sh")
+	_, err := renderInstall("umbreed", "v0", srcDir, repoDir, dst, "stable")
+	if err == nil {
+		t.Fatal("expected error for a missing install/install.sh.in")
+	}
+	wantPath := filepath.Join(srcDir, "install", "install.sh.in")
+	if !strings.Contains(err.Error(), wantPath) {
+		t.Fatalf("error = %q, want it to name the missing path %q", err.Error(), wantPath)
+	}
+	if !strings.Contains(err.Error(), "UMBREE_SRC_UMBREED") {
+		t.Fatalf("error = %q, want it to name UMBREE_SRC_UMBREED", err.Error())
+	}
+}
+
+func renderInstallUnknownComponentRejected(t *testing.T) {
+	repoDir := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "install.sh")
+	_, err := renderInstall("nope", "v0", "/unused/src", repoDir, dst, "stable")
+	if err == nil {
+		t.Fatal("expected error for an unrecognized component")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("error = %q, want it to name the component %q", err.Error(), "nope")
+	}
 }
 
 func mustWriteFile(t *testing.T, path, content string) {
