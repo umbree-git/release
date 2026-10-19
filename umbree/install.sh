@@ -4,6 +4,7 @@ set -eu
 
 COMP="umbree"
 CHANNEL="stable"
+MODE="install"
 STABLE_TAG_RE="^${COMP}/v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$"
 BETA_TAG_RE="^${COMP}/v[0-9]+\.[0-9]+\.[0-9]+\.beta\.[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9a-f]{8}$"
 case "$CHANNEL" in
@@ -18,6 +19,7 @@ CURL="curl -fsSL --proto =https --proto-redir =https --tlsv1.2 --connect-timeout
 DL_BASE=""
 GH_PROXIES=""
 ALLOW_LOOPBACK_HTTP=0
+UMBREED_EXEC="/usr/local/umbree/bin/umbreed"
 
 
 # BEGIN helpers
@@ -75,6 +77,15 @@ assert_version_floor() {
     ok "version floor satisfied ($MIN_VERSION)"
 }
 # END version-floor
+
+LINE=""
+if [ "$MODE" = upgrade ]; then
+    [ $# -le 1 ] || fail "$SELF takes at most one argument, the migration line (got: $*)"
+    LINE="${1:-}"
+    [ -z "$LINE" ] || is_semver "$LINE" || fail "$SELF: the migration line must be X.Y.Z (got: $LINE)"
+else
+    [ $# -eq 0 ] || fail "$SELF takes no arguments (got: $*)"
+fi
 
 # BEGIN channel-pick
 
@@ -412,6 +423,9 @@ command -v unzip >/dev/null 2>&1 \
     || fail "unzip not found — install it (\`brew install unzip\` / \`apt-get install unzip\`) and retry"
 unzip -q -o "$TMP/$ZIP" -d "$TMP/x" || fail "zip extraction failed — corrupt download?"
 [ -f "$TMP/x/install.sh" ] || fail "release zip missing inner install.sh — aborting"
+if [ -n "$LINE" ] && [ ! -f "$TMP/x/migrations/upgrade.sh" ]; then
+    fail "the $COMP kit $STAMP ships no migration ladder, so the line $LINE has nothing to run — nothing was installed"
+fi
 
 ok "verified — running inner installer"
 case "$COMP" in
@@ -425,3 +439,35 @@ case "$COMP" in
         fail "unknown component '$COMP' — no inner-exec contract"
         ;;
 esac
+
+restart_umbreed() {
+    info "no migration ladder in this umbreed kit — restarting the service"
+    if (exec </dev/tty) 2>/dev/null; then
+        "$UMBREED_EXEC" restart </dev/tty && _ru=0 || _ru=$?
+    else
+        "$UMBREED_EXEC" restart </dev/null && _ru=0 || _ru=$?
+    fi
+    if [ "$_ru" -ne 0 ]; then
+        printf '\n  ✗ installed %s, but the service was not restarted — run: sudo /usr/local/umbree/bin/umbreed service restart\n\n' "$STAMP" >&2
+        exit 1
+    fi
+    ok "no migration ladder in this umbreed kit — restarted the service"
+}
+
+run_upgrade_step() {
+    if [ -f "$TMP/x/migrations/upgrade.sh" ]; then
+        info "running the kit's migration ladder"
+        if [ -n "$LINE" ]; then
+            ( cd "$TMP/x" && sh ./migrations/upgrade.sh "$LINE" )
+        else
+            ( cd "$TMP/x" && sh ./migrations/upgrade.sh )
+        fi
+        return
+    fi
+    case "$COMP" in
+        umbreed) restart_umbreed ;;
+        *) fail "the $COMP kit $STAMP ships no migration ladder and $COMP has no restart fallback — $STAMP is installed; nothing more to run" ;;
+    esac
+}
+
+[ "$MODE" = install ] || run_upgrade_step

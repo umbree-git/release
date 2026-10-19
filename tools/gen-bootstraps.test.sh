@@ -9,19 +9,27 @@ check() { if [ "$2" = "$3" ]; then echo "ok: $1"; else echo "FAIL: $1 — got '$
 FAKE_STAMP="$ROOT/versions/umbree.beta.stamp"
 [ ! -e "$FAKE_STAMP" ] || { echo "SKIP-REFUSED: $FAKE_STAMP exists — a beta cycle is open; this suite fabricates that file and will not touch a real one"; exit 1; }
 cleanup() {
-    rm -f "$FAKE_STAMP" "$ROOT/umbree/beta.install.sh" "$ROOT/umbree/beta.version.js"
-    ( cd "$ROOT" && git checkout -q -- umbree/install.sh umbreed/install.sh 2>/dev/null ) || true
+    rm -f "$FAKE_STAMP" "$ROOT/umbree/beta.install.sh" "$ROOT/umbree/beta.upgrade.sh" "$ROOT/umbree/beta.version.js"
+    ( cd "$ROOT" && git checkout -q -- umbree/install.sh umbreed/install.sh umbree/upgrade.sh umbreed/upgrade.sh 2>/dev/null ) || true
 }
 trap cleanup EXIT
 
 echo "# stable renders"
 "$ROOT/tools/gen-bootstraps.sh" >/dev/null || { echo "FAIL: generator exited non-zero"; exit 1; }
 for comp in umbree umbreed; do
-    if [ ! -f "$ROOT/$comp/install.sh" ]; then
-        echo "FAIL: MISSING $comp/install.sh"; fail=1
-    fi
+    for mode in install upgrade; do
+        if [ ! -f "$ROOT/$comp/$mode.sh" ]; then
+            echo "FAIL: MISSING $comp/$mode.sh"; fail=1
+        fi
+    done
+    check_contains "$comp/install.sh names its mode" "$(cat "$ROOT/$comp/install.sh")" 'MODE="install"'
+    check_contains "$comp/upgrade.sh names its mode" "$(cat "$ROOT/$comp/upgrade.sh")" 'MODE="upgrade"'
+    check_contains "$comp/upgrade.sh names itself" "$(cat "$ROOT/$comp/upgrade.sh")" 'SELF="upgrade.sh"'
+    check_contains "$comp/install.sh refuses an argument" "$(cat "$ROOT/$comp/install.sh")" 'takes no arguments'
+    check "$comp: both modes bake the same pubkey" "$(grep '^PUBKEY=' "$ROOT/$comp/upgrade.sh")" "$(grep '^PUBKEY=' "$ROOT/$comp/install.sh")"
+    check "$comp: both modes bake the same floor" "$(grep '^MIN_VERSION=' "$ROOT/$comp/upgrade.sh")" "$(grep '^MIN_VERSION=' "$ROOT/$comp/install.sh")"
 done
-[ "$fail" -eq 0 ] && echo "ok: a bootstrap per component"
+[ "$fail" -eq 0 ] && echo "ok: an install and an upgrade bootstrap per component"
 stable="$(cat "$ROOT/umbree/install.sh")"
 check_contains "stable bakes CHANNEL=stable" "$stable" 'CHANNEL="stable"'
 check_contains "stable bakes the floor from versions/umbree.stamp" "$stable" "MIN_VERSION=\"$(tr -d '[:space:]' < "$ROOT/versions/umbree.stamp")\""
@@ -34,6 +42,9 @@ echo "# the twin appears with the beta stamp"
 printf 'v0.2.0.beta.2026.09.05.deadbeef\n' > "$FAKE_STAMP"
 out="$("$ROOT/tools/gen-bootstraps.sh" 2>&1)" || { echo "FAIL: generator exited non-zero with a beta stamp: $out"; fail=1; }
 check_contains "generator wrote the twin" "$out" "wrote $ROOT/umbree/beta.install.sh"
+check_contains "generator wrote the upgrade twin" "$out" "wrote $ROOT/umbree/beta.upgrade.sh"
+check_contains "upgrade twin names itself beta.upgrade.sh" "$(cat "$ROOT/umbree/beta.upgrade.sh" 2>/dev/null)" 'SELF="beta.upgrade.sh"'
+check_contains "upgrade twin bakes CHANNEL=beta" "$(cat "$ROOT/umbree/beta.upgrade.sh" 2>/dev/null)" 'CHANNEL="beta"'
 if [ -f "$ROOT/umbree/beta.install.sh" ]; then
     echo "ok: umbree/beta.install.sh exists"
     twin="$(cat "$ROOT/umbree/beta.install.sh")"
@@ -48,6 +59,7 @@ else
     echo "FAIL: umbree/beta.install.sh not rendered"; fail=1
 fi
 check_lacks "umbreed (no stamp) got no twin" "$(ls "$ROOT/umbreed")" "beta.install.sh"
+check_lacks "umbreed (no stamp) got no upgrade twin" "$(ls "$ROOT/umbreed")" "beta.upgrade.sh"
 stable_again="$(cat "$ROOT/umbree/install.sh")"
 [ "$stable_again" = "$stable" ] && echo "ok: the stable render is unchanged by an open cycle" || { echo "FAIL: stable render changed when the twin was rendered"; fail=1; }
 
@@ -57,13 +69,15 @@ printf 'x\n' > "$ROOT/umbree/beta.version.js"
 out="$("$ROOT/tools/gen-bootstraps.sh" 2>&1)" || { echo "FAIL: generator exited non-zero on the sweep: $out"; fail=1; }
 check_contains "sweep says what it removed" "$out" "removed stale: beta.install.sh"
 check_lacks "twin is gone" "$(ls "$ROOT/umbree")" "beta.install.sh"
+check_contains "sweep removes the upgrade twin" "$out" "beta.upgrade.sh"
+check_lacks "upgrade twin is gone" "$(ls "$ROOT/umbree")" "beta.upgrade.sh"
 check_contains "sweep also removes beta.version.js" "$out" "beta.version.js"
 check_lacks "beta.version.js is gone" "$(ls "$ROOT/umbree")" "beta.version.js"
 
 echo "# the manifest is the only source"
 outside_minisign() { awk '/^# BEGIN (install-minisign-common|require-minisign)$/ { skip = 1 } !skip { print } /^# END (install-minisign-common|require-minisign)$/ { skip = 0 }' "$1"; }
-for comp in umbree umbreed; do
-    gen="$ROOT/$comp/install.sh"
+for gen in "$ROOT"/umbree/install.sh "$ROOT"/umbreed/install.sh "$ROOT"/umbree/upgrade.sh "$ROOT"/umbreed/upgrade.sh; do
+    comp="${gen#"$ROOT"/}"
     check_lacks "no github in generated bootstraps: $comp has no api.github.com" "$(cat "$gen")" "api.github.com"
     check_lacks "no github in generated bootstraps: $comp names no release repo" "$(cat "$gen")" "umbree-git/release"
     check_lacks "no github in generated bootstraps: $comp downloads no GitHub release" "$(outside_minisign "$gen" | grep -E 'github\.com/.*/releases')" "github.com"
@@ -76,6 +90,8 @@ for comp in umbree umbreed; do
     check_lacks "committed bootstraps carry no test seam: $comp download hook" "$(cat "$gen")" "UMBREE_DL_BASE"
     check_lacks "committed bootstraps carry no test seam: $comp placeholder" "$(cat "$gen")" "@TEST_SEAM@"
     check_lacks "committed bootstraps carry no test seam: $comp has no http curl" "$(cat "$gen")" "--proto =http "
+    check_lacks "committed bootstraps carry no test seam: $comp names no test umbreed" "$(cat "$gen")" "UMBREE_TEST_UMBREED_EXEC"
+    check_contains "committed bootstraps restart the canonical umbreed: $comp" "$(cat "$gen")" 'UMBREED_EXEC="/usr/local/umbree/bin/umbreed"'
     check_contains "committed bootstraps carry no test seam: $comp pins the hooks off" "$(cat "$gen")" "$(printf 'DL_BASE=""\nGH_PROXIES=""\nALLOW_LOOPBACK_HTTP=0')"
 done
 
@@ -93,6 +109,7 @@ for comp in umbree umbreed; do
     if [ -f "$tb" ]; then echo "ok: test build writes only into its dir: $comp rendered"; else echo "FAIL: test build wrote no $tb: $out"; fail=1; continue; fi
     check_contains "test build writes only into its dir: $comp carries the seam" "$(cat "$tb")" "UMBREE_TEST_ALLOW_HTTP"
     check_lacks "test build writes only into its dir: $comp has no placeholder left" "$(cat "$tb")" "@TEST_SEAM@"
+    check_contains "test build: $comp/upgrade.sh takes the test umbreed" "$(cat "$W/build/$comp/upgrade.sh" 2>/dev/null)" "UMBREE_TEST_UMBREED_EXEC"
 done
 check "test build writes only into its dir: the repo is untouched" "$(snapshot)" "$before"
 
