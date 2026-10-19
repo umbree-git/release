@@ -16,7 +16,7 @@ unset UMBREE_R2_DOWNLOADS_BASE UMBREE_MIN_VERSION UMBREE_MIN_VERSION_FILE UMBREE
 STUB="$T/stub"; mkdir -p "$STUB"
 cat > "$STUB/go" <<'EOF'
 #!/bin/sh
-if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = components ]; then echo umbree; echo umbreed; exit 0; fi
+if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = components ]; then printf '%s\n' ${STUB_COMPONENTS:-umbree umbreed}; exit 0; fi
 echo "stub go: unexpected invocation: $*" >&2; exit 1
 EOF
 chmod +x "$STUB/go"
@@ -124,6 +124,13 @@ check "a detached HEAD refuses" "$rc" "1"
 nothing_written "detached"
 /usr/bin/git -C "$REPO" checkout -q main
 
+echo "# a failed regeneration restores every bootstrap it rewrote"
+STUB_COMPONENTS="umbree nosuch" STUB_RC=0 STUB_LINE="umbree stable 0.1.9 $STAMP 2026-10-09T00:00:00Z" run umbree "$STAMP"
+check "a failed gen-bootstraps.sh refuses" "$rc" "1"
+check_contains "…says what it restored" "$out" "restored"
+nothing_written "failed regeneration"
+rm -rf "$REPO/nosuch"
+
 echo "# live writes stamp regenerates and marks"
 STUB_RC=0 STUB_LINE="umbree stable 0.1.9 $STAMP 2026-10-09T00:00:00Z" run umbree "$STAMP"
 check "live writes stamp regenerates and marks" "$rc" "0"
@@ -131,8 +138,10 @@ check "…one fetch, no second" "$(grep -c . "$CALLS")" "1"
 check "…versions/umbree.stamp is the verified stamp" "$(cat "$REPO/versions/umbree.stamp")" "$STAMP"
 check "…the bootstrap's floor is the stamp" "$(grep -c "^MIN_VERSION=\"$STAMP\"\$" "$REPO/umbree/install.sh")" "1"
 check "…the marker" "$(/usr/bin/git -C "$REPO" log -1 --format=%s)" "[PROMOTED: umbree] $STAMP"
-check "…carries exactly the floor and the bootstrap" \
-    "$(/usr/bin/git -C "$REPO" show --name-only --format= HEAD | sort | tr '\n' ' ')" "umbree/install.sh versions/umbree.stamp "
+check "…the upgrade bootstrap's floor is the stamp" "$(grep -c "^MIN_VERSION=\"$STAMP\"\$" "$REPO/umbree/upgrade.sh")" "1"
+check "…carries exactly the floor and both bootstraps" \
+    "$(/usr/bin/git -C "$REPO" show --name-only --format= HEAD | sort | tr '\n' ' ')" "umbree/install.sh umbree/upgrade.sh versions/umbree.stamp "
+check_contains "…and names both in its success line" "$out" "umbree/install.sh and umbree/upgrade.sh"
 
 echo "# one marker commit only"
 check "one marker commit only" "$(/usr/bin/git -C "$REPO" rev-list --count "$HEAD_BEFORE..HEAD")" "1"
@@ -147,7 +156,7 @@ OTHER="$T/other"
 copy_tree "$OTHER"
 printf '%s\n' "$STAMP" > "$OTHER/versions/umbree.stamp"
 ( cd "$OTHER" && sh tools/gen-bootstraps.sh >/dev/null 2>&1 )
-if cmp -s "$OTHER/umbree/install.sh" "$REPO/umbree/install.sh"; then same=yes; else same=no; fi
+if cmp -s "$OTHER/umbree/install.sh" "$REPO/umbree/install.sh" && cmp -s "$OTHER/umbree/upgrade.sh" "$REPO/umbree/upgrade.sh"; then same=yes; else same=no; fi
 check "byte-identical to service render (gen-bootstraps.sh for the same stamp; the service's renderer is held to the same bytes by TestStaticRenderMatchesShellGenerators)" "$same" "yes"
 
 echo

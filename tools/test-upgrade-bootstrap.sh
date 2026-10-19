@@ -23,23 +23,37 @@ FLOOR=v0.1.0.2026.01.01.aaaaaaaa
 LADDER=v0.2.0.2026.02.02.bbbbbbbb
 PLAIN=v0.2.1.2026.02.03.cccccccc
 TAMPERED=v0.2.2.2026.02.04.dddddddd
+RAN=v0.2.3.2026.02.05.eeeeeeee
+LOST=v0.2.4.2026.02.06.ffffffff
+REFUSED=v0.2.5.2026.02.07.abababab
+BADLINE=v0.2.6.2026.02.08.cdcdcdcd
+EMPTY=v0.2.7.2026.02.09.efefefef
+NORUNNER=v0.2.8.2026.02.10.babababa
+FORGED=v0.2.9.2026.02.11.dcdcdcdc
 
 sha256_line() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
 
 kit() {
-    local comp="$1" stamp="$2" ladder="$3" dir="${W}/srv/$1/$2" src="${W}/kits/$1-$2"
+    local comp="$1" stamp="$2" ladder="$3" key="${4:-a}" dir="${W}/srv/$1/$2" src="${W}/kits/$1-$2"
     mkdir -p "${dir}" "${src}/migrations"
     printf '#!/bin/sh\necho "inner %s %s" >> "%s/log"\n' "${comp}" "${stamp}" "${W}" > "${src}/install.sh"
-    if [ "${ladder}" = yes ]; then
-        printf '#!/bin/sh\necho "ladder %s $#:$*" >> "%s/log"\n' "${stamp}" "${W}" > "${src}/migrations/upgrade.sh"
-    fi
+    case "${ladder}" in
+        no) ;;
+        empty) : > "${src}/migrations/upgrade.sh"; printf '#!/bin/sh\n' > "${src}/migrations/run.sh" ;;
+        *)
+            local code="${ladder#exit}"
+            [ "${ladder}" != norunner ] || code=0
+            printf '#!/bin/sh\necho "ladder %s $#:$*" >> "%s/log"\nexit %s\n' "${stamp}" "${W}" "${code}" > "${src}/migrations/upgrade.sh"
+            [ "${ladder}" = norunner ] || printf '#!/bin/sh\n' > "${src}/migrations/run.sh"
+            ;;
+    esac
     ( cd "${src}" && python3 -c 'import os, sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:
     for root, _, files in os.walk("."):
         for f in files:
             z.write(os.path.join(root, f), os.path.relpath(os.path.join(root, f), "."))' "${dir}/${comp}-${OS}-${ARCH}.zip" )
     ( cd "${dir}" && sha256_line "${comp}-${OS}-${ARCH}.zip" > SHA256SUMS.txt )
-    minisign -S -s "${W}/a.key" -m "${dir}/SHA256SUMS.txt" -x "${dir}/SHA256SUMS.txt.minisig" >/dev/null
+    minisign -S -s "${W}/${key}.key" -m "${dir}/SHA256SUMS.txt" -x "${dir}/SHA256SUMS.txt.minisig" >/dev/null
 }
 
 serve() {
@@ -65,7 +79,15 @@ serve() {
 fixture() {
     mkdir -p "${W}/srv" "${W}/kits" "${W}/build" "${W}/gostub" "${W}/home" "${W}/tmp"
     minisign -G -W -p "${W}/a.pub" -s "${W}/a.key" >/dev/null
-    kit umbree "${LADDER}" yes
+    minisign -G -W -p "${W}/b.pub" -s "${W}/b.key" >/dev/null
+    kit umbree "${LADDER}" exit0
+    kit umbree "${RAN}" exit2
+    kit umbree "${LOST}" exit3
+    kit umbree "${REFUSED}" exit1
+    kit umbree "${BADLINE}" exit64
+    kit umbree "${EMPTY}" empty
+    kit umbree "${NORUNNER}" norunner
+    kit umbreed "${FORGED}" no b
     kit umbree "${PLAIN}" no
     kit umbreed "${PLAIN}" no
     kit umbreed "${TAMPERED}" no
@@ -100,6 +122,34 @@ case_ladder() {
     has "the ladder runs with no line when none is given" "${LOG}" "ladder ${LADDER} 0:"
 }
 
+case_ladder_exits() {
+    boot umbree upgrade "${RAN}" 0.1.9
+    is "a ladder that ran its rungs (2) is a success" "${RC}" 0
+    has "…and says the rungs ran" "${OUT}" "✓ umbree ${RAN} installed — the migration ladder ran its rungs"
+    boot umbree upgrade "${LADDER}" 0.1.9
+    has "a ladder with nothing to apply (0) says so" "${OUT}" "✓ umbree ${LADDER} installed — the migration ladder had nothing to apply"
+    boot umbree upgrade "${LOST}" 0.1.9
+    is "a lost receipt (3) is passed through as 3" "${RC}" 3
+    has "…naming it re-runnable" "${OUT}" "a receipt was lost — re-runnable"
+    boot umbree upgrade "${REFUSED}" 0.1.9
+    is "a refusing ladder (1) fails the upgrade" "${RC}" 1
+    has "…naming the ladder" "${OUT}" "the migration ladder refused or failed"
+    boot umbree upgrade "${BADLINE}" 0.1.9
+    is "a rejected command line (64) is passed through as 64" "${RC}" 64
+    has "…naming the command line" "${OUT}" "the migration ladder rejected its command line"
+}
+
+case_malformed_ladder() {
+    boot umbree upgrade "${EMPTY}"
+    is "an empty migrations/upgrade.sh is refused" "${RC}" 1
+    has "…naming the file" "${OUT}" "the umbree kit ${EMPTY} ships an empty or unreadable migrations/upgrade.sh"
+    is "…before anything runs" "${LOG}" ""
+    boot umbree upgrade "${NORUNNER}"
+    is "a ladder with no migrations/run.sh is refused" "${RC}" 1
+    has "…naming the runner" "${OUT}" "the umbree kit ${NORUNNER} ships migrations/upgrade.sh but no migrations/run.sh"
+    is "…before anything runs" "${LOG}" ""
+}
+
 case_umbreed_restart() {
     boot umbreed upgrade "${PLAIN}"
     is "an umbreed kit with no ladder upgrades cleanly" "${RC}" 0
@@ -128,6 +178,10 @@ case_refusals() {
     boot umbreed upgrade "${TAMPERED}"
     is "a tampered zip is refused" "${RC}" 1
     is "nothing runs after a failed verification" "${LOG}" ""
+    boot umbreed upgrade "${FORGED}"
+    is "sums signed by another key are refused" "${RC}" 1
+    has "…by the signature check" "${OUT}" "signature verification failed"
+    is "nothing runs after a bad signature" "${LOG}" ""
 }
 
 case_arguments() {
@@ -147,6 +201,8 @@ case_arguments() {
 
 fixture
 case_ladder
+case_ladder_exits
+case_malformed_ladder
 case_umbreed_restart
 case_refusals
 case_arguments
