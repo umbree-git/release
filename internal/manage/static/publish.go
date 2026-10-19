@@ -87,7 +87,11 @@ func (p *Publisher) manifest(ctx context.Context, component string) (manifest.Ma
 }
 
 func (p *Publisher) render(component string, m manifest.Manifest) ([]file, error) {
-	install, err := NewRenderer(p.Assets).Bootstrap(component, m.Stamp, p.DownloadsBase)
+	install, err := NewRenderer(p.Assets).Bootstrap(component, ModeInstall, m.Stamp, p.DownloadsBase)
+	if err != nil {
+		return nil, err
+	}
+	upgrade, err := NewRenderer(p.Assets).Bootstrap(component, ModeUpgrade, m.Stamp, p.DownloadsBase)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +109,7 @@ func (p *Publisher) render(component string, m manifest.Manifest) ([]file, error
 	}
 	return []file{
 		{rel: component + "/install.sh", body: install, mode: 0o755},
+		{rel: component + "/upgrade.sh", body: upgrade, mode: 0o755},
 		{rel: "umbree-release.pub", body: pub, mode: 0o644},
 		{rel: "index.html", body: site, mode: 0o644},
 		{rel: "favicon.svg", body: icon, mode: 0o644},
