@@ -75,6 +75,19 @@ can run at all:
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
 
+**The bootstraps and the site page go live through the console, not the
+cut.** `tools/bootstrap.template.sh`, `tools/modules/*.sh` and
+`site/index.html` are embedded in `umbree-release-manage` (`assets.go`), which
+renders `<comp>/install.sh` at each promote or static republish against the
+promoted stamp; the committed `<comp>/install.sh` must equal that render
+(`internal/manage/static/agreement_test.go`). A bootstrap change therefore
+reaches users only once the operator deploys the console and then promotes.
+A `platform-detect` v2 bootstrap promoted over a four-zip stamp sends an Intel
+Mac below macOS 12 to a legacy zip that does not exist, so every pre-legacy
+staged stamp is promoted or abandoned before that deploy (`tools/RUNBOOK.md`).
+The site page claims the legacy build for both components, so promote the
+two legacy-carrying stamps back to back.
+
 The agent chain ends at the **cut**: build, stage the bytes to the private
 gated store, register the `staged` row with the manage service and read it
 back, tag, mark, report the stamp and the row, and sync `main` back down into

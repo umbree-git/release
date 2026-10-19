@@ -394,3 +394,34 @@ real block, the local fork in `tools/bootstrap.template.sh`, is untouched.
 Both are recorded in `tools/modules/MODULES.exclude` with the reason, which is
 what stops `sync-modules.sh` from silently copying them back in and what
 `tools/test-modules.sh`'s INCLUDED gate consults.
+
+## Later adoption: `platform-detect` v2 (2026-10-19)
+
+Project `2026-10-19-umbree-darwin-legacy`, feature 02. Umbree takes Clawee's
+`platform-detect` v2 (Clawee release `main` `b5a8935`, the module dated
+2026-08-27), so the bootstrap sends an Intel Mac below macOS 12 to the
+`darwin-amd64-legacy` zip that feature 01 builds.
+
+- **Copied byte for byte**, sha256
+  `089a98222549899d073af735977aa3341486c9cb06169a247a35674d6832f4d7`.
+  `tools/lock-modules.sh` rewrote only the `platform-detect` row of
+  `MODULES.lock`. Afterwards `tools/sync-modules.sh` against Clawee reports
+  `platform-detect v2 == v2 ok`. `tools/sync-modules.test.sh` pins the lock row
+  and the file to that hash, so a local edit fails it rather than becoming a
+  LOCAL FORK nobody notices.
+- **Behaviour change, exact lines.** After the arch case, on darwin only, the
+  module reads `sw_vers -productVersion` and keeps its major. Anything that
+  isn't a number counts as 99: a missing `sw_vers`, one that fails, or one that
+  prints nothing or text. Below 12, `amd64` becomes `amd64-legacy` and `arm64`
+  fails with "macOS <n> on Apple Silicon is not supported — upgrade to macOS 12
+  or later".
+- **Why it is safe.** A 12+ Mac, an unreadable version and every Linux host
+  keep exactly today's `OS`/`ARCH`, so `ZIP="${COMP}-${OS}-${ARCH}.zip"`
+  names the same zip as before. The template is unchanged; only the generated
+  bootstraps gain the block. `tools/platform-detect.test.sh` covers each case,
+  including a Rosetta-translated shell, which follows `uname -m`.
+- **Not taken.** At the same sync Clawee is ahead on five other modules:
+  `helpers` v4, `install-minisign-common` v4, `install-minisign-darwin` v2,
+  `install-minisign-linux` v2 and `require-minisign` v3. They are outside
+  this project's scope and stay at Umbree's versions; a later sync adopts
+  them deliberately.

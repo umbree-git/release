@@ -224,6 +224,13 @@ through a pinned `crypto/x509` overlay (`tools/legacy/darwin/README.md`) and is
 signed, notarized and listed in `SHA256SUMS.txt` like the others. Apple Silicon
 below macOS 12 is not supported.
 
+The bootstrap picks the zip by itself (`tools/modules/platform-detect.sh` v2,
+adopted from Clawee): on darwin it reads the major version from
+`sw_vers -productVersion`, sends an Intel Mac below 12 to the legacy zip, and
+stops on Apple Silicon below 12 with "upgrade to macOS 12 or later". A version
+it cannot read counts as current, so that host gets the stock zip and is never
+refused. Linux is not affected.
+
 Windows is not supported.
 
 ## How releases are made
