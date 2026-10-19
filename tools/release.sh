@@ -41,8 +41,8 @@ promote through tools/record-promoted.sh and is never written by a cut.
 --channel beta is dormant: Umbree has no beta stage. Unlike the stable verb
 it would publish at the cut, to the public download bucket, with no gated
 store or promote in front of it: tag and push, upload to <comp>/beta/<stamp>/
-with <comp>/beta/latest.json last, render and scp the beta.install.sh and
-beta.version.js twins to RELEASE_HOST:STATIC_DIR, and a
+with <comp>/beta/latest.json last, render and scp the beta.install.sh,
+beta.upgrade.sh and beta.version.js twins to RELEASE_HOST:STATIC_DIR, and a
 [RELEASED: <comp> beta] … (private) marker commit.
 
 On --dry-run: validates the staged dir + component, runs the gates in
@@ -277,7 +277,7 @@ mirror_r2() {
     echo "✗ R2 mirror FAILED for ${comp} ${stamp} — stopping the ${channel} publish here." >&2
     if [ "${channel}" = beta ]; then
         echo "  State: the tag ${comp}/${stamp} IS pushed; the beta catalog did NOT update;" >&2
-        echo "  beta.install.sh / beta.version.js, the scp to the release host and the" >&2
+        echo "  beta.install.sh / beta.upgrade.sh / beta.version.js, the scp to the release host and the" >&2
         echo "  [RELEASED: ${comp} beta] marker commit did NOT run. No GitHub Release exists" >&2
         echo "  (a beta never creates one)." >&2
         echo "  Recover by hand — re-run the mirror with the arguments above, then" >&2
@@ -550,9 +550,9 @@ publish_beta() {
         done
         echo "would:   ${comp}/beta/latest.json (last)"
         echo "would: write versions/${comp}.beta.stamp = ${stamp}"
-        echo "would: gen-bootstraps.sh (render ${comp}/beta.install.sh)"
+        echo "would: gen-bootstraps.sh (render ${comp}/beta.install.sh and ${comp}/beta.upgrade.sh)"
         echo "would: gen-version-jsonp.sh --channel beta ${comp} (render ${comp}/beta.version.js)"
-        echo "would: scp ONLY beta.install.sh + beta.version.js to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
+        echo "would: scp ONLY beta.install.sh + beta.upgrade.sh + beta.version.js to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
         echo "would: marker commit [RELEASED: ${comp} beta] ${stamp} (private)"
         echo "✓ dry-run beta publish: no real writes"
         return 0
@@ -580,9 +580,10 @@ publish_beta() {
     # shellcheck disable=SC2029
     ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
     scp -q "${REPO_ROOT}/${comp}/beta.install.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.install.sh"
+    scp -q "${REPO_ROOT}/${comp}/beta.upgrade.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.upgrade.sh"
     scp -q "${REPO_ROOT}/${comp}/beta.version.js" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.version.js"
 
-    git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.version.js"
+    git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.upgrade.sh" "${comp}/beta.version.js"
     git commit --allow-empty -m "[RELEASED: ${comp} beta] $(date -u +%Y-%m-%d) ${stamp} (private)"
 
     apply_retention "${comp}" beta
