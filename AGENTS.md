@@ -43,7 +43,7 @@ for `cmd/rkit`. A change to a tool changes its test in the same commit.
 ## Cutting a release
 
 The whole procedure is `README.md` → "How releases are made", with the beta
-channel in "Beta channel". Four repo-specific facts that decide whether a cut
+channel in "Beta channel". Five repo-specific facts that decide whether a cut
 can run at all:
 
 - **Launch `tools/release.command` in a real desktop session**, unmodified.
@@ -61,9 +61,32 @@ can run at all:
   pushing it, so a batch passes it: a fast-forward, or a merge (no checkout, no
   force) when `dev` has diverged; it stops only on a conflict or a `dev` that
   moved mid-cut, naming the manual merge (`tools/RUNBOOK.md`).
+- **The cut's `go` is pinned.** Every cut builds five zips per component: the
+  four stock targets and `darwin-amd64-legacy` (Intel macOS 10.15–11), which
+  `rkit build` compiles through the `crypto/x509` overlay in
+  `tools/legacy/darwin/` (`cmd/rkit/legacy.go`). The overlay is valid for one
+  stdlib only, so `rkit build` refuses before stamping unless `go version`
+  prints exactly `tools/legacy/darwin/GO_VERSION`; the env file
+  `tools/release.command` sources must put that SDK first on `PATH` with
+  `GOTOOLCHAIN=local`. `release.sh --distribute-only` refuses a stage without
+  `<comp>-darwin-amd64-legacy.zip`. The overlay is a pinned copy of
+  Burrowee's; `tools/legacy/darwin/README.md` says how to re-sync it.
 - **Hosts, static paths and credentials are never written in this repo.** They
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
+
+**The bootstraps and the site page go live through the console, not the
+cut.** `tools/bootstrap.template.sh`, `tools/modules/*.sh` and
+`site/index.html` are embedded in `umbree-release-manage` (`assets.go`), which
+renders `<comp>/install.sh` at each promote or static republish against the
+promoted stamp; the committed `<comp>/install.sh` must equal that render
+(`internal/manage/static/agreement_test.go`). A bootstrap change therefore
+reaches users only once the operator deploys the console and then promotes.
+A `platform-detect` v2 bootstrap promoted over a four-zip stamp sends an Intel
+Mac below macOS 12 to a legacy zip that does not exist, so every pre-legacy
+staged stamp is promoted or abandoned before that deploy (`tools/RUNBOOK.md`).
+The site page claims the legacy build for both components, so promote the
+two legacy-carrying stamps back to back.
 
 The agent chain ends at the **cut**: build, stage the bytes to the private
 gated store, register the `staged` row with the manage service and read it

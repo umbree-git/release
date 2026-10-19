@@ -181,6 +181,25 @@ check "keep-control: a continued line ended by code renders" "$rc" "0"
 check "…with the comment stripped" "$(grep -c '^# goes$' "$FX/umbree/install.sh" 2>/dev/null)" "0"
 rm -rf "$FX"
 
+echo "# the bootstrap carries platform-detect v2"
+H="$(mktemp -d)"
+printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo "$FAKE_MACHINE" ;; esac\n' > "$H/uname"
+printf '#!/bin/sh\necho "$FAKE_SW_VERS"\n' > "$H/sw_vers"
+chmod +x "$H/uname" "$H/sw_vers"
+ln -s "$(command -v cut)" "$H/cut"
+zip_on() {
+    { grep '^COMP=' "$1"; sed -n '/^# BEGIN platform-detect$/,/^# END platform-detect$/p' "$1"; grep '^ZIP=' "$1"; echo 'printf "%s" "$ZIP" >&3'; } > "$H/probe.sh"
+    FAKE_MACHINE="$2" FAKE_SW_VERS="$3" PATH="$H" /bin/sh -c 'exec 3>&1; fail() { printf "REFUSED: %s" "$*" >&3; exit 1; }; . "$1" >/dev/null 2>&1' _ "$H/probe.sh"
+}
+for comp in umbree umbreed; do
+    check_contains "$comp/install.sh splices platform-detect" "$(cat "$ROOT/$comp/install.sh")" "# BEGIN platform-detect"
+    check "$comp on an Intel Mac at 11.7 fetches the legacy zip" "$(zip_on "$ROOT/$comp/install.sh" x86_64 11.7.10)" "$comp-darwin-amd64-legacy.zip"
+    check "$comp on an Intel Mac at 14.6 fetches the stock zip" "$(zip_on "$ROOT/$comp/install.sh" x86_64 14.6)" "$comp-darwin-amd64.zip"
+    check "$comp on Apple Silicon at 14.6 fetches the stock zip" "$(zip_on "$ROOT/$comp/install.sh" arm64 14.6)" "$comp-darwin-arm64.zip"
+    check_contains "$comp on Apple Silicon at 11.7 is refused" "$(zip_on "$ROOT/$comp/install.sh" arm64 11.7.10)" "REFUSED: macOS 11 on Apple Silicon is not supported"
+done
+rm -rf "$H"
+
 echo "# tree clean"
 cleanup
 dirty="$(cd "$ROOT" && git status --porcelain -- umbree umbreed versions)"

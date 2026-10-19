@@ -241,8 +241,24 @@ installable is pinned permanently with `umbree-release-manage admin pin`.
 
 | OS | arm64 | amd64 |
 |---|---|---|
-| macOS (darwin) | ✓ | ✓ |
+| macOS (darwin) 12+ | ✓ | ✓ |
+| macOS (darwin) 10.15–11 | — | ✓ `darwin-amd64-legacy` |
 | Linux | ✓ | ✓ |
+
+Every release carries five zips per component: the four stock targets and
+`<comp>-darwin-amd64-legacy.zip`, a best-effort build for Intel Macs on macOS
+10.15 and 11. A stock darwin binary from the pinned Go links a macOS 12 API and
+aborts in dyld before `main` there; the legacy binary is the same source built
+through a pinned `crypto/x509` overlay (`tools/legacy/darwin/README.md`) and is
+signed, notarized and listed in `SHA256SUMS.txt` like the others. Apple Silicon
+below macOS 12 is not supported.
+
+The bootstrap picks the zip by itself (`tools/modules/platform-detect.sh` v2,
+adopted from Clawee): on darwin it reads the major version from
+`sw_vers -productVersion`, sends an Intel Mac below 12 to the legacy zip, and
+stops on Apple Silicon below 12 with "upgrade to macOS 12 or later". A version
+it cannot read counts as current, so that host gets the stock zip and is never
+refused. Linux is not affected.
 
 Windows is not supported.
 
@@ -254,8 +270,17 @@ public:
 - **`rkit build`** (Go orchestrator on
   [`release-kit`](https://github.com/burrowee-git/release-kit)) **produces**
   the artifacts: CVE gate (govulncheck), version stamp, `GOWORK=off` compile
-  for all four targets, Developer-ID sign + notarize (darwin), per-target zips
-  + `SHA256SUMS.txt` + minisign signature → `dist/<stamp>/`. **`--public`** is
+  for the four stock targets plus `darwin-amd64-legacy`, Developer-ID sign +
+  notarize (darwin), per-target zips + `SHA256SUMS.txt` + minisign signature →
+  `dist/<stamp>/`. The legacy target compiles with `go build -overlay` through
+  `tools/legacy/darwin/`, so **the `go` on `PATH` must be exactly
+  `tools/legacy/darwin/GO_VERSION`**: anything else stops `rkit build` before
+  the version bump, the CVE gate or the stamp. A failed overlay drift guard,
+  or a legacy binary that still imports `_SecTrustCopyCertificateChain`
+  (deleted on the spot), stops it later — after the stamp and the four stock
+  compiles, which a darwin host has already signed — but before the legacy
+  binary is signed and before anything is zipped, notarized, summed or
+  staged. The stock four never see the overlay. **`--public`** is
   the standard ship path: it turns on Apple sign+notarize and forces the CVE
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
@@ -264,7 +289,9 @@ public:
   (`UMBREE_R2_GATED_BUCKET`), registers the release as a `staged` row with the
   manage service (`UMBREE_MANAGE_URL`, signed with the release key) and reads
   the row back, pushes the tag `<comp>/<stamp>`, and records a
-  `[RELEASED: <comp>]` marker commit carrying `versions/<comp>`. It reports the
+  `[RELEASED: <comp>]` marker commit carrying `versions/<comp>`. A stage
+  without `<comp>-darwin-amd64-legacy.zip` is refused before anything is
+  staged. It reports the
   stamp, the row and the row's console page, and stops. A refused
   registration, or a row that does not read back `staged`, stops the cut
   before the tag; `--register-only <comp> <stamp>` re-registers the staged

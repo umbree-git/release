@@ -1,6 +1,11 @@
 package relconfig
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+
+	"github.com/burrowee-git/release-kit/build"
+)
 
 func TestBinsUmbree(t *testing.T) {
 	got, err := Bins("umbree", "v0.1.0.2026.07.16.deadbeef")
@@ -28,8 +33,26 @@ func TestBinsUnknown(t *testing.T) {
 }
 
 func TestTargets(t *testing.T) {
-	if len(Targets()) != 4 {
-		t.Fatalf("want 4 targets, got %d", len(Targets()))
+	want := []build.Target{
+		{OS: "darwin", Arch: "arm64"}, {OS: "darwin", Arch: "amd64"},
+		{OS: "linux", Arch: "arm64"}, {OS: "linux", Arch: "amd64"},
+	}
+	if got := Targets(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Targets() = %v, want the four stock targets %v", got, want)
+	}
+}
+
+func TestLegacyTargetIsSeparate(t *testing.T) {
+	if got := LegacyTarget(); got != (build.Target{OS: "darwin", Arch: "amd64"}) {
+		t.Fatalf("LegacyTarget() = %v, want darwin/amd64", got)
+	}
+	if LegacyArch != "amd64-legacy" {
+		t.Fatalf("LegacyArch = %q, want amd64-legacy", LegacyArch)
+	}
+	for _, tgt := range Targets() {
+		if tgt.Arch == LegacyArch {
+			t.Fatalf("Targets() carries the legacy target %v; it is built apart from the stock four", tgt)
+		}
 	}
 }
 

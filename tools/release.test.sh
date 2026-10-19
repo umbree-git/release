@@ -97,7 +97,7 @@ BETA_STAMP=v0.2.0.beta.2026.09.05.deadbeef
 STABLE_STAMP=v0.1.8.2026.08.31.46b36734
 for st in "$BETA_STAMP" "$STABLE_STAMP"; do
     mkdir -p "$REL/dist/$st"
-    for f in umbree-darwin-arm64.zip umbree-linux-amd64.zip SHA256SUMS.txt SHA256SUMS.txt.minisig; do
+    for f in umbree-darwin-arm64.zip umbree-darwin-amd64-legacy.zip umbree-linux-amd64.zip SHA256SUMS.txt SHA256SUMS.txt.minisig; do
         echo x > "$REL/dist/$st/$f"
     done
 done
@@ -211,11 +211,12 @@ undo_cut() {
 
 cutrun --distribute-only umbree "$STABLE_STAMP" --dry-run
 check "dry run with the gated bucket and the manage URL → 0" "$rc" "0"
-check "…one would: stage line per gated key" "$(printf '%s\n' "$out" | grep -c "^would: stage $GATED_PREFIX/")" "4"
-for f in SHA256SUMS.txt SHA256SUMS.txt.minisig umbree-darwin-arm64.zip umbree-linux-amd64.zip; do
+check "…one would: stage line per gated key" "$(printf '%s\n' "$out" | grep -c "^would: stage $GATED_PREFIX/")" "5"
+for f in SHA256SUMS.txt SHA256SUMS.txt.minisig umbree-darwin-arm64.zip umbree-darwin-amd64-legacy.zip umbree-linux-amd64.zip; do
     check_contains "…stages $f" "$out" "would: stage $GATED_PREFIX/$f"
 done
 check_lacks "…no refusal when both are set" "$out" "would: REFUSE"
+
 
 echo "# dry run reports stage register confirm tag marker"
 order="$(printf '%s\n' "$out" | grep -oE '^would: (stage|register|confirm row|tag|marker commit)' | sed 's/^would: //' | uniq | tr '\n' ',')"
@@ -226,6 +227,21 @@ for word in latest.json "gh release" scp mirror retention; do
     check "dry run reports no public act: no line names '$word'" "$(printf '%s\n' "$out" | grep -ci -- "$word")" "0"
 done
 check "…the tree is untouched" "$(/usr/bin/git -C "$REL" status --porcelain)" ""
+
+echo "# distribute refuses a stage without the legacy zip"
+mv "$REL/dist/$STABLE_STAMP/umbree-darwin-amd64-legacy.zip" "$T/legacy.zip.aside"
+: > "$CALLS"
+cutrun --distribute-only umbree "$STABLE_STAMP" --dry-run
+check "dry run without umbree-darwin-amd64-legacy.zip → 1" "$rc" "1"
+check_contains "…names the missing legacy zip" "$out" "no umbree-darwin-amd64-legacy.zip in $REL/dist/$STABLE_STAMP"
+check_lacks "…before any would: line" "$out" "would:"
+: > "$CALLS"
+cutrun --distribute-only umbree "$STABLE_STAMP"
+check "real cut without umbree-darwin-amd64-legacy.zip → 1" "$rc" "1"
+check_contains "…names the missing legacy zip" "$out" "no umbree-darwin-amd64-legacy.zip in $REL/dist/$STABLE_STAMP"
+check_lacks "…refused before the stage" "$(calls)" "--store gated"
+check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
+mv "$T/legacy.zip.aside" "$REL/dist/$STABLE_STAMP/umbree-darwin-amd64-legacy.zip"
 
 : > "$CALLS"
 run --distribute-only umbree "$STABLE_STAMP"
@@ -418,8 +434,8 @@ undo_cut
 
 echo "# beta verb unchanged"
 sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
-check "beta verb unchanged: publish_beta is byte-identical to the 01 baseline" \
-    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "e2f3a9335ee628655ab665c1c8527aed7cdf1a183fe3449642aa2d020f69646c"
+check "beta verb unchanged: publish_beta and its beta_dry_run are byte-identical to the umbreed-update + darwin-legacy baseline" \
+    "$({ awk '/^publish_beta\(\) \{/,/^}/' "$R"; awk '/^beta_dry_run\(\) \{/,/^}/' "$R"; } | sha_of)" "a704b9453cdc7e6354000bfcd0de1e040f856db712e07af7e48ede111b4891dd"
 
 echo "# copy_beta_twins copies all three twins"
 CBT="$(awk '/^copy_beta_twins\(\) \{/,/^}/' "$R")"

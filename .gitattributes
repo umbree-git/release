@@ -1,1 +1,2 @@
 /tools/modules/*.sh linguist-generated
+/tools/legacy/darwin/_src/** linguist-vendored
