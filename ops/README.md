@@ -88,9 +88,11 @@ again on a by-hand republish:
 ├── favicon.svg           # site/favicon.svg
 ├── umbree-release.pub    # signing public key
 ├── umbree/
-│   └── install.sh         # the bootstrap, with the promoted stamp as its floor
+│   ├── install.sh         # the bootstrap, with the promoted stamp as its floor
+│   └── upgrade.sh         # the same bootstrap in upgrade mode: install, then the kit's ladder or restart
 └── umbreed/
-    └── install.sh
+    ├── install.sh
+    └── upgrade.sh
 ```
 
 `<comp>/version.js` and `<comp>/version.json` are not in this tree: the vhost
@@ -112,6 +114,7 @@ dormant beta flow (`tools/release.sh --channel beta`).
 ```sh
 curl -fsSI https://release.umbree.org/                              # 200, text/html
 curl -fsSI https://release.umbree.org/umbree/install.sh             # 200, text/x-shellscript
+curl -fsSI https://release.umbree.org/umbreed/upgrade.sh            # 200, text/x-shellscript
 curl -fsS  https://release.umbree.org/umbree/version.js              # live JSONP, "channel":"production"
 curl -fsSI https://release.umbree.org/umbreed/version.js            # 200, application/javascript, max-age=300
 curl -fsS  https://release.umbree.org/umbree/version.json            # live JSON, "channel":"production"
