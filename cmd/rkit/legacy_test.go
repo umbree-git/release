@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ env) printf '%s\n' "$FAKE_GOROOT" ;;
 build)
     out=""
     while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done
+    printf 'buildenv %s GOOS=%s GOARCH=%s CGO_ENABLED=%s GOWORK=%s\n' "$out" "${GOOS-}" "${GOARCH-}" "${CGO_ENABLED-}" "${GOWORK-}" >> "$FAKE_GO_LOG"
     case "$out" in
     */darwin-amd64-legacy/*) printf '%s\n' "$FAKE_LEGACY_NM" > "$out" ;;
     *) printf '%s\n' "$FAKE_STOCK_NM" > "$out" ;;
@@ -30,6 +32,12 @@ build)
 tool) cat "$3" ;;
 *) echo "fake go: unexpected: $*" >&2; exit 1 ;;
 esac
+`
+
+const callLoggerScript = `#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >> "$FAKE_CALLS_LOG"
+[ "$1" = -version ] && echo "Go: go1.26.9 Scanner: govulncheck@v1.1.4"
+exit 0
 `
 
 const fakeSignToolScript = `#!/usr/bin/env bash
@@ -103,6 +111,35 @@ func (f fakeGo) buildLines(t *testing.T) []string {
 	return out
 }
 
+func (f fakeGo) buildEnvs(t *testing.T) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(f.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envs := map[string]string{}
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if rest, ok := strings.CutPrefix(l, "buildenv "); ok {
+			out, env, _ := strings.Cut(rest, " ")
+			envs[filepath.Base(filepath.Dir(out))] = env
+		}
+	}
+	return envs
+}
+
+func installCallLoggers(t *testing.T, f fakeGo, repo string) string {
+	t.Helper()
+	calls := filepath.Join(t.TempDir(), "calls.log")
+	t.Setenv("FAKE_CALLS_LOG", calls)
+	for _, p := range []string{filepath.Join(repo, "tools", "version.sh"), filepath.Join(filepath.Dir(f.log), "bin", "govulncheck")} {
+		mustWriteFile(t, p, callLoggerScript)
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return calls
+}
+
 func signLog(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile(os.Getenv("FAKE_SIGN_LOG"))
@@ -165,16 +202,17 @@ func TestLegacyRefusesToolchainOffPin(t *testing.T) {
 	if entries, _ := os.ReadDir(out); len(entries) != 0 {
 		t.Fatalf("orchestrate wrote %v before refusing the toolchain", entries)
 	}
+	calls := installCallLoggers(t, f, repo)
 	err = buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
-		Bump: "patch", NoVulncheck: true, SignKey: filepath.Join(repo, "go.mod")})
+		Bump: "patch", SignKey: filepath.Join(repo, "go.mod")})
 	if err == nil || !strings.Contains(err.Error(), "pinned to "+pinnedGoVersion(t)) {
 		t.Fatalf("buildRun: err = %v, want the toolchain pin refusal", err)
 	}
+	if got, _ := os.ReadFile(calls); len(got) != 0 {
+		t.Fatalf("buildRun ran the version bump or the CVE gate before the toolchain check:\n%s", got)
+	}
 	if _, statErr := os.Stat(filepath.Join(repo, "dist")); !os.IsNotExist(statErr) {
 		t.Fatal("buildRun created dist/ before refusing the toolchain")
-	}
-	if got, _ := os.ReadFile(filepath.Join(repo, "versions", "umbree")); string(got) != "0.1.0\n" {
-		t.Fatalf("versions/umbree = %q: the bump ran before the toolchain check", got)
 	}
 	if lines := f.buildLines(t); len(lines) != 0 {
 		t.Fatalf("compiled with a toolchain off the pin: %v", lines)
@@ -257,6 +295,48 @@ func TestStockTargetsNeverSeeOverlay(t *testing.T) {
 	}
 	if len(legacy) != 1 || !strings.Contains(legacy[0], "-overlay ") || !strings.Contains(legacy[0], "-trimpath") {
 		t.Fatalf("legacy compile = %v, want one -trimpath -overlay build", legacy)
+	}
+}
+
+func TestLegacyCompileEnvironmentIsPinned(t *testing.T) {
+	f := installFakeGo(t)
+	t.Setenv("GOOS", "linux")
+	t.Setenv("GOARCH", "arm64")
+	t.Setenv("CGO_ENABLED", "1")
+	t.Setenv("GOWORK", "auto")
+	repo := t.TempDir()
+	writeFixtureModule(t, repo)
+	if _, err := orchestrate(context.Background(), Options{
+		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, SkipGate: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"darwin-amd64-legacy": "GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 GOWORK=off"}
+	for _, tgt := range relconfig.Targets() {
+		want[tgt.OS+"-"+tgt.Arch] = fmt.Sprintf("GOOS=%s GOARCH=%s CGO_ENABLED=0 GOWORK=off", tgt.OS, tgt.Arch)
+	}
+	if got := f.buildEnvs(t); !maps.Equal(got, want) {
+		t.Fatalf("compile environments = %v, want %v", got, want)
+	}
+}
+
+func TestOrchestrateSignsLegacyOnlyOnDarwinHost(t *testing.T) {
+	installFakeGo(t)
+	repo := t.TempDir()
+	writeFixtureModule(t, repo)
+	for _, host := range []string{"darwin", "linux"} {
+		t.Setenv("FAKE_SIGN_LOG", filepath.Join(t.TempDir(), "sign.log"))
+		out := t.TempDir()
+		res, err := orchestrate(context.Background(), Options{
+			Component: "umbree", OutDir: out, RepoDir: repo, SkipGate: true, Apple: true, HostOS: host,
+		})
+		if err != nil {
+			t.Fatalf("host %s: %v", host, err)
+		}
+		bin := filepath.Join(out, res.Stamp, "darwin-amd64-legacy", "umbree")
+		if signed := strings.Contains(signLog(t), "sign "+bin+"\n"); signed != (host == "darwin") {
+			t.Fatalf("host %s: legacy binary signed = %v; sign tool log = %q", host, signed, signLog(t))
+		}
 	}
 }
 

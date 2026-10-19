@@ -27,6 +27,7 @@ type Options struct {
 	Apple                      bool
 	DryRun                     bool
 	Channel                    string
+	HostOS                     string
 }
 
 type Result struct {
@@ -345,7 +346,7 @@ func compileAll(ctx context.Context, o Options, stamp string) ([]build.Artifact,
 		return nil, fmt.Errorf("compile %s: %w", o.Component, err)
 	}
 	lb := legacyBuild{RepoDir: o.RepoDir, SrcDir: o.SrcDir, OutDir: outDir, Target: relconfig.LegacyTarget(), Bins: bins}
-	if runtime.GOOS == "darwin" {
+	if hostOS(o) == "darwin" {
 		lb.Signer = signer
 	}
 	legacy, err := compileLegacy(ctx, lb)
@@ -353,6 +354,13 @@ func compileAll(ctx context.Context, o Options, stamp string) ([]build.Artifact,
 		return nil, fmt.Errorf("compile %s: %w", o.Component, err)
 	}
 	return append(arts, legacy...), nil
+}
+
+func hostOS(o Options) string {
+	if o.HostOS != "" {
+		return o.HostOS
+	}
+	return runtime.GOOS
 }
 
 func verifyNoEnv(ctx context.Context, repoDir string, arts []build.Artifact) error {
