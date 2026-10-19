@@ -45,6 +45,24 @@ one that does not go public: nothing reaches users until an operator promotes
 the row in the manage console. A runbook step, habit or check that assumed
 "cut = live" is wrong now; read it again before relying on it.
 
+## The fifth zip: a pinned toolchain, and no pre-legacy stamp
+
+Every cut builds `<comp>-darwin-amd64-legacy.zip` beside the four stock zips,
+through the `crypto/x509` overlay in `tools/legacy/darwin/`. Two things follow
+that no script can arrange for you:
+
+- **The cut host's `go` is the pinned SDK.** `rkit build` refuses before
+  stamping when `go version` is not exactly `tools/legacy/darwin/GO_VERSION`.
+  The fix is the env file `release.command` sources — the SDK first on `PATH`,
+  `GOTOOLCHAIN=local` — never an edit to `GO_VERSION`: the overlay is a copy of
+  stdlib files valid for that one release, and moving the pin means re-deriving
+  the overlay upstream and re-syncing it (`tools/legacy/darwin/README.md`).
+- **A `dist/<stamp>/` built before this change cannot be cut.**
+  `release.sh --distribute-only` refuses a stage without the component's
+  legacy zip; rebuild it. A row already staged from four zips is promotable,
+  but promote it before the console that serves the legacy-aware bootstrap is
+  deployed, or not at all.
+
 ## Unpushed `main` refuses the cut
 
 The cut-origin guard (`tools/release_origin.sh`) asserts this repo is on

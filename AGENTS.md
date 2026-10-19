@@ -43,7 +43,7 @@ for `cmd/rkit`. A change to a tool changes its test in the same commit.
 ## Cutting a release
 
 The whole procedure is `README.md` → "How releases are made", with the beta
-channel in "Beta channel". Four repo-specific facts that decide whether a cut
+channel in "Beta channel". Five repo-specific facts that decide whether a cut
 can run at all:
 
 - **Launch `tools/release.command` in a real desktop session**, unmodified.
@@ -61,6 +61,16 @@ can run at all:
   pushing it, so a batch passes it: a fast-forward, or a merge (no checkout, no
   force) when `dev` has diverged; it stops only on a conflict or a `dev` that
   moved mid-cut, naming the manual merge (`tools/RUNBOOK.md`).
+- **The cut's `go` is pinned.** Every cut builds five zips per component: the
+  four stock targets and `darwin-amd64-legacy` (Intel macOS 10.15–11), which
+  `rkit build` compiles through the `crypto/x509` overlay in
+  `tools/legacy/darwin/` (`cmd/rkit/legacy.go`). The overlay is valid for one
+  stdlib only, so `rkit build` refuses before stamping unless `go version`
+  prints exactly `tools/legacy/darwin/GO_VERSION`; the env file
+  `tools/release.command` sources must put that SDK first on `PATH` with
+  `GOTOOLCHAIN=local`. `release.sh --distribute-only` refuses a stage without
+  `<comp>-darwin-amd64-legacy.zip`. The overlay is a pinned copy of
+  Burrowee's; `tools/legacy/darwin/README.md` says how to re-sync it.
 - **Hosts, static paths and credentials are never written in this repo.** They
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
