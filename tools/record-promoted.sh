@@ -20,7 +20,8 @@ from a second fetch.
 
 On a live answer it writes versions/<component>.stamp, regenerates the
 committed bootstraps with tools/gen-bootstraps.sh, and makes one marker commit
-[PROMOTED: <component>] <stamp> carrying the floor and <component>/install.sh.
+[PROMOTED: <component>] <stamp> carrying the floor, <component>/install.sh and
+<component>/upgrade.sh.
 The served bootstrap was already republished by the manage service at the end
 of the promote; this keeps the committed copy byte-identical to it. It pushes
 nothing: push main and merge it into dev as after any marker.
@@ -69,16 +70,16 @@ LIVE="$4"
 
 printf '%s\n' "${LIVE}" > "${ROOT}/versions/${COMP}.stamp"
 ( cd "${ROOT}" && sh tools/gen-bootstraps.sh ) >&2 || {
-    "${GIT}" -C "${ROOT}" checkout -q -- "versions/${COMP}.stamp" "${COMP}/install.sh"
-    echo "✗ gen-bootstraps.sh failed — the floor and the bootstrap were restored; nothing recorded" >&2
+    "${GIT}" -C "${ROOT}" checkout -q -- "versions/${COMP}.stamp" "${COMP}/install.sh" "${COMP}/upgrade.sh"
+    echo "✗ gen-bootstraps.sh failed — the floor and both bootstraps were restored; nothing recorded" >&2
     exit 1
 }
-"${GIT}" -C "${ROOT}" add -- "versions/${COMP}.stamp" "${COMP}/install.sh"
+"${GIT}" -C "${ROOT}" add -- "versions/${COMP}.stamp" "${COMP}/install.sh" "${COMP}/upgrade.sh"
 if "${GIT}" -C "${ROOT}" diff --cached --quiet; then
     echo "✓ ${COMP} ${LIVE} is already recorded — nothing to commit"
     exit 0
 fi
 "${GIT}" -C "${ROOT}" commit -q -m "[PROMOTED: ${COMP}] ${LIVE}"
-echo "✓ recorded ${COMP} ${LIVE}: versions/${COMP}.stamp and ${COMP}/install.sh in one marker commit"
+echo "✓ recorded ${COMP} ${LIVE}: versions/${COMP}.stamp, ${COMP}/install.sh and ${COMP}/upgrade.sh in one marker commit"
 left="$("${GIT}" -C "${ROOT}" status --porcelain --untracked-files=no)"
 [ -z "${left}" ] || echo "⚠ gen-bootstraps.sh also changed files this marker does not carry (the committed bootstraps were stale): ${left}" >&2

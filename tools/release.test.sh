@@ -154,7 +154,8 @@ check_contains "…plans no GitHub Release" "$out" "no GitHub Release"
 check_lacks "…never plans gh release create" "$out" "gh release create"
 last_would="$(printf '%s\n' "$out" | grep '^would:   ' | tail -n1)"
 check "…latest.json is the last planned key" "$last_would" "would:   umbree/beta/latest.json (last)"
-check_contains "…twins only to the host" "$out" "scp ONLY beta.install.sh + beta.version.js"
+check_contains "…twins only to the host" "$out" "scp ONLY beta.install.sh + beta.upgrade.sh + beta.version.js"
+check_contains "…renders both beta bootstraps" "$out" "render umbree/beta.install.sh and umbree/beta.upgrade.sh"
 check_lacks "…beta plans no gated stage" "$out" "would: stage"
 check_lacks "…and names no production channel" "$out" "production"
 check "…no tag was created" "$(/usr/bin/git -C "$REL" tag -l)" ""
@@ -418,7 +419,19 @@ undo_cut
 echo "# beta verb unchanged"
 sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 check "beta verb unchanged: publish_beta is byte-identical to the 01 baseline" \
-    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "b5851de6642a4a1974e556b3c298ca2eceedadb32e2400c81c7ab0e12ea285e9"
+    "$(awk '/^publish_beta\(\) \{/,/^}/' "$R" | sha_of)" "e2f3a9335ee628655ab665c1c8527aed7cdf1a183fe3449642aa2d020f69646c"
+
+echo "# copy_beta_twins copies all three twins"
+CBT="$(awk '/^copy_beta_twins\(\) \{/,/^}/' "$R")"
+check "copy_beta_twins extracted" "$([ -n "$CBT" ] && echo yes)" "yes"
+: > "$CALLS"
+PATH="$STUB:$PATH" REPO_ROOT=/rr RELEASE_HOST=relhost STATIC_DIR=/srv/static bash -c "$CBT"'
+copy_beta_twins umbree'
+check "…makes the component directory, then copies exactly the three twins" "$(cat "$CALLS")" "ssh relhost mkdir -p '/srv/static/umbree'
+scp -q /rr/umbree/beta.install.sh relhost:/srv/static/umbree/beta.install.sh
+scp -q /rr/umbree/beta.upgrade.sh relhost:/srv/static/umbree/beta.upgrade.sh
+scp -q /rr/umbree/beta.version.js relhost:/srv/static/umbree/beta.version.js"
+: > "$CALLS"
 
 echo "# distribute_only has no publish call"
 STABLE_BODY=""

@@ -157,6 +157,35 @@ verifier.
   never a GitHub Release). Same `UMBREE_VERSION` pin, same env contract as
   `install.sh`. See "Beta channel" below.
 
+- **`upgrade.sh`** — each component also has
+  `https://release.umbree.org/<comp>/upgrade.sh`, rendered from the same
+  template as `install.sh`, so it carries the same public key, version floor,
+  manifest resolution, signature and checksum checks. It installs the verified
+  kit exactly as `install.sh` does, then forces the kit's upgrade step:
+  - a kit that ships a migration ladder (`migrations/upgrade.sh` inside the
+    zip) has it run, with the optional `<line>` argument handed to it verbatim
+    (`curl … /umbree/upgrade.sh | sh -s -- 0.1.9`; the line must be `X.Y.Z`).
+    Its exits are mapped: 0 (nothing to apply) and 2 (rungs ran) are both
+    success, exit 0; 1 is a refusal or failure, exit 1; 3 (a receipt was lost,
+    re-runnable) and 64 (a rejected command line) pass through as themselves.
+    A kit whose `migrations/upgrade.sh` is empty or unreadable, or that has no
+    `migrations/run.sh` beside it, is refused by name before anything is
+    installed;
+  - an `umbreed` kit with no ladder runs `/usr/local/umbree/bin/umbreed restart`
+    as you — it elevates only the restart, from your terminal when there is
+    one, never from the script's own stdin. If it cannot restart, the new
+    binary stays installed and the script exits 1 printing
+    `sudo /usr/local/umbree/bin/umbreed service restart`;
+  - any other kit with no ladder is refused after its install, naming the
+    component and the stamp; a `<line>` given to a kit with no ladder is
+    refused before anything is installed.
+
+  Which of these runs is decided by the kit at install time, so a kit that
+  gains a ladder needs no release-repo change. `install.sh` takes no
+  arguments, and `upgrade.sh` at most the one line; anything else is refused
+  before any download. `umbreed update` (the daemon's own verb) uses
+  `install.sh` and does its own restart; `upgrade.sh` is the by-hand path.
+
 ## Verify by hand
 
 The signing public key lives in this repo (`umbree-release.pub`) and is

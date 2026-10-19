@@ -4,7 +4,7 @@
 {{if .Token}}
 <div id="confirm-strip" data-verb="republish">
 <section class="panel">
-  <p>Renders <code>{{.Component}}/install.sh</code> from the public manifest as it is at the moment you confirm, with the manifest's stamp as the installer's version floor, and copies it, the public key and the site page to the static host. It changes no catalog row and no download.</p>
+  <p>Renders <code>{{.Component}}/install.sh</code> and <code>{{.Component}}/upgrade.sh</code> from the public manifest as it is at the moment you confirm, with the manifest's stamp as the bootstraps' version floor, and copies them, the public key and the site page to the static host. It changes no catalog row and no download.</p>
   <form method="post" action="{{.Action}}">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <input type="hidden" name="confirm" value="{{.Token}}">

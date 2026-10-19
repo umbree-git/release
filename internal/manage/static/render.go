@@ -19,6 +19,8 @@ const (
 	SitePath      = "site/index.html"
 	FaviconPath   = "site/favicon.svg"
 	ServedChannel = "stable"
+	ModeInstall   = "install"
+	ModeUpgrade   = "upgrade"
 )
 
 var (
@@ -162,9 +164,12 @@ func (r Renderer) PublicKeyLine() (string, error) {
 	return key, nil
 }
 
-func checkInputs(component, floor, downloadsBase string) error {
+func checkInputs(component, mode, floor, downloadsBase string) error {
 	if !slices.Contains(layout.Components, component) {
 		return fmt.Errorf("%w: unknown component %q", ErrBadInput, component)
+	}
+	if mode != ModeInstall && mode != ModeUpgrade {
+		return fmt.Errorf("%w: unknown bootstrap mode %q", ErrBadInput, mode)
 	}
 	if !layout.StableStampRe.MatchString(floor) {
 		return fmt.Errorf("%w: the floor %q is not a stable stamp", ErrBadInput, floor)
@@ -175,8 +180,8 @@ func checkInputs(component, floor, downloadsBase string) error {
 	return nil
 }
 
-func (r Renderer) Bootstrap(component, floor, downloadsBase string) ([]byte, error) {
-	if err := checkInputs(component, floor, downloadsBase); err != nil {
+func (r Renderer) Bootstrap(component, mode, floor, downloadsBase string) ([]byte, error) {
+	if err := checkInputs(component, mode, floor, downloadsBase); err != nil {
 		return nil, err
 	}
 	pubkey, err := r.PublicKeyLine()
@@ -194,7 +199,7 @@ func (r Renderer) Bootstrap(component, floor, downloadsBase string) ([]byte, err
 	out := string(expanded)
 	for _, p := range [][2]string{
 		{"@COMP@", component}, {"@PUBKEY@", pubkey}, {"@BRAND@", "UMBREE"}, {"@brand@", "umbree"},
-		{"@CHANNEL@", ServedChannel}, {"@MIN_VERSION@", floor}, {"@DOWNLOADS_BASE@", downloadsBase}, {"@TEST_SEAM@", ""},
+		{"@CHANNEL@", ServedChannel}, {"@MODE@", mode}, {"@MIN_VERSION@", floor}, {"@DOWNLOADS_BASE@", downloadsBase}, {"@TEST_SEAM@", ""},
 	} {
 		out = strings.ReplaceAll(out, p[0], p[1])
 	}

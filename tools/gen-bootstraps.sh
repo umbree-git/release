@@ -11,14 +11,17 @@ usage() {
     cat <<'EOF'
 Usage: tools/gen-bootstraps.sh [--test-build <dir>]
 
-Render <comp>/install.sh for every component from tools/bootstrap.template.sh,
-and <comp>/beta.install.sh while versions/<comp>.beta.stamp exists. A stale
-twin is removed when its stamp is gone.
+Render <comp>/install.sh and <comp>/upgrade.sh for every component from
+tools/bootstrap.template.sh, and the beta.install.sh and beta.upgrade.sh twins
+while versions/<comp>.beta.stamp exists. A stale twin is removed when its stamp
+is gone.
 
   --test-build <dir>  render into <dir>/<comp>/ instead of the repository, with
                       the test seam filled: UMBREE_TEST_ALLOW_HTTP=1 accepts an
                       http://127.0.0.1:<port> downloads base and UMBREE_DL_BASE
-                      overrides the per-release download base. <dir> must exist
+                      overrides the per-release download base, and
+                      UMBREE_TEST_UMBREED_EXEC names the umbreed binary an
+                      upgrade.sh restarts. <dir> must exist
                       and resolve (pwd -P) outside the repository. A test build
                       is never published.
   -h, --help          print this text
@@ -33,7 +36,7 @@ Environment:
 EOF
 }
 
-TEST_SEAM='DL_BASE="${UMBREE_DL_BASE:-}"; if [ "${UMBREE_TEST_ALLOW_HTTP:-}" = 1 ]; then ALLOW_LOOPBACK_HTTP=1; fi; case "$DL_BASE$ALLOW_LOOPBACK_HTTP" in 0) ;; *) CURL="curl -fsSL --proto =http --proto-redir =http --connect-timeout 15 --max-time 60" ;; esac'
+TEST_SEAM='DL_BASE="${UMBREE_DL_BASE:-}"; if [ "${UMBREE_TEST_ALLOW_HTTP:-}" = 1 ]; then ALLOW_LOOPBACK_HTTP=1; fi; case "$DL_BASE$ALLOW_LOOPBACK_HTTP" in 0) ;; *) CURL="curl -fsSL --proto =http --proto-redir =http --connect-timeout 15 --max-time 60" ;; esac; UMBREED_EXEC="${UMBREE_TEST_UMBREED_EXEC:-$UMBREED_EXEC}"'
 
 resolve_test_dir() {
     [ -d "$1" ] || { echo "✗ --test-build: $1 is not a directory" >&2; return 2; }
@@ -176,13 +179,13 @@ COMPONENTS="$(cd "$ROOT" && go run ./cmd/rkit components)" || {
 [ -n "$COMPONENTS" ] || { echo "gen-bootstraps: rkit returned no components" >&2; exit 1; }
 
 render() {
-    comp="$1"; channel="$2"; min_version="$3"; out="$4"
+    comp="$1"; channel="$2"; min_version="$3"; out="$4"; mode="$5"
     tmp="$out.tmp.$$"
     exp="$out.exp.$$"
     expand_includes "$TEMPLATE" > "$exp"
     sed -e "s|@COMP@|$comp|g" -e "s|@PUBKEY@|$PUBKEY|g" \
         -e "s|@BRAND@|UMBREE|g" -e "s|@brand@|umbree|g" \
-        -e "s|@CHANNEL@|$channel|g" -e "s|@MIN_VERSION@|$min_version|g" \
+        -e "s|@CHANNEL@|$channel|g" -e "s|@MODE@|$mode|g" -e "s|@MIN_VERSION@|$min_version|g" \
         -e "s|@DOWNLOADS_BASE@|$DOWNLOADS_BASE|g" -e "s|@TEST_SEAM@|$SEAM|g" \
         "$exp" > "$tmp"
     rm -f "$exp"
@@ -216,10 +219,14 @@ for comp in $COMPONENTS; do
                 continue
             fi
             min_version="$(UMBREE_MIN_VERSION_FILE="$beta_stamp" min_version_of "$comp")"
-            render "$comp" beta "$min_version" "$OUT_ROOT/$comp/beta.install.sh"
+            for mode in install upgrade; do
+                render "$comp" beta "$min_version" "$OUT_ROOT/$comp/beta.$mode.sh" "$mode"
+            done
         else
             min_version="$(min_version_of "$comp")"
-            render "$comp" stable "$min_version" "$OUT_ROOT/$comp/install.sh"
+            for mode in install upgrade; do
+                render "$comp" stable "$min_version" "$OUT_ROOT/$comp/$mode.sh" "$mode"
+            done
         fi
     done
 done
