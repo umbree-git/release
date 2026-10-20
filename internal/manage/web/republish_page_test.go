@@ -76,3 +76,14 @@ func TestRepublishControlAbsentWithoutPublisher(t *testing.T) {
 		t.Fatalf("no publisher: HTTP %d", r.status)
 	}
 }
+
+func TestRepublishPreviewNamesBothBootstraps(t *testing.T) {
+	c := newConsole(t, func(d *publish.Deps) { d.Static = &countingStatic{} })
+	b := c.signedIn("ops")
+	r := b.post(republishControl, url.Values{auth.CSRFField: {b.csrf()}})
+	for _, want := range []string{"<code>umbree/install.sh</code>", "<code>umbree/upgrade.sh</code>"} {
+		if r.status != http.StatusOK || !strings.Contains(r.body, want) {
+			t.Fatalf("the republish confirmation does not name %s: HTTP %d %s", want, r.status, r.body)
+		}
+	}
+}

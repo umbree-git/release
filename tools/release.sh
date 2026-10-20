@@ -12,13 +12,15 @@ Usage:
 This repo has NO shell build path. Building, signing, and (with --apple)
 notarizing the artifact set live entirely in `rkit build` (the produce half),
 which stamps + cross-compiles the component for darwin/{arm64,amd64} +
-linux/{arm64,amd64}, writes SHA256SUMS.txt, and minisign-signs it into
-dist/<stamp>/. Nothing here builds, signs, notarizes or bumps a version.
+linux/{arm64,amd64} and darwin-amd64-legacy (Intel macOS 10.15–11, built
+through tools/legacy/darwin on the pinned toolchain), writes SHA256SUMS.txt,
+and minisign-signs it into dist/<stamp>/. Nothing here builds, signs,
+notarizes or bumps a version.
 
 --distribute-only (STABLE) makes nothing public. After the pre-flight (staged
 dir, module gate, cut-origin guard with its main→dev sync-back check, the
-release key check, the gated store and manage service settings, and no
-existing local tag) it:
+<comp>-darwin-amd64-legacy.zip the stage must carry, the release key check,
+the gated store and manage service settings, and no existing local tag) it:
   1. stages every artifact to the private gated store under
      <comp>/production/<stamp>/ and writes dist/<stamp>/gated-receipt.json;
   2. registers the row as staged with the manage service (rkit register,
@@ -41,8 +43,8 @@ promote through tools/record-promoted.sh and is never written by a cut.
 --channel beta is dormant: Umbree has no beta stage. Unlike the stable verb
 it would publish at the cut, to the public download bucket, with no gated
 store or promote in front of it: tag and push, upload to <comp>/beta/<stamp>/
-with <comp>/beta/latest.json last, render and scp the beta.install.sh and
-beta.version.js twins to RELEASE_HOST:STATIC_DIR, and a
+with <comp>/beta/latest.json last, render and scp the beta.install.sh,
+beta.upgrade.sh and beta.version.js twins to RELEASE_HOST:STATIC_DIR, and a
 [RELEASED: <comp> beta] … (private) marker commit.
 
 On --dry-run: validates the staged dir + component, runs the gates in
@@ -277,7 +279,7 @@ mirror_r2() {
     echo "✗ R2 mirror FAILED for ${comp} ${stamp} — stopping the ${channel} publish here." >&2
     if [ "${channel}" = beta ]; then
         echo "  State: the tag ${comp}/${stamp} IS pushed; the beta catalog did NOT update;" >&2
-        echo "  beta.install.sh / beta.version.js, the scp to the release host and the" >&2
+        echo "  beta.install.sh / beta.upgrade.sh / beta.version.js, the scp to the release host and the" >&2
         echo "  [RELEASED: ${comp} beta] marker commit did NOT run. No GitHub Release exists" >&2
         echo "  (a beta never creates one)." >&2
         echo "  Recover by hand — re-run the mirror with the arguments above, then" >&2
@@ -301,6 +303,14 @@ validate_stage() {
     done
     compgen -G "${stage}/${comp}-*.zip" >/dev/null \
         || { echo "✗ no ${comp}-*.zip found in ${stage} (rkit build must produce it)" >&2; exit 1; }
+}
+
+require_legacy_zip() {
+    local comp="$1" stage="$2"
+    [ -f "${stage}/${comp}-darwin-amd64-legacy.zip" ] || {
+        echo "✗ no ${comp}-darwin-amd64-legacy.zip in ${stage} — a stable cut ships all five zips; rebuild with rkit build on the pinned toolchain (tools/legacy/darwin/GO_VERSION)" >&2
+        exit 1
+    }
 }
 
 verify_release_key() {
@@ -487,6 +497,7 @@ distribute_only() {
     local comp="$1" stamp="$2"
     local stage="${REPO_ROOT}/dist/${stamp}"
     publish_preflight "${comp}" "${stamp}" stable
+    require_legacy_zip "${comp}" "${stage}"
     if [ "${DRY_RUN}" = 1 ]; then
         distribute_dry_run "${comp}" "${stamp}"
         return 0
@@ -526,6 +537,34 @@ register_only() {
     echo "  Promote it in the manage console: ${UMBREE_MANAGE_URL%/}/manage/$(gated_channel_for stable)/${comp} (row ${CUT_ROW})"
 }
 
+beta_dry_run() {
+    local comp="$1" stamp="$2" stage="$3" f
+    local bucket="${UMBREE_R2_BUCKET:-umbree-downloads}"
+    echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
+    r2_configured || echo "would: REFUSE — beta is R2-only and UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS are not set"
+    echo "would: git tag ${comp}/${stamp} and push the tag (no GitHub Release — beta is private, R2-only)"
+    echo "would: upload to R2 bucket ${bucket}:"
+    for f in "${stage}/${comp}"-*.zip "${stage}/SHA256SUMS.txt" "${stage}/SHA256SUMS.txt.minisig"; do
+        [ -f "${f}" ] && echo "would:   ${comp}/beta/${stamp}/$(basename "${f}")"
+    done
+    echo "would:   ${comp}/beta/latest.json (last)"
+    echo "would: write versions/${comp}.beta.stamp = ${stamp}"
+    echo "would: gen-bootstraps.sh (render ${comp}/beta.install.sh and ${comp}/beta.upgrade.sh)"
+    echo "would: gen-version-jsonp.sh --channel beta ${comp} (render ${comp}/beta.version.js)"
+    echo "would: scp ONLY beta.install.sh + beta.upgrade.sh + beta.version.js to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
+    echo "would: marker commit [RELEASED: ${comp} beta] ${stamp} (private)"
+    echo "✓ dry-run beta publish: no real writes"
+}
+
+copy_beta_twins() {
+    local comp="$1" f
+    # shellcheck disable=SC2029
+    ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
+    for f in beta.install.sh beta.upgrade.sh beta.version.js; do
+        scp -q "${REPO_ROOT}/${comp}/${f}" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/${f}"
+    done
+}
+
 publish_beta() {
     local comp="$1" stamp="$2"
     local stage="${REPO_ROOT}/dist/${stamp}"
@@ -538,23 +577,8 @@ publish_beta() {
 
     bash "${REPO_ROOT}/tools/version.sh" "${comp}" --channel beta --assert-beta-above-stable || exit 1
 
-    local bucket="${UMBREE_R2_BUCKET:-umbree-downloads}"
     if [ "${DRY_RUN}" = 1 ]; then
-        echo "would: verify SHA256SUMS.txt.minisig against umbree-release.pub"
-        r2_configured || echo "would: REFUSE — beta is R2-only and UMBREE_R2_ACCOUNT/UMBREE_R2_CREDS are not set"
-        echo "would: git tag ${comp}/${stamp} and push the tag (no GitHub Release — beta is private, R2-only)"
-        echo "would: upload to R2 bucket ${bucket}:"
-        local f
-        for f in "${stage}/${comp}"-*.zip "${stage}/SHA256SUMS.txt" "${stage}/SHA256SUMS.txt.minisig"; do
-            [ -f "${f}" ] && echo "would:   ${comp}/beta/${stamp}/$(basename "${f}")"
-        done
-        echo "would:   ${comp}/beta/latest.json (last)"
-        echo "would: write versions/${comp}.beta.stamp = ${stamp}"
-        echo "would: gen-bootstraps.sh (render ${comp}/beta.install.sh)"
-        echo "would: gen-version-jsonp.sh --channel beta ${comp} (render ${comp}/beta.version.js)"
-        echo "would: scp ONLY beta.install.sh + beta.version.js to ${RELEASE_HOST}:${STATIC_DIR}/${comp}/"
-        echo "would: marker commit [RELEASED: ${comp} beta] ${stamp} (private)"
-        echo "✓ dry-run beta publish: no real writes"
+        beta_dry_run "${comp}" "${stamp}" "${stage}"
         return 0
     fi
 
@@ -577,12 +601,9 @@ publish_beta() {
     bash "${REPO_ROOT}/tools/gen-bootstraps.sh" >&2
     bash "${REPO_ROOT}/tools/gen-version-jsonp.sh" --channel beta "${comp}" >&2
 
-    # shellcheck disable=SC2029
-    ssh "${RELEASE_HOST}" "mkdir -p '${STATIC_DIR}/${comp}'"
-    scp -q "${REPO_ROOT}/${comp}/beta.install.sh" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.install.sh"
-    scp -q "${REPO_ROOT}/${comp}/beta.version.js" "${RELEASE_HOST}:${STATIC_DIR}/${comp}/beta.version.js"
+    copy_beta_twins "${comp}"
 
-    git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.version.js"
+    git add "versions/${comp}.beta" "versions/${comp}.beta.stamp" "${comp}/beta.install.sh" "${comp}/beta.upgrade.sh" "${comp}/beta.version.js"
     git commit --allow-empty -m "[RELEASED: ${comp} beta] $(date -u +%Y-%m-%d) ${stamp} (private)"
 
     apply_retention "${comp}" beta

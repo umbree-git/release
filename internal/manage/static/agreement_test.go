@@ -119,7 +119,7 @@ func TestStaticRenderMatchesShellGenerators(t *testing.T) {
 	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}, "tools/gen-bootstraps.sh")
 	r := static.NewRenderer(release.Assets)
 	for comp, stamp := range fixtureStamps {
-		got, err := r.Bootstrap(comp, stamp, fixtureBase)
+		got, err := r.Bootstrap(comp, static.ModeInstall, stamp, fixtureBase)
 		if err != nil {
 			t.Fatalf("%s: %v", comp, err)
 		}
@@ -141,7 +141,7 @@ func TestStaticRenderMatchesCommittedBootstraps(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := r.Bootstrap(comp, strings.TrimSpace(string(floor)), "https://downloads.umbree.org")
+		got, err := r.Bootstrap(comp, static.ModeInstall, strings.TrimSpace(string(floor)), "https://downloads.umbree.org")
 		if err != nil {
 			t.Fatalf("%s: %v", comp, err)
 		}
@@ -167,7 +167,7 @@ func TestNoPlaceholderSurvives(t *testing.T) {
 		t.Fatalf("the template carries %d placeholders; the check below would prove nothing", n)
 	}
 	for comp, stamp := range fixtureStamps {
-		goRender, err := r.Bootstrap(comp, stamp, fixtureBase)
+		goRender, err := r.Bootstrap(comp, static.ModeInstall, stamp, fixtureBase)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -199,7 +199,7 @@ func TestStaticStripAgreesWithShellOnEdgeCases(t *testing.T) {
 	}
 	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}, "tools/gen-bootstraps.sh")
 	r := static.NewRenderer(fixtureAssets(template, map[string]string{"edge": edgeModule}))
-	got, err := r.Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase)
+	got, err := r.Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,5 +224,40 @@ func TestStaticStripAgreesWithShellOnEdgeCases(t *testing.T) {
 	cmd.Dir, cmd.Env = dir, []string{"PATH=" + filepath.Join(dir, ".stub") + ":/usr/local/bin:/usr/bin:/bin", "HOME=" + dir, "UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "continuation") {
 		t.Fatalf("gen-bootstraps.sh joined a continued line onto the command after a stripped comment: %v %s", err, out)
+	}
+}
+
+func TestRenderersAgreeOnUpgrade(t *testing.T) {
+	dir := shellTree(t)
+	runShell(t, dir, []string{"UMBREE_R2_DOWNLOADS_BASE=" + fixtureBase}, "tools/gen-bootstraps.sh")
+	r := static.NewRenderer(release.Assets)
+	root := repoRoot(t)
+	for comp, stamp := range fixtureStamps {
+		got, err := r.Bootstrap(comp, static.ModeUpgrade, stamp, fixtureBase)
+		if err != nil {
+			t.Fatalf("%s: %v", comp, err)
+		}
+		want, err := os.ReadFile(filepath.Join(dir, comp, "upgrade.sh"))
+		if err != nil {
+			t.Fatalf("gen-bootstraps.sh rendered no %s/upgrade.sh: %v", comp, err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s/upgrade.sh: the Go render differs from gen-bootstraps.sh (%s)", comp, firstDifference(got, want))
+		}
+		floor, err := os.ReadFile(filepath.Join(root, "versions", comp+".stamp"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		committed, err := r.Bootstrap(comp, static.ModeUpgrade, strings.TrimSpace(string(floor)), "https://downloads.umbree.org")
+		if err != nil {
+			t.Fatal(err)
+		}
+		onDisk, err := os.ReadFile(filepath.Join(root, comp, "upgrade.sh"))
+		if err != nil {
+			t.Fatalf("no committed %s/upgrade.sh: %v", comp, err)
+		}
+		if !bytes.Equal(committed, onDisk) {
+			t.Errorf("%s/upgrade.sh: the Go render differs from the committed bootstrap (%s)", comp, firstDifference(committed, onDisk))
+		}
 	}
 }

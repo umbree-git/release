@@ -47,4 +47,13 @@ grep -q 'echo fresh'    "$W/local/tools/modules/platform-detect.sh" || die "NEW 
     || die "the NEW path copied in a module recorded in MODULES.exclude"
 grep -q 'echo local-fork-lives-in-the-template' "$W/local/tools/modules/version-resolve.sh" \
     || die "an excluded module was overwritten by the UPDATED path"
-printf '\nALL OK — six verdicts; only UPDATED and NEW copy, and neither touches an excluded module\n'
+sha_of() {
+    if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+    else sha256sum "$1" | awk '{print $1}'; fi
+}
+upstream_v2=089a98222549899d073af735977aa3341486c9cb06169a247a35674d6832f4d7
+lock_row="$(awk '$1 == "platform-detect" { print $2, $3 }' "$HERE/tools/modules/MODULES.lock")"
+[ "$lock_row" = "v2 $upstream_v2" ] || die "MODULES.lock carries platform-detect '$lock_row', want v2 at the adopted upstream bytes $upstream_v2"
+[ "$(sha_of "$HERE/tools/modules/platform-detect.sh")" = "$upstream_v2" ] \
+    || die "tools/modules/platform-detect.sh is not the adopted v2: a local edit is a LOCAL FORK on the next sync"
+printf '\nALL OK — six verdicts; only UPDATED and NEW copy, and neither touches an excluded module; platform-detect is the adopted v2\n'

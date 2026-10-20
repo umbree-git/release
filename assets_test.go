@@ -108,3 +108,23 @@ func TestSiteLoadsBothVersionScripts(t *testing.T) {
 		}
 	}
 }
+
+func TestSiteStatesLegacyMacBuild(t *testing.T) {
+	body, err := os.ReadFile("site/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(body)
+	for _, want := range []string{
+		`<tr><td>macOS 12 or later (darwin)</td><td class="yes">✓</td><td class="yes">✓</td></tr>`,
+		`<tr><td>macOS 10.15–11 (darwin)</td><td>—</td><td class="yes">✓ <code>darwin-amd64-legacy</code></td></tr>`,
+		`<span class="pill">macOS 10.15+ · Linux · arm64 + amd64</span>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("site/index.html lacks %s", want)
+		}
+	}
+	if strings.Contains(page, `<tr><td>macOS (darwin)</td>`) {
+		t.Error("site/index.html still claims every macOS on one row")
+	}
+}

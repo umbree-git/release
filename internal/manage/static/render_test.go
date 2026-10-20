@@ -55,18 +55,18 @@ func TestRenderRefusesUnexpandedInclude(t *testing.T) {
 		t.Fatalf("a missing module: %v, want ErrMissingModule", err)
 	}
 	r := static.NewRenderer(fixtureAssets("COMP=@COMP@\n  @INCLUDE:greet@\n", map[string]string{"greet": "hi\n"}))
-	if _, err := r.Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase); !errors.Is(err, static.ErrUnexpandedInclude) {
+	if _, err := r.Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase); !errors.Is(err, static.ErrUnexpandedInclude) {
 		t.Fatalf("an indented @INCLUDE survives expansion: %v, want ErrUnexpandedInclude", err)
 	}
 	keep := static.NewRenderer(fixtureAssets("COMP=@COMP@\n@INCLUDE:greet@\n", map[string]string{"greet": "hi\n"}))
-	if _, err := keep.Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase); err != nil {
+	if _, err := keep.Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase); err != nil {
 		t.Fatalf("keep-control, an anchored @INCLUDE: %v", err)
 	}
 }
 
 func TestRenderFillsTestSeamWithNothing(t *testing.T) {
 	r := static.NewRenderer(fixtureAssets("a\n@TEST_SEAM@\nb @CHANNEL@ @MIN_VERSION@ @DOWNLOADS_BASE@ @BRAND@ @brand@ @PUBKEY@\n", nil))
-	got, err := r.Bootstrap("umbreed", fixtureStamps["umbreed"], fixtureBase)
+	got, err := r.Bootstrap("umbreed", static.ModeInstall, fixtureStamps["umbreed"], fixtureBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestRenderFillsTestSeamWithNothing(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("rendered %q, want %q", got, want)
 	}
-	real, err := static.NewRenderer(release.Assets).Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase)
+	real, err := static.NewRenderer(release.Assets).Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +98,11 @@ func TestRenderRefusesBadFloorOrBase(t *testing.T) {
 		{"nosuch", fixtureStamps["umbree"], fixtureBase},
 		{"umbree|x", fixtureStamps["umbree"], fixtureBase},
 	} {
-		if out, err := r.Bootstrap(tc.comp, tc.floor, tc.base); err == nil {
+		if out, err := r.Bootstrap(tc.comp, static.ModeInstall, tc.floor, tc.base); err == nil {
 			t.Errorf("Bootstrap(%q, %q, %q) rendered %d bytes, want a refusal", tc.comp, tc.floor, tc.base, len(out))
 		}
 	}
-	if _, err := r.Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase); err != nil {
+	if _, err := r.Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase); err != nil {
 		t.Fatalf("keep-control: %v", err)
 	}
 }
@@ -204,6 +204,111 @@ func TestRenderRefusesModuleHeredoc(t *testing.T) {
 	} {
 		if _, err := static.ExpandIncludes([]byte("@INCLUDE:m@\n"), moduleNamed(map[string]string{"m": body})); err != nil {
 			t.Errorf("keep-control, %s: %v", name, err)
+		}
+	}
+}
+
+func renderBoth(t *testing.T, comp string) (install, upgrade string) {
+	t.Helper()
+	r := static.NewRenderer(release.Assets)
+	in, err := r.Bootstrap(comp, static.ModeInstall, fixtureStamps[comp], fixtureBase)
+	if err != nil {
+		t.Fatalf("%s install: %v", comp, err)
+	}
+	up, err := r.Bootstrap(comp, static.ModeUpgrade, fixtureStamps[comp], fixtureBase)
+	if err != nil {
+		t.Fatalf("%s upgrade: %v", comp, err)
+	}
+	return string(in), string(up)
+}
+
+func TestBootstrapRendersBothModes(t *testing.T) {
+	for _, comp := range []string{"umbree", "umbreed"} {
+		install, upgrade := renderBoth(t, comp)
+		for name, tc := range map[string]struct{ body, mode, self string }{
+			"install": {install, `MODE="install"`, `SELF="install.sh"`},
+			"upgrade": {upgrade, `MODE="upgrade"`, `SELF="upgrade.sh"`},
+		} {
+			if !strings.Contains(tc.body, tc.mode) || !strings.Contains(tc.body, tc.self) {
+				t.Errorf("%s %s render lacks %s or %s", comp, name, tc.mode, tc.self)
+			}
+			if strings.Contains(tc.body, "@MODE@") {
+				t.Errorf("%s %s render leaves @MODE@", comp, name)
+			}
+		}
+		if install == upgrade {
+			t.Errorf("%s: the upgrade render is the install render", comp)
+		}
+		if !strings.Contains(upgrade, "migrations/upgrade.sh") {
+			t.Errorf("%s upgrade render never looks for the kit's ladder", comp)
+		}
+	}
+	r := static.NewRenderer(release.Assets)
+	for _, mode := range []string{"", "Install", "uninstall", "upgrade|x"} {
+		if out, err := r.Bootstrap("umbree", mode, fixtureStamps["umbree"], fixtureBase); err == nil {
+			t.Errorf("mode %q rendered %d bytes, want a refusal", mode, len(out))
+		}
+	}
+}
+
+func trustBlock(body string) string {
+	var b strings.Builder
+	keep := false
+	for _, line := range strings.Split(body, "\n") {
+		switch {
+		case strings.HasPrefix(line, "PUBKEY="), strings.HasPrefix(line, "CURL="), strings.HasPrefix(line, "MIN_VERSION="),
+			strings.HasPrefix(line, "DOWNLOADS_BASE="):
+			b.WriteString(line + "\n")
+		case strings.HasPrefix(line, "# BEGIN "):
+			keep = true
+		}
+		if keep {
+			b.WriteString(line + "\n")
+		}
+		if strings.HasPrefix(line, "# END ") {
+			keep = false
+		}
+	}
+	return b.String()
+}
+
+func TestUpgradeModeSharesTheTrustBlock(t *testing.T) {
+	for _, comp := range []string{"umbree", "umbreed"} {
+		install, upgrade := renderBoth(t, comp)
+		in, up := trustBlock(install), trustBlock(upgrade)
+		for _, want := range []string{"PUBKEY=", "CURL=", "# BEGIN verify-signature", "# BEGIN verify-checksum", "# BEGIN pubkey-guard", "# BEGIN version-floor"} {
+			if !strings.Contains(up, want) {
+				t.Fatalf("%s upgrade trust block lacks %q", comp, want)
+			}
+		}
+		if in != up {
+			t.Errorf("%s: the trust block differs between install.sh and upgrade.sh", comp)
+		}
+	}
+}
+
+func TestRenderedBootstrapCarriesPlatformDetectV2(t *testing.T) {
+	for _, comp := range []string{"umbree", "umbreed"} {
+		install, upgrade := renderBoth(t, comp)
+		for mode, out := range map[string]string{"install": install, "upgrade": upgrade} {
+			begin, end := strings.Index(out, "# BEGIN platform-detect\n"), strings.Index(out, "# END platform-detect\n")
+			if begin < 0 || end < begin {
+				t.Fatalf("%s %s: the served bootstrap splices no platform-detect block", comp, mode)
+			}
+			block := out[begin:end]
+			for _, want := range []string{
+				`_pd_major="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"`,
+				`case "$_pd_major" in ''|*[!0-9]*) _pd_major=99 ;; esac`,
+				"amd64) ARCH=amd64-legacy ;;",
+				`arm64) fail "macOS $_pd_major on Apple Silicon is not supported — upgrade to macOS 12 or later" ;;`,
+			} {
+				if !strings.Contains(block, want) {
+					t.Errorf("%s %s: the served platform-detect block lacks %q", comp, mode, want)
+				}
+			}
+			if zip := strings.Index(out, `ZIP="${COMP}-${OS}-${ARCH}.zip"`); zip < end {
+				t.Errorf("%s %s: the zip name is not derived from the detected ARCH after platform-detect", comp, mode)
+			}
 		}
 	}
 }

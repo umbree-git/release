@@ -29,3 +29,9 @@ func Bins(comp, stamp string) ([]build.BinSpec, error) {
 	}
 	return nil, fmt.Errorf("unknown component %q", comp)
 }
+
+const LegacyArch = "amd64-legacy"
+
+func LegacyTarget() build.Target {
+	return build.Target{OS: "darwin", Arch: "amd64"}
+}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/burrowee-git/release-kit/build"
@@ -26,6 +27,7 @@ type Options struct {
 	Apple                      bool
 	DryRun                     bool
 	Channel                    string
+	HostOS                     string
 }
 
 type Result struct {
@@ -70,17 +72,11 @@ func runBuild(args []string) error {
 	if *appleFlag {
 		o.Apple = true
 	}
-	if (*bumpPatch && *bumpMinor) || (*bumpPatch && *bumpMajor) || (*bumpMinor && *bumpMajor) {
-		return fmt.Errorf("only one of --bump-patch|--bump-minor|--bump-major may be set")
+	bump, err := bumpOf(*bumpPatch, *bumpMinor, *bumpMajor)
+	if err != nil {
+		return err
 	}
-	switch {
-	case *bumpPatch:
-		o.Bump = "patch"
-	case *bumpMinor:
-		o.Bump = "minor"
-	case *bumpMajor:
-		o.Bump = "major"
-	}
+	o.Bump = bump
 	if o.SrcDir == "" {
 		s, err := srcDirFor(o.Component)
 		if err != nil {
@@ -96,6 +92,21 @@ func runBuild(args []string) error {
 	return buildRun(o)
 }
 
+func bumpOf(patch, minor, major bool) (string, error) {
+	if (patch && minor) || (patch && major) || (minor && major) {
+		return "", fmt.Errorf("only one of --bump-patch|--bump-minor|--bump-major may be set")
+	}
+	switch {
+	case patch:
+		return "patch", nil
+	case minor:
+		return "minor", nil
+	case major:
+		return "major", nil
+	}
+	return "", nil
+}
+
 func srcDirFor(comp string) (string, error) {
 	key := "UMBREE_SRC_" + strings.ToUpper(comp)
 	if v := os.Getenv(key); v != "" {
@@ -105,28 +116,12 @@ func srcDirFor(comp string) (string, error) {
 }
 
 func buildRun(o buildOpts) (err error) {
-	if abs, aerr := filepath.Abs(o.RepoDir); aerr == nil {
-		o.RepoDir = abs
-	} else {
-		return fmt.Errorf("resolve --repo %q: %w", o.RepoDir, aerr)
+	if err := resolveBuildDirs(&o); err != nil {
+		return err
 	}
-	if o.SrcDir == "" {
-		o.SrcDir = o.RepoDir
-	} else if abs, aerr := filepath.Abs(o.SrcDir); aerr == nil {
-		o.SrcDir = abs
-	} else {
-		return fmt.Errorf("resolve --src %q: %w", o.SrcDir, aerr)
+	if err := checkSignKeyFile(o); err != nil {
+		return err
 	}
-
-	if !o.DryRun && o.SignKey == "" {
-		return fmt.Errorf("--sign-key is required for a real build (only --dry-run defaults to the test key)")
-	}
-	if !o.DryRun {
-		if _, err := os.Stat(o.SignKey); err != nil {
-			return fmt.Errorf("--sign-key %s: %w", o.SignKey, err)
-		}
-	}
-
 	if o.Channel == "" {
 		o.Channel = relconfig.ChannelStable
 	}
@@ -136,50 +131,28 @@ func buildRun(o buildOpts) (err error) {
 		return err
 	}
 	versionSh := filepath.Join(o.RepoDir, "tools", "version.sh")
-
-	if o.Channel == relconfig.ChannelBeta {
-		cmd := exec.Command("bash", versionSh, o.Component, "--channel", "beta", "--assert-beta-above-stable")
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("beta version assert: %w", err)
-		}
+	if err := assertBetaAboveStable(o, versionSh); err != nil {
+		return err
 	}
-
-	defer func() {
-		if err != nil || o.DryRun {
-			for _, f := range []string{"versions/" + o.Component, "versions/" + o.Component + ".beta"} {
-				exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "--", f).Run()
-			}
-		}
-	}()
-
-	if !o.DryRun && o.Bump != "" {
-		cmd := exec.Command("bash", versionSh, o.Component, "--channel", o.Channel, "--bump-"+o.Bump)
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("version bump: %w", err)
-		}
-	}
-
 	ctx := context.Background()
+	if err := checkLegacyToolchain(ctx, o.RepoDir); err != nil {
+		return err
+	}
+	defer func() { restoreVersionFiles(o, err) }()
+	if err := bumpVersion(o, versionSh); err != nil {
+		return err
+	}
 	stamp, err := relconfig.StampFor(ctx, o.Channel, versionsDir, o.Component, o.SrcDir)
 	if err != nil {
 		return fmt.Errorf("stamp from %s: %w", versionFile, err)
 	}
-	distDir := filepath.Join(o.RepoDir, "dist", stamp)
-
-	if !o.NoVulncheck {
-		if err = vulncheck.Gate(ctx, []vulncheck.Module{{Name: o.Component, Dir: o.SrcDir}},
-			vulncheck.GateOpts{ReportDir: filepath.Join(distDir, "vulncheck")}); err != nil {
-			return fmt.Errorf("cve gate: %w", err)
-		}
+	if err := gateCVE(ctx, o, filepath.Join(o.RepoDir, "dist", stamp)); err != nil {
+		return err
 	}
-
 	key := o.SignKey
 	if key == "" {
 		key = filepath.Join(o.RepoDir, "tools", "testkeys", "test.key")
 	}
-
 	_, err = orchestrate(ctx, Options{
 		Component: o.Component, OutDir: filepath.Join(o.RepoDir, "dist"),
 		RepoDir: o.RepoDir, SrcDir: o.SrcDir,
@@ -189,6 +162,81 @@ func buildRun(o buildOpts) (err error) {
 		Channel: o.Channel,
 	})
 	return err
+}
+
+func restoreVersionFiles(o buildOpts, err error) {
+	if err == nil && !o.DryRun {
+		return
+	}
+	for _, f := range []string{"versions/" + o.Component, "versions/" + o.Component + ".beta"} {
+		exec.Command("git", "-C", o.RepoDir, "restore", "--staged", "--worktree", "--", f).Run()
+	}
+}
+
+func resolveBuildDirs(o *buildOpts) error {
+	abs, err := filepath.Abs(o.RepoDir)
+	if err != nil {
+		return fmt.Errorf("resolve --repo %q: %w", o.RepoDir, err)
+	}
+	o.RepoDir = abs
+	if o.SrcDir == "" {
+		o.SrcDir = o.RepoDir
+		return nil
+	}
+	abs, err = filepath.Abs(o.SrcDir)
+	if err != nil {
+		return fmt.Errorf("resolve --src %q: %w", o.SrcDir, err)
+	}
+	o.SrcDir = abs
+	return nil
+}
+
+func checkSignKeyFile(o buildOpts) error {
+	if o.DryRun {
+		return nil
+	}
+	if o.SignKey == "" {
+		return fmt.Errorf("--sign-key is required for a real build (only --dry-run defaults to the test key)")
+	}
+	if _, err := os.Stat(o.SignKey); err != nil {
+		return fmt.Errorf("--sign-key %s: %w", o.SignKey, err)
+	}
+	return nil
+}
+
+func assertBetaAboveStable(o buildOpts, versionSh string) error {
+	if o.Channel != relconfig.ChannelBeta {
+		return nil
+	}
+	cmd := exec.Command("bash", versionSh, o.Component, "--channel", "beta", "--assert-beta-above-stable")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("beta version assert: %w", err)
+	}
+	return nil
+}
+
+func bumpVersion(o buildOpts, versionSh string) error {
+	if o.DryRun || o.Bump == "" {
+		return nil
+	}
+	cmd := exec.Command("bash", versionSh, o.Component, "--channel", o.Channel, "--bump-"+o.Bump)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("version bump: %w", err)
+	}
+	return nil
+}
+
+func gateCVE(ctx context.Context, o buildOpts, distDir string) error {
+	if o.NoVulncheck {
+		return nil
+	}
+	if err := vulncheck.Gate(ctx, []vulncheck.Module{{Name: o.Component, Dir: o.SrcDir}},
+		vulncheck.GateOpts{ReportDir: filepath.Join(distDir, "vulncheck")}); err != nil {
+		return fmt.Errorf("cve gate: %w", err)
+	}
+	return nil
 }
 
 func selectSigner(apple bool) sign.Signer {
@@ -255,40 +303,82 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 			return nil, fmt.Errorf("cve gate: %w", err)
 		}
 	}
+	if err := checkLegacyToolchain(ctx, o.RepoDir); err != nil {
+		return nil, err
+	}
 	stamp, err := relconfig.StampFor(ctx, o.Channel, filepath.Join(o.RepoDir, "versions"), o.Component, o.SrcDir)
 	if err != nil {
 		return nil, err
 	}
+	arts, err := compileAll(ctx, o, stamp)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyNoEnv(ctx, o.RepoDir, arts); err != nil {
+		return nil, err
+	}
+	zips, err := assembleZips(o, stamp, arts)
+	if err != nil {
+		return nil, err
+	}
+	if err := notarizeZips(ctx, o, zips); err != nil {
+		return nil, err
+	}
+	res := &Result{Stamp: stamp, Zips: zips}
+	if err := writeSignedSums(ctx, o, stamp, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func compileAll(ctx context.Context, o Options, stamp string) ([]build.Artifact, error) {
 	bins, err := relconfig.Bins(o.Component, stamp)
 	if err != nil {
 		return nil, err
 	}
+	outDir := filepath.Join(o.OutDir, stamp)
+	signer := selectSigner(o.Apple)
 	arts, err := build.Compile(ctx, build.Spec{
-		SrcDir: o.SrcDir, OutDir: filepath.Join(o.OutDir, stamp),
-		Targets: relconfig.Targets(), Bins: bins, Signer: selectSigner(o.Apple),
+		SrcDir: o.SrcDir, OutDir: outDir,
+		Targets: relconfig.Targets(), Bins: bins, Signer: signer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile %s: %w", o.Component, err)
 	}
-	res := &Result{Stamp: stamp}
-
-	guardArgs := make([]string, 0, len(arts))
-	for _, a := range arts {
-		guardArgs = append(guardArgs, a.Path)
+	lb := legacyBuild{RepoDir: o.RepoDir, SrcDir: o.SrcDir, OutDir: outDir, Target: relconfig.LegacyTarget(), Bins: bins}
+	if hostOS(o) == "darwin" {
+		lb.Signer = signer
 	}
-	guard := exec.CommandContext(ctx, "bash", filepath.Join(o.RepoDir, "tools", "verify-no-env.sh"))
-	guard.Args = append(guard.Args, guardArgs...)
+	legacy, err := compileLegacy(ctx, lb)
+	if err != nil {
+		return nil, fmt.Errorf("compile %s: %w", o.Component, err)
+	}
+	return append(arts, legacy...), nil
+}
+
+func hostOS(o Options) string {
+	if o.HostOS != "" {
+		return o.HostOS
+	}
+	return runtime.GOOS
+}
+
+func verifyNoEnv(ctx context.Context, repoDir string, arts []build.Artifact) error {
+	guard := exec.CommandContext(ctx, "bash", filepath.Join(repoDir, "tools", "verify-no-env.sh"))
+	guard.Args = append(guard.Args, build.Paths(arts)...)
 	guard.Stdout, guard.Stderr = os.Stderr, os.Stderr
 	if err := guard.Run(); err != nil {
-		return nil, fmt.Errorf("verify-no-env: %w", err)
+		return fmt.Errorf("verify-no-env: %w", err)
 	}
+	return nil
+}
 
+func assembleZips(o Options, stamp string, arts []build.Artifact) ([]string, error) {
 	installSh := filepath.Join(o.OutDir, stamp, "install.sh")
 	installFromTree, err := renderInstall(o.Component, stamp, o.SrcDir, o.RepoDir, installSh, o.Channel)
 	if err != nil {
 		return nil, fmt.Errorf("install.sh: %w", err)
 	}
-
 	migs, err := stageMigrations(o.Component, o.SrcDir, o.RepoDir, installFromTree)
 	if err != nil {
 		return nil, err
@@ -297,31 +387,37 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 		feature := map[string]string{"umbree": "02", "umbreed": "03"}[o.Component]
 		fmt.Fprintf(os.Stderr, "⚠ %s: beta build ships an installer from %s but no install/migrations/ — feature %s adds the ladder; this beta carries none\n", o.Component, o.SrcDir, feature)
 	}
-
 	zips, err := assemble(o.Component, stamp, o.OutDir, installSh, migs, arts)
 	if err != nil {
 		return nil, fmt.Errorf("assemble: %w", err)
 	}
-	res.Zips = zips
+	return zips, nil
+}
 
-	if n, do := notarizerFor(o.Apple); do {
-		for _, zp := range res.Zips {
-			if !strings.Contains(filepath.Base(zp), "-darwin-") {
-				continue
-			}
-			if o.DryRun {
-				fmt.Fprintf(os.Stderr, "dry-run: skipping notarize of %s\n", zp)
-				continue
-			}
-			if err := n.Notarize(ctx, zp); err != nil {
-				return nil, fmt.Errorf("notarize %s: %w", zp, err)
-			}
+func notarizeZips(ctx context.Context, o Options, zips []string) error {
+	n, do := notarizerFor(o.Apple)
+	if !do {
+		return nil
+	}
+	for _, zp := range zips {
+		if !strings.Contains(filepath.Base(zp), "-darwin-") {
+			continue
+		}
+		if o.DryRun {
+			fmt.Fprintf(os.Stderr, "dry-run: skipping notarize of %s\n", zp)
+			continue
+		}
+		if err := n.Notarize(ctx, zp); err != nil {
+			return fmt.Errorf("notarize %s: %w", zp, err)
 		}
 	}
+	return nil
+}
 
+func writeSignedSums(ctx context.Context, o Options, stamp string, res *Result) error {
 	sums := filepath.Join(o.OutDir, stamp, "SHA256SUMS.txt")
 	if err := checksum.WriteSums(res.Zips, sums); err != nil {
-		return nil, fmt.Errorf("checksum: %w", err)
+		return fmt.Errorf("checksum: %w", err)
 	}
 	key := o.MinisignKey
 	if key == "" {
@@ -329,14 +425,14 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 	}
 	if _, statErr := os.Stat(key); statErr != nil {
 		if o.MinisignKey != "" {
-			return nil, fmt.Errorf("minisign key %s: %w", key, statErr)
+			return fmt.Errorf("minisign key %s: %w", key, statErr)
 		}
 	} else {
 		if err := minisign.Sign(ctx, sums, key); err != nil {
-			return nil, fmt.Errorf("minisign: %w", err)
+			return fmt.Errorf("minisign: %w", err)
 		}
 		res.Minisig = sums + ".minisig"
 	}
 	res.Sums = sums
-	return res, nil
+	return nil
 }

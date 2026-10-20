@@ -157,6 +157,35 @@ verifier.
   never a GitHub Release). Same `UMBREE_VERSION` pin, same env contract as
   `install.sh`. See "Beta channel" below.
 
+- **`upgrade.sh`** — each component also has
+  `https://release.umbree.org/<comp>/upgrade.sh`, rendered from the same
+  template as `install.sh`, so it carries the same public key, version floor,
+  manifest resolution, signature and checksum checks. It installs the verified
+  kit exactly as `install.sh` does, then forces the kit's upgrade step:
+  - a kit that ships a migration ladder (`migrations/upgrade.sh` inside the
+    zip) has it run, with the optional `<line>` argument handed to it verbatim
+    (`curl … /umbree/upgrade.sh | sh -s -- 0.1.9`; the line must be `X.Y.Z`).
+    Its exits are mapped: 0 (nothing to apply) and 2 (rungs ran) are both
+    success, exit 0; 1 is a refusal or failure, exit 1; 3 (a receipt was lost,
+    re-runnable) and 64 (a rejected command line) pass through as themselves.
+    A kit whose `migrations/upgrade.sh` is empty or unreadable, or that has no
+    `migrations/run.sh` beside it, is refused by name before anything is
+    installed;
+  - an `umbreed` kit with no ladder runs `/usr/local/umbree/bin/umbreed restart`
+    as you — it elevates only the restart, from your terminal when there is
+    one, never from the script's own stdin. If it cannot restart, the new
+    binary stays installed and the script exits 1 printing
+    `sudo /usr/local/umbree/bin/umbreed service restart`;
+  - any other kit with no ladder is refused after its install, naming the
+    component and the stamp; a `<line>` given to a kit with no ladder is
+    refused before anything is installed.
+
+  Which of these runs is decided by the kit at install time, so a kit that
+  gains a ladder needs no release-repo change. `install.sh` takes no
+  arguments, and `upgrade.sh` at most the one line; anything else is refused
+  before any download. `umbreed update` (the daemon's own verb) uses
+  `install.sh` and does its own restart; `upgrade.sh` is the by-hand path.
+
 ## Verify by hand
 
 The signing public key lives in this repo (`umbree-release.pub`) and is
@@ -212,8 +241,24 @@ installable is pinned permanently with `umbree-release-manage admin pin`.
 
 | OS | arm64 | amd64 |
 |---|---|---|
-| macOS (darwin) | ✓ | ✓ |
+| macOS (darwin) 12+ | ✓ | ✓ |
+| macOS (darwin) 10.15–11 | — | ✓ `darwin-amd64-legacy` |
 | Linux | ✓ | ✓ |
+
+Every release carries five zips per component: the four stock targets and
+`<comp>-darwin-amd64-legacy.zip`, a best-effort build for Intel Macs on macOS
+10.15 and 11. A stock darwin binary from the pinned Go links a macOS 12 API and
+aborts in dyld before `main` there; the legacy binary is the same source built
+through a pinned `crypto/x509` overlay (`tools/legacy/darwin/README.md`) and is
+signed, notarized and listed in `SHA256SUMS.txt` like the others. Apple Silicon
+below macOS 12 is not supported.
+
+The bootstrap picks the zip by itself (`tools/modules/platform-detect.sh` v2,
+adopted from Clawee): on darwin it reads the major version from
+`sw_vers -productVersion`, sends an Intel Mac below 12 to the legacy zip, and
+stops on Apple Silicon below 12 with "upgrade to macOS 12 or later". A version
+it cannot read counts as current, so that host gets the stock zip and is never
+refused. Linux is not affected.
 
 Windows is not supported.
 
@@ -225,8 +270,17 @@ public:
 - **`rkit build`** (Go orchestrator on
   [`release-kit`](https://github.com/burrowee-git/release-kit)) **produces**
   the artifacts: CVE gate (govulncheck), version stamp, `GOWORK=off` compile
-  for all four targets, Developer-ID sign + notarize (darwin), per-target zips
-  + `SHA256SUMS.txt` + minisign signature → `dist/<stamp>/`. **`--public`** is
+  for the four stock targets plus `darwin-amd64-legacy`, Developer-ID sign +
+  notarize (darwin), per-target zips + `SHA256SUMS.txt` + minisign signature →
+  `dist/<stamp>/`. The legacy target compiles with `go build -overlay` through
+  `tools/legacy/darwin/`, so **the `go` on `PATH` must be exactly
+  `tools/legacy/darwin/GO_VERSION`**: anything else stops `rkit build` before
+  the version bump, the CVE gate or the stamp. A failed overlay drift guard,
+  or a legacy binary that still imports `_SecTrustCopyCertificateChain`
+  (deleted on the spot), stops it later — after the stamp and the four stock
+  compiles, which a darwin host has already signed — but before the legacy
+  binary is signed and before anything is zipped, notarized, summed or
+  staged. The stock four never see the overlay. **`--public`** is
   the standard ship path: it turns on Apple sign+notarize and forces the CVE
   gate on. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
@@ -235,7 +289,9 @@ public:
   (`UMBREE_R2_GATED_BUCKET`), registers the release as a `staged` row with the
   manage service (`UMBREE_MANAGE_URL`, signed with the release key) and reads
   the row back, pushes the tag `<comp>/<stamp>`, and records a
-  `[RELEASED: <comp>]` marker commit carrying `versions/<comp>`. It reports the
+  `[RELEASED: <comp>]` marker commit carrying `versions/<comp>`. A stage
+  without `<comp>-darwin-amd64-legacy.zip` is refused before anything is
+  staged. It reports the
   stamp, the row and the row's console page, and stops. A refused
   registration, or a row that does not read back `staged`, stops the cut
   before the tag; `--register-only <comp> <stamp>` re-registers the staged

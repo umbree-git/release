@@ -124,7 +124,7 @@ func TestStaticDestLocalDir(t *testing.T) {
 	if !strings.Contains(summary, stamp) || !strings.Contains(summary, dir) {
 		t.Fatalf("summary %q names neither the stamp nor the dest", summary)
 	}
-	want, err := static.NewRenderer(release.Assets).Bootstrap("umbree", stamp, fixtureBase)
+	want, err := static.NewRenderer(release.Assets).Bootstrap("umbree", static.ModeInstall, stamp, fixtureBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,12 +227,12 @@ func TestStaticDestRemoteUploadsThenRenames(t *testing.T) {
 	if lastPut < 0 || lastPut > firstRename {
 		t.Fatalf("a rename precedes an upload, so a failed upload could follow a replaced file: %+v", batch)
 	}
-	want := []string{"/srv/static/favicon.svg", "/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh"}
+	want := []string{"/srv/static/favicon.svg", "/srv/static/index.html", "/srv/static/umbree-release.pub", "/srv/static/umbree/install.sh", "/srv/static/umbree/upgrade.sh"}
 	keys := slices.Sorted(maps.Keys(final))
 	if !slices.Equal(keys, want) {
 		t.Fatalf("renamed into place %v, want %v", keys, want)
 	}
-	if install, _ := static.NewRenderer(release.Assets).Bootstrap("umbree", fixtureStamps["umbree"], fixtureBase); final["/srv/static/umbree/install.sh"] != string(install) {
+	if install, _ := static.NewRenderer(release.Assets).Bootstrap("umbree", static.ModeInstall, fixtureStamps["umbree"], fixtureBase); final["/srv/static/umbree/install.sh"] != string(install) {
 		t.Fatal("the bytes renamed to install.sh are not the render")
 	}
 }
@@ -291,8 +291,32 @@ func TestPublishOmitsVersionJS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"favicon.svg", "index.html", "umbree-release.pub", "umbree/install.sh"}
+	want := []string{"favicon.svg", "index.html", "umbree-release.pub", "umbree/install.sh", "umbree/upgrade.sh"}
 	if slices.Sort(got); !slices.Equal(got, want) {
 		t.Fatalf("published %v, want %v", got, want)
+	}
+}
+
+func TestPublishIncludesUpgradeScript(t *testing.T) {
+	dir := t.TempDir()
+	p := &static.Publisher{Assets: release.Assets, Source: sourceFor(t, "umbreed"), DownloadsBase: fixtureBase,
+		Dest: static.Dest{Dir: dir}}
+	summary, err := p.Publish(context.Background(), "umbreed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary, "umbreed/upgrade.sh") {
+		t.Fatalf("summary %q does not name umbreed/upgrade.sh", summary)
+	}
+	want, err := static.NewRenderer(release.Assets).Bootstrap("umbreed", static.ModeUpgrade, fixtureStamps["umbreed"], fixtureBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "umbreed", "upgrade.sh")
+	if got := readFile(t, path); got != string(want) {
+		t.Fatal("the published upgrade.sh is not the upgrade render for the manifest's stamp")
+	}
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o755 {
+		t.Fatalf("upgrade.sh mode: %v %v, want 0755", st, err)
 	}
 }
