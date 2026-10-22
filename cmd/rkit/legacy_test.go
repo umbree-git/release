@@ -36,7 +36,7 @@ esac
 
 const callLoggerScript = `#!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$FAKE_CALLS_LOG"
-[ "$1" = -version ] && echo "Go: go1.26.9 Scanner: govulncheck@v1.1.4"
+[ "$1" = -version ] && echo "Go: go1.26.10 Scanner: govulncheck@v1.1.4"
 exit 0
 `
 
