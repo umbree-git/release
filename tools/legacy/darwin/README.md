@@ -4,7 +4,7 @@
 
 Go ≥ 1.25 verifies TLS chains on darwin through `SecTrustCopyCertificateChain`,
 a macOS 12 API that `crypto/x509` imports non-lazily. Every darwin binary built
-with the pinned go1.26.9 toolchain therefore dies in dyld, before `main`, on
+with the pinned go1.26.10 toolchain therefore dies in dyld, before `main`, on
 macOS 10.15 and 11:
 
 ```

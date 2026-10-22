@@ -214,7 +214,7 @@ equal the host's `helper.conf`, which is what the host renders from:
 
 Every path key must be absolute and clean (no `//`, `.`, `..` or trailing `/`).
 Values holding `#`, `&`, `'` or whitespace are refused rather than quoted. The
-toolchain is not configurable: the build accepts `go1.26.9` only.
+toolchain is not configurable: the build accepts `go1.26.10` only.
 
 ```sh
 tools/deploy-manage.sh --build-helper  # the helper bundle, for the operator to install; contacts no host

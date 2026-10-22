@@ -32,5 +32,6 @@ for f in root_darwin.go:crypto/x509/root_darwin.go security.go:crypto/x509/inter
     check "overlay drops the 12+ import: ${f%%:*}" "$(grep -c 'SecTrustCopyCertificateChain' "${ours}")" "0"
 done
 check "root_darwin.go walks by index" "$(grep -c 'SecTrustGetCertificateAtIndex' "${HERE}/_src/root_darwin.go")" "1"
+check "root_darwin.go keeps the distrust check" "$(grep -c 'containsDistrustedSPKIHash(chain\[0\])' "${HERE}/_src/root_darwin.go")" "1"
 check "security.s has both trampolines" "$(grep -cE 'SecTrustGetCertificate(Count|AtIndex)_trampoline\(SB\)' "${HERE}/_src/security.s")" "2"
 exit "${fail}"

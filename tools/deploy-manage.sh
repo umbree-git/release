@@ -4,7 +4,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 CONFIG="${UMBREE_MANAGE_DEPLOY_CONFIG:-${HOME}/.umbree/release/manage-deploy.env}"
 NAME=umbree-release-manage
-GO_PIN=go1.26.9
+GO_PIN=go1.26.10
 UNIT="${NAME}.service"
 UNITS="${NAME}.service ${NAME}-retain.service ${NAME}-retain.timer"
 VHOST_SRC="${ROOT}/ops/nginx/release.umbree.org.conf"

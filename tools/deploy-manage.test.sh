@@ -33,8 +33,8 @@ cat > "${SHIMS}/go" <<'EOF'
 #!/bin/sh
 echo "go $*" >> "$SANDBOX_LOG"
 case "$1" in
-    version) echo "go version ${SANDBOX_GOVERSION:-go1.26.9} linux/amd64"; exit 0 ;;
-    env) echo "${SANDBOX_GOVERSION:-go1.26.9}"; exit 0 ;;
+    version) echo "go version ${SANDBOX_GOVERSION:-go1.26.10} linux/amd64"; exit 0 ;;
+    env) echo "${SANDBOX_GOVERSION:-go1.26.10}"; exit 0 ;;
 esac
 out=""; pkg=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && { out="$2"; shift; }; pkg="$1"; shift; done
 printf 'fake %s %s\n' "${pkg}" "${SANDBOX_BUILD_TAG:-1}" > "$out"; chmod 0755 "$out"
@@ -141,7 +141,7 @@ reset_log
 ARGS=(--dry-run); run
 [ "${RC}" -eq 0 ] || die "dry-run exit ${RC}: ${OUT}"
 [ -z "$(remote_calls)" ] || die "dry-run contacted a host: $(remote_calls)"
-has "go version go1.26.9" "${OUT}" || die "dry-run did not print go version: ${OUT}"
+has "go version go1.26.10" "${OUT}" || die "dry-run did not print go version: ${OUT}"
 has "sha256 " "${OUT}" || die "dry-run printed no sha256: ${OUT}"
 has "User=umbree-release" "${OUT}" || die "dry-run did not show the linted unit: ${OUT}"
 has "ReadWritePaths=/var/lib/umbree-release-manage /srv/static" "${OUT}" || die "linted unit lacks the static dir: ${OUT}"
@@ -194,9 +194,9 @@ ARGS=(--dry-run); run
 mv "${CFG}.away" "${CFG}"
 
 say "the pinned Go toolchain is required, and a GO_VERSION key does not move it"
-ARGS=(--dry-run); run SANDBOX_GOVERSION=go1.27.1
-[ "${RC}" -ne 0 ] || die "a go1.27.1 build was accepted"
-has "go1.26.9" "${OUT}" || die "toolchain refusal did not name the pin: ${OUT}"
+ARGS=(--dry-run); run SANDBOX_GOVERSION=go1.26.9
+[ "${RC}" -ne 0 ] || die "a go1.26.9 build was accepted"
+has "go1.26.10" "${OUT}" || die "toolchain refusal did not name the pin: ${OUT}"
 echo "GO_VERSION=go1.27.1" >> "${CFG}"
 ARGS=(--dry-run); run SANDBOX_GOVERSION=go1.27.1
 [ "${RC}" -ne 0 ] || die "GO_VERSION=go1.27.1 opted out of the pin"
