@@ -349,6 +349,36 @@ PUSH_AT="$(grep -n '^ *push_marker "${comp}"$' "${CMD}" | head -n1 | cut -d: -f1
 REPORT_AT="$(grep -n '^ *cut_report "${comp}" "${stamp}"$' "${CMD}" | head -n1 | cut -d: -f1)"
 check "…in the cut loop, after push_marker" "$([ -n "${PUSH_AT}" ] && [ -n "${REPORT_AT}" ] && [ "${PUSH_AT}" -lt "${REPORT_AT}" ] && echo after)" "after"
 
+echo "# the final summary prints each component's cve: verdict line"
+CVE_FNS="$(awk '/^record_cve\(\) \{/,/^}/' "${CMD}")
+$(awk '/^cve_summary\(\) \{/,/^}/' "${CMD}")"
+check "record_cve and cve_summary extracted" "$(printf '%s\n' "${CVE_FNS}" | grep -cE '^(record_cve|cve_summary)\(\) \{')" "2"
+CVE_LOG="${TMP}/cve.log"
+printf '%s\n' "cve: fail · go db old · 9 findings · report stale" > "${CVE_LOG}"
+out="$( { echo "LOG='${CVE_LOG}'"; echo 'CVE_LINES=""'; printf '%s\n' "${SAY_DIE}" "${CVE_FNS}"
+        cat <<'BUILDS'
+build() { from=$(( $(wc -l < "$LOG") + 1 )); printf '%s\n' "── cut: $1 ──" "${@:2}" >> "$LOG"; record_cve "$1" "${from}"; }
+build umbreed "cve: clean · go db 2026-10-21T00:27:29Z · 0 findings · 1 waived · report /r/umbreed/cve" "✓ built"
+build umbree "cve gate: not run on the beta channel (operator ruling: stable cuts only)"
+build other "built, no gate output"
+cve_summary
+BUILDS
+        } | bash 2>&1)"
+check_contains "summary heads a cve section" "${out}" "── cve ──"
+check_contains "…umbreed's verdict line, from its own build" "${out}" "umbreed: cve: clean · go db 2026-10-21T00:27:29Z · 0 findings · 1 waived · report /r/umbreed/cve"
+check_lacks "…never an earlier build's line" "${out}" "9 findings"
+check_contains "…the beta skip line" "${out}" "umbree: cve gate: not run on the beta channel"
+check_contains "…a build that printed none says so" "${out}" "other: no cve line in the build output"
+out="$( { echo "LOG='${CVE_LOG}'"; echo 'CVE_LINES=""'; printf '%s\n' "${SAY_DIE}" "${CVE_FNS}"; echo 'cve_summary'; } | bash 2>&1)"
+check "no component built: no cve section" "${out}" ""
+REC_AT="$(grep -n '^    record_cve "${comp}" "${log_from}"$' "${CMD}" | head -n1 | cut -d: -f1)"
+BUILD_RUN_AT="$(grep -n 'go run ./cmd/rkit build' "${CMD}" | head -n1 | cut -d: -f1)"
+STAMP_AT="$(grep -n 'say "→ stamp: ${stamp}"' "${CMD}" | head -n1 | cut -d: -f1)"
+check "record_cve runs after the build, before the cut" \
+    "$([ -n "${REC_AT}" ] && [ "${BUILD_RUN_AT}" -lt "${REC_AT}" ] && [ "${REC_AT}" -lt "${STAMP_AT}" ] && echo between)" "between"
+check "cve_summary is called once, after the cut loop" "$(grep -c '^cve_summary$' "${CMD}")" "1"
+check "the build line no longer offers the gate as a flag" "$(grep -c 'CVE gate as FLAGS' "${CMD}")" "0"
+
 echo "# the session guard itself, unstubbed"
 sess_log="${TMP}/sess.log"
 RELEASE_ENV="${TMP}/env" RELEASE_REQUEST="${TMP}/none" RELEASE_LOG="$sess_log" \
