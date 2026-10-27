@@ -36,6 +36,7 @@
 | `config/apple-account`, `config/apple-home` | which signing identity plugin this repo uses (`apple-signing.md`) |
 | `umbree/`, `umbreed/` | per-component release assets and bootstraps |
 | `umbree-release.pub` | the public minisign key downloads are verified against |
+| `cve-waivers.tsv` | the CVE gate's waivers, one file for both components: operator-ruled rows, each expiring within 90 days |
 
 Tests sit beside what they test as `<name>.test.sh` for shell and `*_test.go`
 for `cmd/rkit`. A change to a tool changes its test in the same commit.
@@ -43,7 +44,7 @@ for `cmd/rkit`. A change to a tool changes its test in the same commit.
 ## Cutting a release
 
 The whole procedure is `README.md` → "How releases are made", with the beta
-channel in "Beta channel". Five repo-specific facts that decide whether a cut
+channel in "Beta channel". Six repo-specific facts that decide whether a cut
 can run at all:
 
 - **Launch `tools/release.command` in a real desktop session**, unmodified.
@@ -71,6 +72,22 @@ can run at all:
   `GOTOOLCHAIN=local`. `release.sh --distribute-only` refuses a stage without
   `<comp>-darwin-amd64-legacy.zip`. The overlay is a pinned copy of
   Burrowee's; `tools/legacy/darwin/README.md` says how to re-sync it.
+- **Every stable build runs the shared CVE gate.** `rkit build` runs the
+  script `CVE_GATE` names (default `$HOME/.agents/scripts/cve-gate.sh`, the
+  playbook's; this repo keeps no gate of its own) once the stamp is known and
+  before any compile, sign, stage, register or tag, as `--report
+  dist/<stamp>/cve --gowork off --go <component source> --waivers
+  cve-waivers.tsv`. Its output streams into the launcher's log; a non-zero
+  exit, or a gate that is missing or not executable, fails the build with
+  `cve gate: exit <n>`, and no flag skips it. The launcher's final summary
+  prints each component's `cve:` line for the release task. A beta build does
+  not run it and says so (operator ruling: stable cuts only). The root
+  `cve-waivers.tsv` serves both components: each row is operator-ruled and
+  expires at most 90 days after its `waived_at`, so it is renewed or dropped
+  before then. The shipped surfaces carry no third-party browser file, so the
+  call has no `--js-manifest`; a vendored third-party browser file added to
+  any shipped surface needs a manifest row and a `--js-manifest` in the call.
+  `CVE_GATE` is the test seam (`tools/RUNBOOK.md`).
 - **Hosts, static paths and credentials are never written in this repo.** They
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
