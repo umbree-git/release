@@ -31,19 +31,18 @@
 # the launcher runs for you (stage to the gated store, register the row, tag,
 # marker — nothing public); it takes no flags from this file. Accepted:
 #
-#     --public        Developer-ID signing + notarization AND the CVE gate.
+#     --public        Developer-ID signing + notarization.
 #                     The standard ship path. (--public-release is an alias.)
-#     --apple         Developer-ID signing + notarization, CVE gate still on —
-#                     the gate is ON BY DEFAULT in this repo, which is the
-#                     opposite of clawee's --vulncheck opt-in. Do not port that
-#                     habit across.
-#     --no-vulncheck  skip the CVE gate. Offline rehearsals only.
+#     --apple         Developer-ID signing + notarization.
 #     --dry-run       build without bumping the version or needing a real key,
 #                     then rehearse the cut half too ("would: ..." only).
 #                     Nothing is tagged, uploaded, registered, marked or pushed.
 #     --bump-patch    move the patch version before building
 #     --bump-minor    move the minor (prompts unless UMBREE_RELEASE_YES=1)
 #     --bump-major    move the major (same prompt)
+#
+# No flag skips the CVE gate: every stable build runs the shared gate before it
+# compiles (AGENTS.md, "Every stable build runs the shared CVE gate").
 #
 # Leaving FLAGS empty is not "defaults", it is a trap: the build still signs with
 # the minisign release key and still runs the CVE gate, but it does NOT
