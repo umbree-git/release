@@ -384,20 +384,24 @@ run_component() {
     run_umbree "${comp}" "${serve_dir}" "${zip}" "${stamp}" "${pin}"
 }
 
-run_umbree() {
-    local comp="$1" serve_dir="$2" zip="$3" stamp="$4" pin="$5"
-    local happy="${TMPDIR:-/tmp}/e2e-${comp}-prefix" tamper="${TMPDIR:-/tmp}/e2e-${comp}-prefix-tamper"
-    rm -rf "${happy}" "${tamper}"
-
+start_server() {
+    local serve_dir="$1" zip="$2" i=0
     say "serving ${serve_dir} on 127.0.0.1:${PORT}"
     ( cd "${serve_dir}" && exec python3 -m http.server "${PORT}" --bind 127.0.0.1 ) >/dev/null 2>&1 &
     SERVER_PID=$!
-    local i=0
     until curl -fsS "http://127.0.0.1:${PORT}/${zip}" -o /dev/null 2>/dev/null; do
         i=$((i+1)); [ "${i}" -lt 50 ] || die "http server did not come up on ${PORT}"
         sleep 0.1
     done
     say "server up (serving ${zip})"
+}
+
+run_umbree() {
+    local comp="$1" serve_dir="$2" zip="$3" stamp="$4" pin="$5"
+    local happy="${TMPDIR:-/tmp}/e2e-${comp}-prefix" tamper="${TMPDIR:-/tmp}/e2e-${comp}-prefix-tamper"
+    rm -rf "${happy}" "${tamper}"
+
+    start_server "${serve_dir}" "${zip}"
 
     local dl_base="http://127.0.0.1:${PORT}"
     run_install() {
