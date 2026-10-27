@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"github.com/burrowee-git/release-kit/checksum"
 	"github.com/burrowee-git/release-kit/minisign"
 	"github.com/burrowee-git/release-kit/sign"
-	"github.com/burrowee-git/release-kit/vulncheck"
 
 	"github.com/umbree-git/release/internal/relconfig"
 )
@@ -23,7 +23,6 @@ type Options struct {
 	Component, OutDir, RepoDir string
 	SrcDir                     string
 	MinisignKey                string
-	SkipGate                   bool
 	Apple                      bool
 	DryRun                     bool
 	Channel                    string
@@ -38,7 +37,7 @@ type Result struct {
 
 type buildOpts struct {
 	Component, RepoDir, SrcDir, SignKey string
-	Apple, DryRun, NoVulncheck          bool
+	Apple, DryRun                       bool
 	Bump                                string
 	Channel                             string
 }
@@ -51,23 +50,21 @@ func runBuild(args []string) error {
 	fs.StringVar(&o.SrcDir, "src", "", "component source worktree (default: resolved from UMBREE_SRC_UMBREE)")
 	fs.StringVar(&o.SignKey, "sign-key", "", "minisign secret key (required for a real cut; --dry-run defaults to the TEST key)")
 	appleFlag := fs.Bool("apple", false, "Developer-ID sign + notarize macOS binaries")
-	publicFlag := fs.Bool("public", false, "public release: apple sign+notarize + CVE gate (standard ship path)")
+	publicFlag := fs.Bool("public", false, "public release: Developer-ID sign + notarize (standard ship path)")
 	publicReleaseFlag := fs.Bool("public-release", false, "alias for --public")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "build without bumping the version or requiring a real sign key")
-	fs.BoolVar(&o.NoVulncheck, "no-vulncheck", false, "skip the CVE gate (default: the gate runs)")
 	bumpPatch := fs.Bool("bump-patch", false, "bump the component's patch version before building")
 	bumpMinor := fs.Bool("bump-minor", false, "bump the component's minor version before building (prompts unless UMBREE_RELEASE_YES=1)")
 	bumpMajor := fs.Bool("bump-major", false, "bump the component's major version before building (prompts unless UMBREE_RELEASE_YES=1)")
 	fs.StringVar(&o.Channel, "channel", relconfig.ChannelStable, "release channel: stable | beta (beta reads versions/<comp>.beta and stamps v<X.Y.Z>.beta.<date>.<sha>)")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return buildParseError(err)
 	}
 	if _, err := relconfig.VersionFile(o.Channel, "", ""); err != nil {
 		return err
 	}
 	if *publicFlag || *publicReleaseFlag {
 		o.Apple = true
-		o.NoVulncheck = false
 	}
 	if *appleFlag {
 		o.Apple = true
@@ -90,6 +87,13 @@ func runBuild(args []string) error {
 		}
 	}
 	return buildRun(o)
+}
+
+func buildParseError(err error) error {
+	if errors.Is(err, flag.ErrHelp) {
+		return err
+	}
+	return &registerUsageError{msg: err.Error()}
 }
 
 func bumpOf(patch, minor, major bool) (string, error) {
@@ -157,7 +161,6 @@ func buildRun(o buildOpts) (err error) {
 		Component: o.Component, OutDir: filepath.Join(o.RepoDir, "dist"),
 		RepoDir: o.RepoDir, SrcDir: o.SrcDir,
 		MinisignKey: key,
-		SkipGate:    true,
 		Apple:       o.Apple, DryRun: o.DryRun,
 		Channel: o.Channel,
 	})
@@ -228,17 +231,6 @@ func bumpVersion(o buildOpts, versionSh string) error {
 	return nil
 }
 
-func gateCVE(ctx context.Context, o buildOpts, distDir string) error {
-	if o.NoVulncheck {
-		return nil
-	}
-	if err := vulncheck.Gate(ctx, []vulncheck.Module{{Name: o.Component, Dir: o.SrcDir}},
-		vulncheck.GateOpts{ReportDir: filepath.Join(distDir, "vulncheck")}); err != nil {
-		return fmt.Errorf("cve gate: %w", err)
-	}
-	return nil
-}
-
 func selectSigner(apple bool) sign.Signer {
 	if apple {
 		return sign.AppleSigner{ToolPath: "modernech-sign"}
@@ -296,12 +288,6 @@ func orchestrate(ctx context.Context, o Options) (*Result, error) {
 	}
 	if o.Channel == "" {
 		o.Channel = relconfig.ChannelStable
-	}
-	if !o.SkipGate {
-		if err := vulncheck.Gate(ctx, []vulncheck.Module{{Name: o.Component, Dir: o.SrcDir}},
-			vulncheck.GateOpts{ReportDir: filepath.Join(o.OutDir, "vulncheck")}); err != nil {
-			return nil, fmt.Errorf("cve gate: %w", err)
-		}
 	}
 	if err := checkLegacyToolchain(ctx, o.RepoDir); err != nil {
 		return nil, err

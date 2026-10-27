@@ -36,7 +36,6 @@ esac
 
 const callLoggerScript = `#!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$FAKE_CALLS_LOG"
-[ "$1" = -version ] && echo "Go: go1.26.10 Scanner: govulncheck@v1.1.4"
 exit 0
 `
 
@@ -131,7 +130,9 @@ func installCallLoggers(t *testing.T, f fakeGo, repo string) string {
 	t.Helper()
 	calls := filepath.Join(t.TempDir(), "calls.log")
 	t.Setenv("FAKE_CALLS_LOG", calls)
-	for _, p := range []string{filepath.Join(repo, "tools", "version.sh"), filepath.Join(filepath.Dir(f.log), "bin", "govulncheck")} {
+	gate := filepath.Join(filepath.Dir(f.log), "bin", "cve-gate.sh")
+	t.Setenv("CVE_GATE", gate)
+	for _, p := range []string{filepath.Join(repo, "tools", "version.sh"), gate} {
 		mustWriteFile(t, p, callLoggerScript)
 		if err := os.Chmod(p, 0o755); err != nil {
 			t.Fatal(err)
@@ -194,7 +195,7 @@ func TestLegacyRefusesToolchainOffPin(t *testing.T) {
 	writeFixtureModule(t, repo)
 	out := t.TempDir()
 	_, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: out, RepoDir: repo, SkipGate: true,
+		Component: "umbree", OutDir: out, RepoDir: repo,
 	})
 	if err == nil || !strings.Contains(err.Error(), "pinned to "+pinnedGoVersion(t)) {
 		t.Fatalf("orchestrate: err = %v, want the toolchain pin refusal", err)
@@ -270,7 +271,7 @@ func TestStockTargetsNeverSeeOverlay(t *testing.T) {
 	writeFixtureModule(t, repo)
 	out := t.TempDir()
 	res, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: out, RepoDir: repo, SkipGate: true,
+		Component: "umbree", OutDir: out, RepoDir: repo,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +308,7 @@ func TestLegacyCompileEnvironmentIsPinned(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 	if _, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, SkipGate: true,
+		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestOrchestrateSignsLegacyOnlyOnDarwinHost(t *testing.T) {
 		t.Setenv("FAKE_SIGN_LOG", filepath.Join(t.TempDir(), "sign.log"))
 		out := t.TempDir()
 		res, err := orchestrate(context.Background(), Options{
-			Component: "umbree", OutDir: out, RepoDir: repo, SkipGate: true, Apple: true, HostOS: host,
+			Component: "umbree", OutDir: out, RepoDir: repo, Apple: true, HostOS: host,
 		})
 		if err != nil {
 			t.Fatalf("host %s: %v", host, err)
@@ -345,7 +346,7 @@ func TestOrchestrateWritesFiveZips(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 	res, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, SkipGate: true,
+		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -391,7 +392,7 @@ func TestLegacyArtifactIsSignedVerifiedAndNotarized(t *testing.T) {
 	writeFixtureModule(t, repo)
 	out := t.TempDir()
 	res, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: out, RepoDir: repo, SkipGate: true, Apple: true,
+		Component: "umbree", OutDir: out, RepoDir: repo, Apple: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +404,7 @@ func TestLegacyArtifactIsSignedVerifiedAndNotarized(t *testing.T) {
 
 	t.Setenv("FAKE_LEGACY_NM", "U _SecTrustGetCertificateAtIndex UMBREE_DATA_DIR")
 	_, err = orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, SkipGate: true,
+		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
 	})
 	if err == nil || !strings.Contains(err.Error(), "verify-no-env") {
 		t.Fatalf("err = %v, want verify-no-env to refuse the legacy binary", err)
@@ -423,7 +424,7 @@ func TestSumsListLegacyZip(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 	res, err := orchestrate(context.Background(), Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, SkipGate: true, MinisignKey: sec,
+		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, MinisignKey: sec,
 	})
 	if err != nil {
 		t.Fatal(err)

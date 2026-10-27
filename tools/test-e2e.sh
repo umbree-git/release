@@ -30,7 +30,7 @@ no release host, no real signing key, and no private key file kept anywhere:
 each run generates a password-less minisign keypair in its own temp dir and
 removes it at exit. For the given component this:
   1. dry-run-builds the release via `rkit build --sign-key <the run's key>`
-     into dist/<stamp>/, offline (--no-vulncheck).
+     into dist/<stamp>/, offline (CVE_GATE points at a stub; no scan).
   2. renders a --test-build outer bootstrap (baking the run's public key) into
      a temp dir; the committed bootstraps are not touched.
   3. runs verify-no-env on the freshly built binary.
@@ -353,6 +353,10 @@ say "a throwaway minisign keypair for this run only (no password, removed at exi
 minisign -G -W -p "${E2E_KEYS}/run.pub" -s "${E2E_KEYS}/run.key" >/dev/null
 say "gen-bootstraps.sh --test-build (bake the run's public key, outside the tree)"
 UMBREE_PUBKEY_FILE="${E2E_KEYS}/run.pub" bash tools/gen-bootstraps.sh --test-build "${E2E_BUILD}"
+say "an offline stub for the CVE gate through CVE_GATE, the test seam: this run proves the chain, not the scan"
+printf '#!/bin/sh\necho "cve gate: test-e2e stub, no scan"\n' > "${E2E_KEYS}/cve-gate.sh"
+chmod 755 "${E2E_KEYS}/cve-gate.sh"
+export CVE_GATE="${E2E_KEYS}/cve-gate.sh"
 
 run_component() {
     local comp="$1" src var stamp serve_dir zip pin
@@ -360,8 +364,8 @@ run_component() {
     var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
     export "${var}=${src}"
 
-    say "rkit build ${comp} --dry-run --no-vulncheck (signed by the run's key, offline)"
-    "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --no-vulncheck --sign-key "${E2E_KEYS}/run.key"
+    say "rkit build ${comp} --dry-run (signed by the run's key, offline, stub gate)"
+    "${GO_BIN}" run ./cmd/rkit build --component "${comp}" --dry-run --sign-key "${E2E_KEYS}/run.key"
 
     stamp="$(SRC_DIR="${src}" bash tools/version.sh "${comp}" --stamp)"
     serve_dir="${REPO_ROOT}/dist/${stamp}"

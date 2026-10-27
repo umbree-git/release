@@ -162,33 +162,13 @@ func testMinisignKey(t *testing.T) string {
 	return sec
 }
 
-func TestOrchestrateSkipGateBypassesCVEGate(t *testing.T) {
-	t.Setenv("GOPATH", t.TempDir())
-	repo := t.TempDir()
-	writeFixtureModule(t, repo)
-	ctx := context.Background()
-	key := testMinisignKey(t)
-
-	if _, err := orchestrate(ctx, Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, MinisignKey: key,
-	}); err == nil || !strings.Contains(err.Error(), "cve gate") {
-		t.Fatalf("gate ON: want a cve gate error, got %v", err)
-	}
-
-	if _, err := orchestrate(ctx, Options{
-		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo, MinisignKey: key, SkipGate: true,
-	}); err != nil {
-		t.Fatalf("gate SKIPPED: orchestrate should bypass the gate and succeed, got %v", err)
-	}
-}
-
 func TestOrchestrateFailsClosedOnMissingExplicitMinisignKey(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 	ctx := context.Background()
 	_, err := orchestrate(ctx, Options{
 		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
-		MinisignKey: filepath.Join(t.TempDir(), "nonexistent.key"), SkipGate: true,
+		MinisignKey: filepath.Join(t.TempDir(), "nonexistent.key"),
 	})
 	if err == nil {
 		t.Fatal("expected error for missing explicit MinisignKey, got nil")
@@ -201,8 +181,9 @@ func TestOrchestrateFailsClosedOnMissingExplicitMinisignKey(t *testing.T) {
 func TestBuildWritesToDistStamp(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
+	installStubGate(t, "0")
 	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
-		NoVulncheck: true, SignKey: testMinisignKey(t)})
+		SignKey: testMinisignKey(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,11 +199,12 @@ func TestBuildWritesToDistStamp(t *testing.T) {
 func TestBuildRunFailsFastOnMissingSignKeyFile(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
+	installStubGate(t, "0")
 	stamp := mustStamp(t, repo, "umbree")
 
 	err := buildRun(buildOpts{
 		Component: "umbree", RepoDir: repo, SrcDir: repo,
-		DryRun: false, SignKey: "/nonexistent/path/key.key", NoVulncheck: true,
+		DryRun: false, SignKey: "/nonexistent/path/key.key",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing --sign-key file, got nil")
@@ -238,9 +220,10 @@ func TestBuildRunFailsFastOnMissingSignKeyFile(t *testing.T) {
 func TestBuildRunBumpDryRunReverts(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
+	installStubGate(t, "0")
 	if err := buildRun(buildOpts{
 		Component: "umbree", RepoDir: repo, SrcDir: repo,
-		Bump: "patch", DryRun: true, NoVulncheck: true, SignKey: testMinisignKey(t),
+		Bump: "patch", DryRun: true, SignKey: testMinisignKey(t),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -267,6 +250,7 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixtureModule(t, repo)
+	installStubGate(t, "0")
 
 	src := filepath.Join(parent, "srcroot")
 	writeFixtureSource(t, src)
@@ -286,7 +270,7 @@ func TestBuildRunAbsolutizesRelativeRepoDir(t *testing.T) {
 
 	if err := buildRun(buildOpts{
 		Component: "umbree", RepoDir: "reporoot", SrcDir: src,
-		DryRun: true, NoVulncheck: true, SignKey: testMinisignKey(t),
+		DryRun: true, SignKey: testMinisignKey(t),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -324,20 +308,6 @@ func writeFixtureSource(t *testing.T, src string) {
 	gitSrc("init", "-q")
 	gitSrc("add", "-A")
 	gitSrc("commit", "-q", "-m", "fixture src")
-}
-
-func TestBuildGateOnByDefaultCanBeSkipped(t *testing.T) {
-	repo := t.TempDir()
-	writeFixtureModule(t, repo)
-	t.Setenv("GOPATH", t.TempDir())
-	if err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
-		NoVulncheck: false, SignKey: testMinisignKey(t)}); err == nil {
-		t.Fatal("expected default-on gate to run and fail")
-	}
-	if err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
-		NoVulncheck: true, SignKey: testMinisignKey(t)}); err != nil {
-		t.Fatalf("--no-vulncheck should bypass: %v", err)
-	}
 }
 
 func mustStamp(t *testing.T, repo, comp string) string {
@@ -570,7 +540,7 @@ func TestOrchestrateAbortsOnForbiddenEnvLiteral(t *testing.T) {
 	ctx := context.Background()
 	_, err := orchestrate(ctx, Options{
 		Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
-		MinisignKey: testMinisignKey(t), SkipGate: true,
+		MinisignKey: testMinisignKey(t),
 	})
 	if err == nil {
 		t.Fatal("expected orchestrate to abort on a forbidden env literal, got nil error")
@@ -632,7 +602,7 @@ func TestBuildRunRefusesUnknownChannel(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
 	err = buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "bogus",
-		DryRun: true, NoVulncheck: true})
+		DryRun: true})
 	if err == nil || !strings.Contains(err.Error(), "unknown channel") {
 		t.Fatalf("buildRun Channel=bogus: err = %v", err)
 	}
@@ -649,7 +619,7 @@ func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
 	key := filepath.Join(t.TempDir(), "key")
 	mustWriteFile(t, key, "not a key")
 	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "beta",
-		Bump: "patch", NoVulncheck: true, SignKey: key})
+		Bump: "patch", SignKey: key})
 	if err == nil || !strings.Contains(err.Error(), "beta version assert") {
 		t.Fatalf("err = %v, want the beta assert to fail", err)
 	}
@@ -665,12 +635,13 @@ func TestBuildRunBetaAssertsBeforeBump(t *testing.T) {
 func TestBuildRunRevertsBumpAfterFailedBuild(t *testing.T) {
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
+	installStubGate(t, "0")
 	mustWriteFile(t, filepath.Join(repo, "cmd", "umbree", "main.go"), "package main\n\nfunc main() { this does not compile }\n")
 	commitAll(t, repo, "break the build")
 	key := filepath.Join(t.TempDir(), "key")
 	mustWriteFile(t, key, "stat-only")
 	err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo,
-		Bump: "patch", NoVulncheck: true, SignKey: key})
+		Bump: "patch", SignKey: key})
 	if err == nil {
 		t.Fatal("a build of a tree that does not compile must fail")
 	}
@@ -691,7 +662,7 @@ func TestBuildRunBetaStampsBetaScheme(t *testing.T) {
 	mustWriteFile(t, filepath.Join(repo, "install", "install.sh"), "#!/bin/sh\necho tree\n")
 	commitAll(t, repo, "seed beta")
 	if err := buildRun(buildOpts{Component: "umbree", RepoDir: repo, SrcDir: repo, Channel: "beta",
-		DryRun: true, NoVulncheck: true, SignKey: testMinisignKey(t)}); err != nil {
+		DryRun: true, SignKey: testMinisignKey(t)}); err != nil {
 		t.Fatal(err)
 	}
 	stamp, err := relconfig.StampFor(context.Background(), "beta", filepath.Join(repo, "versions"), "umbree", repo)
@@ -720,7 +691,7 @@ func TestOrchestrateBetaWarnsWithoutLadder(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		_, err = orchestrate(context.Background(), Options{
 			Component: "umbree", OutDir: t.TempDir(), RepoDir: repo,
-			MinisignKey: testMinisignKey(t), SkipGate: true, Channel: "beta",
+			MinisignKey: testMinisignKey(t), Channel: "beta",
 		})
 	})
 	if err != nil {
