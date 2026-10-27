@@ -108,7 +108,6 @@ func assertGateRefusal(t *testing.T, exit, want string, prepare func(*testing.T,
 	t.Helper()
 	repo := t.TempDir()
 	writeFixtureModule(t, repo)
-	stamp := mustStamp(t, repo, "umbree")
 	g := installStubGate(t, exit)
 	if prepare != nil {
 		prepare(t, g)
@@ -119,15 +118,30 @@ func assertGateRefusal(t *testing.T, exit, want string, prepare func(*testing.T,
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("err = %v, want it to start %q", err, want)
 	}
-	entries, _ := os.ReadDir(filepath.Join(repo, "dist", stamp))
-	for _, e := range entries {
-		if e.Name() != "cve" {
-			t.Fatalf("dist/%s/%s exists after a refused gate: only the report dir may", stamp, e.Name())
-		}
-	}
+	assertOnlyReportDirs(t, filepath.Join(repo, "dist"), prepare == nil)
 	got, _ := os.ReadFile(filepath.Join(repo, "versions", "umbree"))
 	if string(got) != "0.1.0\n" {
 		t.Fatalf("versions/umbree = %q after a refused gate, want the committed 0.1.0", got)
+	}
+}
+
+func assertOnlyReportDirs(t *testing.T, dist string, gateRan bool) {
+	t.Helper()
+	stamps, err := os.ReadDir(dist)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if gateRan != (len(stamps) == 1) {
+		t.Fatalf("dist/ holds %d stamp dirs after a refused gate, want %d", len(stamps), map[bool]int{true: 1, false: 0}[gateRan])
+	}
+	for _, s := range stamps {
+		entries, err := os.ReadDir(filepath.Join(dist, s.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].Name() != "cve" || !entries[0].IsDir() {
+			t.Fatalf("dist/%s holds %v after a refused gate: only the report dir cve/ may", s.Name(), entries)
+		}
 	}
 }
 

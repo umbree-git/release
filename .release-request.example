@@ -42,7 +42,7 @@
 #     --bump-major    move the major (same prompt)
 #
 # No flag skips the CVE gate: every stable build runs the shared gate before it
-# compiles (AGENTS.md, "The CVE gate").
+# compiles (AGENTS.md, "Every stable build runs the shared CVE gate").
 #
 # Leaving FLAGS empty is not "defaults", it is a trap: the build still signs with
 # the minisign release key and still runs the CVE gate, but it does NOT
