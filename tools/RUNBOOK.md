@@ -73,7 +73,7 @@ build runs the shared CVE gate"):
 "$CVE_GATE" --report dist/<stamp>/cve --gowork off --go <component source> --waivers cve-waivers.tsv
 ```
 
-`CVE_GATE` defaults to `$HOME/.agents/scripts/cve-gate.sh`, the playbook's;
+`CVE_GATE` defaults to the playbook's shared `cve-gate.sh` under `$HOME`;
 tests point it at a stub, and it is the only seam. Its output streams into the
 launcher's log, and the report lands in `dist/<stamp>/cve/`. What no script can
 arrange for you:

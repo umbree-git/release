@@ -73,8 +73,8 @@ can run at all:
   `<comp>-darwin-amd64-legacy.zip`. The overlay is a pinned copy of
   Burrowee's; `tools/legacy/darwin/README.md` says how to re-sync it.
 - **Every stable build runs the shared CVE gate.** `rkit build` runs the
-  script `CVE_GATE` names (default `$HOME/.agents/scripts/cve-gate.sh`, the
-  playbook's; this repo keeps no gate of its own) once the stamp is known and
+  script `CVE_GATE` names (by default the playbook's shared `cve-gate.sh`
+  under `$HOME`; this repo keeps no gate of its own) once the stamp is known and
   before any compile, sign, stage, register or tag, as `--report
   dist/<stamp>/cve --gowork off --go <component source> --waivers
   cve-waivers.tsv`. Its output streams into the launcher's log; a non-zero
