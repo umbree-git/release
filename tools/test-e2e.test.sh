@@ -54,6 +54,8 @@ cat > "${W}/stub/go" <<'STUB'
 #!/bin/sh
 if [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = components ]; then echo umbree; echo umbreed; exit 0; fi
 [ "$1" = run ] && [ "$2" = ./cmd/rkit ] && [ "$3" = build ] || { echo "stub go: unexpected $*" >&2; exit 1; }
+echo "args $*" >> "${STUB_LOG}"
+[ -x "${CVE_GATE:-}" ] && echo "cve-gate ${CVE_GATE}" >> "${STUB_LOG}"
 key=""; comp=""
 while [ $# -gt 0 ]; do
     case "$1" in --sign-key) key="$2" ;; --component) comp="$2" ;; esac
@@ -98,6 +100,17 @@ case "${key}" in
     "") echo "FAIL: rkit build was given no --sign-key"; fails=1 ;;
     "${REPO}"/*) echo "FAIL: the sign key ${key} lives in the repository"; fails=1 ;;
     *) echo "the sign key is outside the repository" ;;
+esac
+case "$(sed -n 's/^args //p' "${W}/calls" | head -n1)" in
+    "") echo "FAIL: rkit build was not called"; fails=1 ;;
+    *--no-vulncheck*) echo "FAIL: rkit build was given the removed --no-vulncheck"; fails=1 ;;
+    *) echo "rkit build carries no gate skip" ;;
+esac
+gate="$(sed -n 's/^cve-gate //p' "${W}/calls" | head -n1)"
+case "${gate}" in
+    "") echo "FAIL: rkit build ran with no executable CVE_GATE stub"; fails=1 ;;
+    "${REPO}"/*) echo "FAIL: the stub gate ${gate} lives in the repository"; fails=1 ;;
+    *) [ -e "${gate}" ] && { echo "FAIL: the stub gate ${gate} outlived the run"; fails=1; } || echo "rkit build ran against a stub gate made for the run" ;;
 esac
 if [ -n "${key}" ] && [ -e "${key}" ]; then echo "FAIL: the run's key ${key} outlived the run"; fails=1; else echo "the run's key is gone after the run"; fi
 if [ -e "${REPO}/tools/testkeys/test.key" ]; then echo "FAIL: a private key file exists at tools/testkeys/test.key"; fails=1; else echo "no private key file in the repository"; fi

@@ -269,7 +269,8 @@ public:
 
 - **`rkit build`** (Go orchestrator on
   [`release-kit`](https://github.com/burrowee-git/release-kit)) **produces**
-  the artifacts: CVE gate (govulncheck), version stamp, `GOWORK=off` compile
+  the artifacts: version stamp, the shared CVE gate on a stable build
+  (`cve-gate.sh`; `AGENTS.md`, "Every stable build runs the shared CVE gate"), `GOWORK=off` compile
   for the four stock targets plus `darwin-amd64-legacy`, Developer-ID sign +
   notarize (darwin), per-target zips + `SHA256SUMS.txt` + minisign signature →
   `dist/<stamp>/`. The legacy target compiles with `go build -overlay` through
@@ -281,8 +282,8 @@ public:
   compiles, which a darwin host has already signed — but before the legacy
   binary is signed and before anything is zipped, notarized, summed or
   staged. The stock four never see the overlay. **`--public`** is
-  the standard ship path: it turns on Apple sign+notarize and forces the CVE
-  gate on. The Apple account comes from `config/apple-account` (operator-local
+  the standard ship path: it turns on Apple sign+notarize. No flag turns the
+  CVE gate off. The Apple account comes from `config/apple-account` (operator-local
   and untracked) unless `APPLE_ACCOUNT`/`APPLE_ACCOUNT_DIR` is already set.
 - **`tools/release.sh --distribute-only <umbree|umbreed> <stamp>`** **cuts**
   a staged `dist/<stamp>/`: it uploads the bytes to the private gated store

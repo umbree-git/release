@@ -26,10 +26,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.
 	}
 	switch args[0] {
 	case "build":
-		if err := runBuild(args[1:]); err != nil {
-			fmt.Fprintln(stderr, "✗", err)
-			return 1
-		}
+		return reportBuild(runBuild(args[1:]), stderr)
 	case "register":
 		return reportVerb("register", registerUsage, runRegister(ctx, args[1:], stdout, hc), stderr)
 	case "status":
@@ -55,5 +52,18 @@ func reportVerb(name, usage string, err error, stderr io.Writer) int {
 		return 2
 	}
 	fmt.Fprintf(stderr, "✗ rkit %s: %v\n", name, err)
+	return 1
+}
+
+func reportBuild(err error, stderr io.Writer) int {
+	var ue *registerUsageError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ue):
+		fmt.Fprintf(stderr, "rkit build: %s\n", ue.msg)
+		return 2
+	}
+	fmt.Fprintln(stderr, "✗", err)
 	return 1
 }

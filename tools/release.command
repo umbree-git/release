@@ -231,16 +231,35 @@ dev_sync_fix() {
     printf '%s' "merge origin/main into dev by hand (git merge — never a rebase, which drops the merge commits and takes main back out of dev), push dev, then, if components remain, re-run with ${CUT_DONE:-$1} dropped from COMPONENTS"
 }
 
+CVE_LINES=""
+record_cve() {
+    local line
+    line="$(tail -n +"${2}" "$LOG" | grep -E '^cve( gate)?: ' | tail -n 1)"
+    CVE_LINES="${CVE_LINES}${1}: ${line:-no cve line in the build output}
+"
+}
+
+cve_summary() {
+    [ -n "${CVE_LINES}" ] || return 0
+    say ""
+    say "── cve ──"
+    while IFS= read -r l; do
+        [ -n "${l}" ] && say "${l}"
+    done <<< "${CVE_LINES}"
+}
+
 CUT_DONE=""
 for comp in ${COMPONENTS}; do
     say ""
     say "── cut: ${comp} ──"
 
-    say "→ build (rkit: cross-compile, sign, notarize, CVE gate as FLAGS direct; channel ${CHANNEL})"
+    say "→ build (rkit: CVE gate on stable, cross-compile, sign, notarize as FLAGS direct; channel ${CHANNEL})"
+    log_from=$(( $(wc -l < "$LOG") + 1 ))
     # shellcheck disable=SC2086
     go run ./cmd/rkit build --component "${comp}" --channel "${CHANNEL}" ${FLAGS} --sign-key "${KEYFILE}" 2>&1 | tee -a "$LOG"
     rc="${PIPESTATUS[0]}"
     [ "${rc}" -eq 0 ] || { say "✗ ${comp} build failed (exit ${rc}) — later components NOT cut"; exit "${rc}"; }
+    record_cve "${comp}" "${log_from}"
 
     src_var="UMBREE_SRC_$(printf '%s' "${comp}" | tr '[:lower:]' '[:upper:]')"
     stamp="$(SRC_DIR="${!src_var}" bash tools/version.sh "${comp}" --channel "${CHANNEL}" --stamp)" \
@@ -290,5 +309,6 @@ for comp in ${COMPONENTS}; do
     esac
 done
 
+cve_summary
 say ""
 exit 0

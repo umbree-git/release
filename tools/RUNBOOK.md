@@ -63,6 +63,40 @@ that no script can arrange for you:
   but promote it before the console that serves the legacy-aware bootstrap is
   deployed, or not at all.
 
+## The CVE gate: before the build, and a waiver file to renew
+
+Every stable `rkit build` runs the shared gate once the stamp is known and
+before any compile, sign, stage, register or tag (`AGENTS.md`, "Every stable
+build runs the shared CVE gate"):
+
+```sh
+"$CVE_GATE" --report dist/<stamp>/cve --gowork off --go <component source> --waivers cve-waivers.tsv
+```
+
+`CVE_GATE` defaults to `$HOME/.agents/scripts/cve-gate.sh`, the playbook's;
+tests point it at a stub, and it is the only seam. Its output streams into the
+launcher's log, and the report lands in `dist/<stamp>/cve/`. What no script can
+arrange for you:
+
+- **A refusal is `cve gate: exit <n>`, and nothing was built.** `1` is
+  findings, `2` is a scan that could not run (no `govulncheck`, a module that
+  does not load, an unreadable waiver file), `126`/`127` a gate that is not
+  executable or not there. The version bump is already reverted. Read
+  `dist/<stamp>/cve/`, bump the component's modules in its own repo, and cut
+  again; there is no flag that skips the gate.
+- **`cve-waivers.tsv` expires.** Each row is operator-ruled and expires at
+  most 90 days after its `waived_at`. An expired row stops waiving, and a row
+  that matches no finding fails the gate too, so a fixed advisory forces its
+  row out. Before a row's `expires`, ask the operator to renew it (a new
+  `waived_at`, a new `expires`, the ruling named in `operator`) or drop it.
+- **The release task's `cve:` line** is the launcher's final `── cve ──`
+  summary, one line per component; copy it into the task.
+- **A vendored third-party browser file needs a manifest.** The shipped
+  surfaces today are the Go zips, the bootstraps and `site/index.html`, whose
+  scripts are inline and first-party, so the call carries no `--js-manifest`.
+  A third-party file added to any of them needs a manifest row and a
+  `--js-manifest` in the call (`cmd/rkit/cve_gate.go`), in the same change.
+
 ## Unpushed `main` refuses the cut
 
 The cut-origin guard (`tools/release_origin.sh`) asserts this repo is on
