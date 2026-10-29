@@ -185,7 +185,7 @@ func TestBuildRefusesNoVulncheckAsAnUnknownFlag(t *testing.T) {
 func TestCVEGateDefaultsToTheAgentsScriptUnderHome(t *testing.T) {
 	t.Setenv("CVE_GATE", "")
 	t.Setenv("HOME", "/home/someone")
-	if got, want := cveGatePath(), "/home/someone/.agents/scripts/cve-gate.sh"; got != want {
+	if got, want := cveGatePath(), filepath.Join("/home/someone", ".agents", "scripts", "cve-gate.sh"); got != want {
 		t.Fatalf("cveGatePath() = %q, want %q", got, want)
 	}
 	t.Setenv("CVE_GATE", "/elsewhere/gate")
