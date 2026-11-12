@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	cveScanUsage   = "usage: rkit cve-scan --component <umbree|umbreed> --report <dir> [--src <dir>] [--repo <dir>] [--channel stable|beta]"
+	cveScanUsage   = "usage: rkit cve-scan --component <umbree|umbreed> --src <dir> --report <dir> [--repo <dir>] [--channel stable|beta]"
 	scanProduct    = "umbree"
 	scanFindings   = 1
 	scanCannotRun  = 2
@@ -47,6 +47,9 @@ func parseCVEScan(args []string) (cveScanOpts, error) {
 	if !slices.Contains(relconfig.Components, o.build.Component) {
 		return o, &registerUsageError{msg: fmt.Sprintf("--component must be one of %s (got %q)", strings.Join(relconfig.Components, ", "), o.build.Component)}
 	}
+	if o.build.SrcDir == "" {
+		return o, &registerUsageError{msg: "--src is required"}
+	}
 	if o.report == "" {
 		return o, &registerUsageError{msg: "--report is required"}
 	}
@@ -75,13 +78,6 @@ func runCVEScanVerb(ctx context.Context, args []string, stdout, stderr io.Writer
 func cveScan(ctx context.Context, o cveScanOpts, stderr io.Writer) (string, int) {
 	if o.build.Channel == relconfig.ChannelBeta {
 		return "skipped · beta channel (stable cuts only)", 0
-	}
-	if o.build.SrcDir == "" {
-		s, err := srcDirFor(o.build.Component)
-		if err != nil {
-			return cannotRunAhead + err.Error(), scanCannotRun
-		}
-		o.build.SrcDir = s
 	}
 	if info, err := os.Stat(o.build.SrcDir); err != nil || !info.IsDir() {
 		return cannotRunAhead + "missing source " + o.build.SrcDir, scanCannotRun

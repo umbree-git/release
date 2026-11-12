@@ -75,10 +75,19 @@ func TestCVEScanUsage(t *testing.T) {
 	if code != 0 || out != cveScanUsage+"\n" {
 		t.Fatalf("help: exit %d out %q", code, out)
 	}
-	for _, args := range [][]string{{"--component", "x", "--report", "r"}, {"--component", "umbree"}, {"--bogus"}} {
+	for _, args := range [][]string{{"--component", "x", "--report", "r"}, {"--component", "umbree", "--src", "s"}, {"--component", "umbree", "--report", "r"}, {"--bogus"}} {
 		code, _, errs := runScan(t, args...)
 		if code != 2 || !strings.Contains(errs, cveScanUsage) {
 			t.Fatalf("%q: exit %d stderr %q", args, code, errs)
 		}
+	}
+}
+
+func TestCVEScanRequiresSrcIgnoringTheCutsEnv(t *testing.T) {
+	g := installStubGate(t, "0")
+	t.Setenv("UMBREE_SRC_UMBREE", t.TempDir())
+	code, _, errs := runScan(t, "--component", "umbree", "--report", t.TempDir())
+	if code != 2 || !strings.Contains(errs, "--src is required") || g.calledWith(t) != nil {
+		t.Fatalf("exit %d stderr %q", code, errs)
 	}
 }

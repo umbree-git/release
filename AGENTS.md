@@ -93,7 +93,8 @@ can run at all:
   at its own `origin/main` (a `git fetch` then a `git archive` export of the
   checkout `UMBREE_SRC_<COMP>` names, else `$CODING_ROOT/Umbree/<cli|daemon>/code/main`,
   `UMBREE_BRAND_ROOT` overriding the brand folder) through `rkit cve-scan`,
-  which hands the gate the cut's own arguments (`cveGateArgs`). It prints
+  which takes `--src` explicitly and hands the gate the cut's own arguments
+  (`cveGateArgs`). It prints
   `umbree/<comp>: <cve: line>` per component and `waivers: <path>`, exits
   `0` clean, `1` on a finding, `2` when a scan could not run, skips a
   beta-only component, and never stages, signs, tags, registers, commits,
