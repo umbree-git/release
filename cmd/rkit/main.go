@@ -12,7 +12,7 @@ import (
 )
 
 func usage() string {
-	return "usage: rkit <build --component <umbree> [flags] | register [flags] | status [flags] | components>"
+	return "usage: rkit <build --component <umbree> [flags] | register [flags] | status [flags] | cve-scan [flags] | components>"
 }
 
 func main() {
@@ -31,6 +31,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, hc *http.
 		return reportVerb("register", registerUsage, runRegister(ctx, args[1:], stdout, hc), stderr)
 	case "status":
 		return reportVerb("status", statusUsage, runStatus(ctx, args[1:], stdout, hc), stderr)
+	case "cve-scan":
+		return runCVEScanVerb(ctx, args[1:], stdout, stderr)
 	case "components":
 		for _, c := range relconfig.Components {
 			fmt.Fprintln(stdout, c)

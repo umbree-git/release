@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,10 @@ func checkGateRunnable(gate string) error {
 }
 
 func gateCVE(ctx context.Context, o buildOpts, distDir string) error {
+	return runCVEGate(ctx, o, distDir, os.Stdout)
+}
+
+func runCVEGate(ctx context.Context, o buildOpts, distDir string, stdout io.Writer) error {
 	if o.Channel == relconfig.ChannelBeta {
 		fmt.Fprintln(os.Stderr, "cve gate: not run on the beta channel (operator ruling: stable cuts only)")
 		return nil
@@ -53,14 +58,18 @@ func gateCVE(ctx context.Context, o buildOpts, distDir string) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, gate, cveGateArgs(o, distDir)...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Stdout, cmd.Stderr = stdout, os.Stderr
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
 		return nil
 	case errors.As(err, &exitErr):
-		return fmt.Errorf("cve gate: exit %d", exitErr.ExitCode())
+		return &gateExitError{code: exitErr.ExitCode()}
 	}
 	return fmt.Errorf("cve gate: exit %d: %s: %w", gateNotExecutableExit, gate, err)
 }
+
+type gateExitError struct{ code int }
+
+func (e *gateExitError) Error() string { return fmt.Sprintf("cve gate: exit %d", e.code) }

@@ -44,7 +44,7 @@ for `cmd/rkit`. A change to a tool changes its test in the same commit.
 ## Cutting a release
 
 The whole procedure is `README.md` → "How releases are made", with the beta
-channel in "Beta channel". Six repo-specific facts that decide whether a cut
+channel in "Beta channel". Seven repo-specific facts that decide whether a cut
 can run at all:
 
 - **Launch `tools/release.command` in a real desktop session**, unmodified.
@@ -88,6 +88,17 @@ can run at all:
   call has no `--js-manifest`; a vendored third-party browser file added to
   any shipped surface needs a manifest row and a `--js-manifest` in the call.
   `CVE_GATE` is the test seam (`tools/RUNBOOK.md`).
+- **The daily CVE scan is report-only.** `tools/cve-scan.sh [--report-dir
+  <dir>]`, run from an export of `origin/main`, scans each component's source
+  at its own `origin/main` (a `git fetch` then a `git archive` export of the
+  checkout `UMBREE_SRC_<COMP>` names, else `$CODING_ROOT/Umbree/<cli|daemon>/code/main`,
+  `UMBREE_BRAND_ROOT` overriding the brand folder) through `rkit cve-scan`,
+  which hands the gate the cut's own arguments (`cveGateArgs`). It prints
+  `umbree/<comp>: <cve: line>` per component and `waivers: <path>`, exits
+  `0` clean, `1` on a finding, `2` when a scan could not run, skips a
+  beta-only component, and never stages, signs, tags, registers, commits,
+  pushes or moves a checkout; `RKIT` and `CVE_GATE` are its test seams
+  (`tools/cve-scan.test.sh`).
 - **Hosts, static paths and credentials are never written in this repo.** They
   come from the operator's sealed configuration at cut time; documentation uses
   `<RELEASE_HOST>`, `<STATIC_DIR>`, `<downloads-base>` (`secrets.md`).
