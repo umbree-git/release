@@ -147,16 +147,18 @@ func TestCVEGateFileRefusals(t *testing.T) {
 		{"vendor before manifest", gateFixture("umbree\tsource\tcli", "umbree\tvendor-dir\tv"), "js-manifest"},
 		{"bad header", "comp\tkey\tvalue\numbree\tsource\tcli\n", "header"},
 		{"no header", "", "header"},
-		{"two fields", gateFixture("umbree\tsource"), "3 fields"},
-		{"four fields", gateFixture("umbree\tsource\tcli\textra"), "3 fields"},
-		{"empty value", gateFixture("umbree\tsource\t"), "empty"},
+		{"two fields", gateFixture("umbree\tsource"), "row without three fields"},
+		{"four fields", gateFixture("umbree\tsource\tcli\textra"), "row without three fields"},
+		{"empty value", gateFixture("umbree\tsource\t"), "row without three fields"},
 		{"trailing dotdot", gateFixture("umbree\tsource\tcli", "umbree\tgo\tfoo/.."), ".."},
 		{"backslash dotdot", gateFixture("umbree\tsource\tcli", "umbree\tgo\tfoo\\..\\bar"), ".."},
-		{"empty key", gateFixture("umbree\tsource\tcli", "umbree\t\t."), "unknown key"},
-		{"empty component", gateFixture("umbree\tsource\tcli", "\tgo\t."), "empty"},
-		{"doubled tab", gateFixture("umbree\tsource\tcli", "umbree\t\tgo\t."), "3 fields"},
-		{"leading tab", gateFixture("\tumbree\tsource\tcli"), "3 fields"},
-		{"trailing tab", gateFixture("umbree\tsource\tcli\t"), "3 fields"},
+		{"empty key", gateFixture("umbree\tsource\tcli", "umbree\t\t."), "row without three fields"},
+		{"empty component", gateFixture("umbree\tsource\tcli", "\tgo\t."), "row without three fields"},
+		{"doubled tab", gateFixture("umbree\tsource\tcli", "umbree\t\tgo\t."), "row without three fields"},
+		{"leading tab", gateFixture("\tumbree\tsource\tcli"), "row without three fields"},
+		{"trailing tab", gateFixture("umbree\tsource\tcli\t"), "row without three fields"},
+		{"spaces-only line", gateFixture("umbree\tsource\tcli", "   "), "row without three fields"},
+		{"space-padded header", " component\tkey\tvalue\numbree\tsource\tcli\n", "header"},
 		{"crlf row", gateHeader + "umbree\tsource\tcli\r\n", "carriage return"},
 		{"crlf header", "component\tkey\tvalue\r\numbree\tsource\tcli\r\n", "carriage return"},
 	}
@@ -179,6 +181,13 @@ func TestCVEGateFileAcceptsDotsThatAreNotAParentSegment(t *testing.T) {
 		if got := d.entries["umbree"].source; got != v {
 			t.Fatalf("%q: source = %q", v, got)
 		}
+	}
+}
+
+func TestCVEGateFileSkipsCommentsAndEmptyLinesBeforeTheHeader(t *testing.T) {
+	d, err := parseCVEGateData(strings.NewReader("# note\n\n" + gateHeader + "\n# row note\numbree\tsource\tcli\n\n"))
+	if err != nil || d.entries["umbree"].source != "cli" {
+		t.Fatalf("d = %+v err = %v", d, err)
 	}
 }
 

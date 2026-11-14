@@ -61,7 +61,7 @@ func parseCVEGateData(r io.Reader) (cveGateData, error) {
 	seenHeader := false
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		if !seenHeader {
@@ -86,13 +86,10 @@ func parseCVEGateData(r io.Reader) (cveGateData, error) {
 
 func (d *cveGateData) addRow(line string) error {
 	fields := strings.Split(line, "\t")
-	if len(fields) != 3 {
-		return fmt.Errorf("want 3 fields (component, key, value), got %d", len(fields))
+	if len(fields) != 3 || slices.Contains(fields, "") {
+		return fmt.Errorf("row without three fields (component, key, value): %q", line)
 	}
 	comp, key, value := fields[0], fields[1], fields[2]
-	if comp == "" || value == "" {
-		return fmt.Errorf("empty component or value")
-	}
 	if err := checkGatePath(key, value); err != nil {
 		return err
 	}
