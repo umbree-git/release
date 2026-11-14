@@ -80,7 +80,9 @@ can run at all:
   dist/<stamp>/cve` followed by the component's `cve-gate.tsv` rows in file
   order — today `--gowork off --go <component source> --waivers
   cve-waivers.tsv` (`cmd/rkit/cve_gate_data.go`). The file is refused, and the
-  gate does not run, on an unknown key, a `..` segment or an absolute path, a
+  gate does not run, on an unknown key, a row that is not exactly three
+  non-empty tab-separated fields, a carriage return (LF line endings only), a
+  `..` segment or an absolute path, a
   component set unlike `rkit components`, or a `go.mod` under the source
   (outside `testdata`, `vendor`, `.`- and `_`-prefixed dirs) that the file does
   not list, or a listed `go` dir with none — so a module added to the cli or
