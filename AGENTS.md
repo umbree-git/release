@@ -101,8 +101,10 @@ can run at all:
 - **The daily CVE scan is report-only.** `tools/cve-scan.sh [--report-dir
   <dir>]`, run from an export of `origin/main`, scans each component's source
   at its own `origin/main` (a `git fetch` then a `git archive` export of the
-  checkout `UMBREE_SRC_<COMP>` names, else `$CODING_ROOT/Umbree/<cli|daemon>/code/main`,
-  `UMBREE_BRAND_ROOT` overriding the brand folder) through `rkit cve-scan`,
+  checkout `UMBREE_SRC_<COMP>` names, else
+  `<UMBREE_BRAND_ROOT>/<cli|daemon>/code/main`, the brand folder the machine's
+  environment sets; with neither it reports that component `cannot-run`,
+  naming both variables) through `rkit cve-scan`,
   which takes `--src` explicitly and hands the gate the cut's own arguments
   from `cve-gate.tsv` (`cveGateArgs`), refusing the file as the cut does. It prints
   `umbree/<comp>: <cve: line>` per component and `waivers: <path>`, exits
