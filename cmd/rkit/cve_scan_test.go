@@ -16,14 +16,22 @@ func runScan(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errb.String()
 }
 
+func scanRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	copyRealGateFile(t, repo)
+	return repo
+}
+
 func TestCVEScanPassesTheCutsGateArgv(t *testing.T) {
-	repo, src, report := t.TempDir(), t.TempDir(), t.TempDir()
+	repo, src, report := scanRepo(t), moduleSource(t, "."), t.TempDir()
 	g := installStubGate(t, "0")
 	code, out, _ := runScan(t, "--component", "umbreed", "--repo", repo, "--src", src, "--report", report)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	want := cveGateArgs(buildOpts{RepoDir: repo, SrcDir: src}, filepath.Join(report, "umbreed"))
+	want := []string{"--report", filepath.Join(report, "umbreed", "cve"), "--gowork", "off",
+		"--go", src, "--waivers", filepath.Join(repo, "cve-waivers.tsv")}
 	if got := g.calledWith(t); !reflect.DeepEqual(got, want) {
 		t.Fatalf("gate argv = %q, want %q", got, want)
 	}
@@ -35,7 +43,7 @@ func TestCVEScanPassesTheCutsGateArgv(t *testing.T) {
 func TestCVEScanExitCodes(t *testing.T) {
 	for gateExit, want := range map[string]int{"0": 0, "1": 1, "2": 2, "64": 2} {
 		installStubGate(t, gateExit)
-		code, _, _ := runScan(t, "--component", "umbree", "--src", t.TempDir(), "--report", t.TempDir())
+		code, _, _ := runScan(t, "--component", "umbree", "--repo", scanRepo(t), "--src", moduleSource(t, "."), "--report", t.TempDir())
 		if code != want {
 			t.Fatalf("gate exit %s: scan exit = %d, want %d", gateExit, code, want)
 		}
@@ -44,7 +52,7 @@ func TestCVEScanExitCodes(t *testing.T) {
 
 func TestCVEScanMissingGateCannotRun(t *testing.T) {
 	t.Setenv("CVE_GATE", filepath.Join(t.TempDir(), "absent"))
-	code, out, _ := runScan(t, "--component", "umbree", "--src", t.TempDir(), "--report", t.TempDir())
+	code, out, _ := runScan(t, "--component", "umbree", "--repo", scanRepo(t), "--src", moduleSource(t, "."), "--report", t.TempDir())
 	if code != 2 || !strings.HasPrefix(out, "umbree/umbree: cve: cannot-run · cve gate: exit 127") {
 		t.Fatalf("exit %d out %q", code, out)
 	}

@@ -24,13 +24,19 @@ func cveGatePath() string {
 	return filepath.Join(os.Getenv("HOME"), ".agents", "scripts", "cve-gate.sh")
 }
 
-func cveGateArgs(o buildOpts, distDir string) []string {
-	return []string{
-		"--report", filepath.Join(distDir, "cve"),
-		"--gowork", "off",
-		"--go", o.SrcDir,
-		"--waivers", filepath.Join(o.RepoDir, "cve-waivers.tsv"),
+func cveGateArgs(o buildOpts, distDir string) ([]string, error) {
+	d, err := loadCVEGateData(o.RepoDir)
+	if err != nil {
+		return nil, err
 	}
+	if err := d.checkComponents(relconfig.Components); err != nil {
+		return nil, err
+	}
+	e := d.entries[o.Component]
+	if err := e.checkGoModules(o.SrcDir); err != nil {
+		return nil, err
+	}
+	return append([]string{"--report", filepath.Join(distDir, "cve")}, e.args(o.RepoDir, o.SrcDir)...), nil
 }
 
 func checkGateRunnable(gate string) error {
@@ -57,9 +63,13 @@ func runCVEGate(ctx context.Context, o buildOpts, distDir string, stdout io.Writ
 	if err := checkGateRunnable(gate); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, gate, cveGateArgs(o, distDir)...)
+	args, err := cveGateArgs(o, distDir)
+	if err != nil {
+		return fmt.Errorf("cve gate: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, gate, args...)
 	cmd.Stdout, cmd.Stderr = stdout, os.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:

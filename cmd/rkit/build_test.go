@@ -130,21 +130,13 @@ func writeFixtureModule(t *testing.T, repo string) {
 	}
 	copyReal("tools/verify-no-env.sh")
 	copyReal("tools/version.sh")
+	copyReal("cve-gate.tsv")
 	copyLegacyOverlay(t, repo)
 
-	git := func(args ...string) {
-		t.Helper()
-		c := exec.Command("git", append([]string{"-C", repo}, args...)...)
-		c.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := c.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	git("init", "-q")
-	git("add", "-A")
-	git("commit", "-q", "-m", "fixture")
+	commitAll(t, repo, "fixture")
 }
 
 func testMinisignKey(t *testing.T) string {

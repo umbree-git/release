@@ -73,6 +73,8 @@ build runs the shared CVE gate"):
 "$CVE_GATE" --report dist/<stamp>/cve --gowork off --go <component source> --waivers cve-waivers.tsv
 ```
 
+Everything after `--report` comes from the component's rows in `cve-gate.tsv`.
+
 `CVE_GATE` defaults to the playbook's shared `cve-gate.sh` under `$HOME`;
 tests point it at a stub, and it is the only seam. Its output streams into the
 launcher's log, and the report lands in `dist/<stamp>/cve/`. What no script can
@@ -84,6 +86,10 @@ arrange for you:
   executable or not there. The version bump is already reverted. Read
   `dist/<stamp>/cve/`, bump the component's modules in its own repo, and cut
   again; there is no flag that skips the gate.
+- **A new Go module in a component repo refuses the cut.** A `go.mod` under
+  the source that `cve-gate.tsv` does not list (or a listed `go` dir that has
+  none) fails as `cve gate: <the drift>` before the gate runs; add or drop the
+  `go` row in `cve-gate.tsv` and cut again.
 - **`cve-waivers.tsv` expires.** Each row is operator-ruled and expires at
   most 90 days after its `waived_at`. An expired row stops waiving, and a row
   that matches no finding fails the gate too, so a fixed advisory forces its

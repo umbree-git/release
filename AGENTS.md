@@ -37,6 +37,7 @@
 | `umbree/`, `umbreed/` | per-component release assets and bootstraps |
 | `umbree-release.pub` | the public minisign key downloads are verified against |
 | `cve-waivers.tsv` | the CVE gate's waivers, one file for both components: operator-ruled rows, each expiring within 90 days |
+| `cve-gate.tsv` | the CVE gate's arguments as data, per component (header `component`, `key`, `value`, tab-separated): `source` (relative to the brand root), `gowork`, each `go` module dir (relative to the source), `waivers` (relative to this repo). Read by `rkit build`, `rkit cve-scan` and the machine's daily scan; never code, never `--report` |
 
 Tests sit beside what they test as `<name>.test.sh` for shell and `*_test.go`
 for `cmd/rkit`. A change to a tool changes its test in the same commit.
@@ -75,9 +76,18 @@ can run at all:
 - **Every stable build runs the shared CVE gate.** `rkit build` runs the
   script `CVE_GATE` names (by default the playbook's shared `cve-gate.sh`
   under `$HOME`; this repo keeps no gate of its own) once the stamp is known and
-  before any compile, sign, stage, register or tag, as `--report
-  dist/<stamp>/cve --gowork off --go <component source> --waivers
-  cve-waivers.tsv`. Its output streams into the launcher's log; a non-zero
+  before any compile, sign, stage, register or tag, with `--report
+  dist/<stamp>/cve` followed by the component's `cve-gate.tsv` rows in file
+  order — today `--gowork off --go <component source> --waivers
+  cve-waivers.tsv` (`cmd/rkit/cve_gate_data.go`). The file is refused, and the
+  gate does not run, on an unknown key, a row that is not exactly three
+  non-empty tab-separated fields (no trimming; only `#` lines and empty lines
+  are skipped), a carriage return (LF line endings only), a
+  `..` segment or an absolute path, a
+  component set unlike `rkit components`, or a `go.mod` under the source
+  (outside `testdata`, `vendor`, `.`- and `_`-prefixed dirs) that the file does
+  not list, or a listed `go` dir with none — so a module added to the cli or
+  daemon repo needs a `go` row here before the next cut. Its output streams into the launcher's log; a non-zero
   exit, or a gate that is missing or not executable, fails the build with
   `cve gate: exit <n>`, and no flag skips it. The launcher's final summary
   prints each component's `cve:` line for the release task. A beta build does
@@ -94,7 +104,7 @@ can run at all:
   checkout `UMBREE_SRC_<COMP>` names, else `$CODING_ROOT/Umbree/<cli|daemon>/code/main`,
   `UMBREE_BRAND_ROOT` overriding the brand folder) through `rkit cve-scan`,
   which takes `--src` explicitly and hands the gate the cut's own arguments
-  (`cveGateArgs`). It prints
+  from `cve-gate.tsv` (`cveGateArgs`), refusing the file as the cut does. It prints
   `umbree/<comp>: <cve: line>` per component and `waivers: <path>`, exits
   `0` clean, `1` on a finding, `2` when a scan could not run, skips a
   beta-only component, and never stages, signs, tags, registers, commits,
