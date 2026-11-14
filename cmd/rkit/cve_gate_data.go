@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
@@ -49,7 +50,14 @@ func loadCVEGateData(repoDir string) (cveGateData, error) {
 
 func parseCVEGateData(r io.Reader) (cveGateData, error) {
 	d := cveGateData{entries: map[string]gateEntry{}}
-	sc := bufio.NewScanner(r)
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return d, err
+	}
+	if bytes.ContainsRune(raw, '\r') {
+		return d, fmt.Errorf("%s: carriage return refused (LF line endings only)", cveGateFile)
+	}
+	sc := bufio.NewScanner(bytes.NewReader(raw))
 	seenHeader := false
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()

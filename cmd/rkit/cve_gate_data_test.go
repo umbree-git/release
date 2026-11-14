@@ -150,6 +150,15 @@ func TestCVEGateFileRefusals(t *testing.T) {
 		{"two fields", gateFixture("umbree\tsource"), "3 fields"},
 		{"four fields", gateFixture("umbree\tsource\tcli\textra"), "3 fields"},
 		{"empty value", gateFixture("umbree\tsource\t"), "empty"},
+		{"trailing dotdot", gateFixture("umbree\tsource\tcli", "umbree\tgo\tfoo/.."), ".."},
+		{"backslash dotdot", gateFixture("umbree\tsource\tcli", "umbree\tgo\tfoo\\..\\bar"), ".."},
+		{"empty key", gateFixture("umbree\tsource\tcli", "umbree\t\t."), "unknown key"},
+		{"empty component", gateFixture("umbree\tsource\tcli", "\tgo\t."), "empty"},
+		{"doubled tab", gateFixture("umbree\tsource\tcli", "umbree\t\tgo\t."), "3 fields"},
+		{"leading tab", gateFixture("\tumbree\tsource\tcli"), "3 fields"},
+		{"trailing tab", gateFixture("umbree\tsource\tcli\t"), "3 fields"},
+		{"crlf row", gateHeader + "umbree\tsource\tcli\r\n", "carriage return"},
+		{"crlf header", "component\tkey\tvalue\r\numbree\tsource\tcli\r\n", "carriage return"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -158,6 +167,18 @@ func TestCVEGateFileRefusals(t *testing.T) {
 				t.Fatalf("err = %v, want a refusal naming %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestCVEGateFileAcceptsDotsThatAreNotAParentSegment(t *testing.T) {
+	for _, v := range []string{"a..b", "..foo/bar", "...", "v1..2/x", "foo/...", ".hidden/x"} {
+		d, err := parseCVEGateData(strings.NewReader(gateFixture("umbree\tsource\t"+v, "umbree\tgo\t"+v)))
+		if err != nil {
+			t.Fatalf("%q: refused: %v", v, err)
+		}
+		if got := d.entries["umbree"].source; got != v {
+			t.Fatalf("%q: source = %q", v, got)
+		}
 	}
 }
 
